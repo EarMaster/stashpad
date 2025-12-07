@@ -12,11 +12,13 @@
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 // See the GNU Affero General Public License for more details.
 
+use active_win_pos_rs::get_active_window;
+use std::fs;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
-use tauri::{Manager, State}; // AppHandle, Emitter removed if not used
-use active_win_pos_rs::get_active_window;
+use tauri::State;
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct StashItem {
@@ -50,6 +52,46 @@ impl TrackerState {
     }
 }
 
+// --- Persistence Helpers ---
+
+fn get_app_dir() -> PathBuf {
+    dirs::home_dir()
+        .expect("Could not resolve home directory")
+        .join(".stashpad")
+}
+
+fn ensure_storage_ready() {
+    let app_dir = get_app_dir();
+    let cache_dir = app_dir.join("cache");
+    if !app_dir.exists() {
+        fs::create_dir_all(&app_dir).expect("Failed to create app dir");
+    }
+    if !cache_dir.exists() {
+        fs::create_dir_all(&cache_dir).expect("Failed to create cache dir");
+    }
+}
+
+fn persist_stashes_to_disk(stashes: &Vec<StashItem>) {
+    let db_path = get_app_dir().join("db.json");
+    if let Ok(file) = fs::File::create(db_path) {
+        let _ = serde_json::to_writer_pretty(file, stashes);
+    }
+}
+
+fn load_stashes_from_disk() -> Vec<StashItem> {
+    let db_path = get_app_dir().join("db.json");
+    if db_path.exists() {
+        if let Ok(file) = fs::File::open(db_path) {
+            if let Ok(stashes) = serde_json::from_reader(file) {
+                return stashes;
+            }
+        }
+    }
+    Vec::new() // Default empty
+}
+
+// --- Commands ---
+
 #[tauri::command]
 fn get_previous_app_info(state: State<Arc<Mutex<TrackerState>>>) -> AppContext {
     let state = state.lock().unwrap();
@@ -63,7 +105,15 @@ fn get_previous_app_info(state: State<Arc<Mutex<TrackerState>>>) -> AppContext {
 fn save_stash(state: State<Arc<StashState>>, stash: StashItem) {
     println!("Saving stash: {:?}", stash);
     let mut stashes = state.stashes.lock().unwrap();
-    stashes.push(stash);
+
+    // Upsert logic: if id exists, replace; else push
+    if let Some(index) = stashes.iter().position(|s| s.id == stash.id) {
+        stashes[index] = stash;
+    } else {
+        stashes.push(stash);
+    }
+
+    persist_stashes_to_disk(&stashes);
 }
 
 #[tauri::command]
@@ -72,28 +122,51 @@ fn load_stashes(state: State<Arc<StashState>>) -> Vec<StashItem> {
 }
 
 #[tauri::command]
-fn save_asset(name: String, data: Vec<u8>) -> String {
+fn save_asset(name: String, data: Vec<u8>) -> Result<String, String> {
     println!("Saving asset: {} ({} bytes)", name, data.len());
-    // In real app, save to ~/.stashpad/cache/<id>/
-    // Return absolute path
-    format!("C:\\Users\\nicow\\.stashpad\\cache\\{}", name)
+
+    let cache_dir = get_app_dir().join("cache");
+    // Basic sanitization
+    let safe_name = std::path::Path::new(&name)
+        .file_name()
+        .unwrap_or_else(|| std::ffi::OsStr::new("unknown_file"))
+        .to_string_lossy();
+
+    let file_path = cache_dir.join(safe_name.as_ref());
+
+    match fs::write(&file_path, data) {
+        Ok(_) => Ok(file_path.to_string_lossy().into_owned()),
+        Err(e) => Err(format!("Failed to write file: {}", e)),
+    }
 }
 
 #[tauri::command]
 fn copy_to_clipboard(text: String) {
     println!("Copying to clipboard: {}", text);
-    // TODO: Use clipboard crate
+    // TODO: Implement clipboard
 }
 
 #[tauri::command]
 fn start_drag(text: String, files: Vec<String>) {
     println!("Starting drag: {} with files {:?}", text, files);
-    // TODO: Trigger OS drag
+    // TODO: Implement drag
 }
 
 // Basic list of terminal/CLI applications
 const CLI_APPS: &[&str] = &[
-    "alacritty", "iterm2", "terminal", "powershell", "cmd", "wsl", "bash", "zsh", "fish", "windowsterminal", "conhost"
+    "alacritty",
+    "iterm2",
+    "terminal",
+    "powershell",
+    "cmd",
+    "wsl",
+    "bash",
+    "zsh",
+    "fish",
+    "windowsterminal",
+    "conhost",
+    "warp",
+    "hyper",
 ];
 
 #[tauri::command]
@@ -103,9 +176,9 @@ fn get_smart_transfer_target(state: State<Arc<Mutex<TrackerState>>>) -> String {
         let lower = app.process_name.to_lowercase();
         // aggressive matching
         for cli in CLI_APPS {
-             if lower.contains(cli) {
-                 return "CLI".into();
-             }
+            if lower.contains(cli) {
+                return "CLI".into();
+            }
         }
     }
     "GUI".into()
@@ -113,24 +186,36 @@ fn get_smart_transfer_target(state: State<Arc<Mutex<TrackerState>>>) -> String {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // 1. Initialize Storage
+    ensure_storage_ready();
+
+    // 2. Load Stashes
+    let initial_stashes = load_stashes_from_disk();
+
     let tracker_state = Arc::new(Mutex::new(TrackerState::new()));
-    let stash_state = Arc::new(StashState { stashes: Mutex::new(Vec::new()) });
+    let stash_state = Arc::new(StashState {
+        stashes: Mutex::new(initial_stashes),
+    });
     let tracker_state_clone = tracker_state.clone();
 
     // Start background polling
     thread::spawn(move || {
         loop {
             if let Ok(window) = get_active_window() {
-                let app_name = window.app_name; 
+                let app_name = window.app_name;
                 let title = window.title;
 
                 // Adjust these names based on actual process names
-                if app_name != "stashpad" && app_name != "Stashpad" && app_name != "app" {
-                     let mut state = tracker_state_clone.lock().unwrap();
-                     state.last_external_app = Some(AppContext {
-                         window_title: title,
-                         process_name: app_name,
-                     });
+                if app_name != "stashpad"
+                    && app_name != "Stashpad"
+                    && app_name != "app"
+                    && app_name != "electron.exe"
+                {
+                    let mut state = tracker_state_clone.lock().unwrap();
+                    state.last_external_app = Some(AppContext {
+                        window_title: title,
+                        process_name: app_name,
+                    });
                 }
             }
             thread::sleep(Duration::from_millis(500));

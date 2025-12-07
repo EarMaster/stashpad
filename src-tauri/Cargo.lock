@@ -3494,6 +3494,7 @@ dependencies = [
  "active-win-pos-rs",
  "base64 0.22.1",
  "chrono",
+ "dirs",
  "log",
  "serde",
  "serde_json",
