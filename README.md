@@ -1,4 +1,4 @@
-# Stashpad
+# ![Stashpad](assets/stashpad/Icon_24.webp) Stashpad
 
 ![Status](https://img.shields.io/badge/Status-Prototype-blueviolet) ![Stack](https://img.shields.io/badge/Stack-Tauri_v2_|_Svelte_5_|_Rust-orange)
 
