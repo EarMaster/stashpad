@@ -27,3 +27,4 @@ active-win-pos-rs = "0.8"
 chrono = { version = "0.4", features = ["serde"] }
 base64 = "0.22"
 dirs = "6.0.0"
+arboard = "3.6.1"

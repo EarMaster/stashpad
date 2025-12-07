@@ -25,7 +25,9 @@
   let copied = $state(false);
 
   async function handleCopy() {
-    const text = `${item.content}\n\nReference Paths:\n${item.files.join("\n")}`;
+    const text = item.files.length > 0 
+      ? `${item.content}\n\n---\n# SYSTEM CONTEXT - LOCAL FILES\n${item.files.join("\n")}`
+      : item.content;
     await adapter.copyToClipboard(text);
     copied = true;
     setTimeout(() => (copied = false), 2000);

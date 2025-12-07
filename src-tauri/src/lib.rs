@@ -141,9 +141,11 @@ fn save_asset(name: String, data: Vec<u8>) -> Result<String, String> {
 }
 
 #[tauri::command]
-fn copy_to_clipboard(text: String) {
+fn copy_to_clipboard(text: String) -> Result<(), String> {
     println!("Copying to clipboard: {}", text);
-    // TODO: Implement clipboard
+    let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
+    clipboard.set_text(text).map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]
