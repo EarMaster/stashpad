@@ -1,0 +1,37 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "stashpad",
+  "version": "0.1.0",
+  "identifier": "com.tauri.dev",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Stashpad",
+        "width": 800,
+        "height": 600,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "../assets/stashpad/tauri/icons/32x32.png",
+      "../assets/stashpad/tauri/icons/128x128.png",
+      "../assets/stashpad/tauri/icons/128x128@2x.png",
+      "../assets/stashpad/tauri/icons/icon.icns",
+      "../assets/stashpad/tauri/icons/icon.ico"
+    ]
+  }
+}

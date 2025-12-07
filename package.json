@@ -1,0 +1,53 @@
+{
+  "name": "stashpad",
+  "version": "0.1.0",
+  "description": "The staging area for your AI context.",
+  "author": {
+    "name": "Nico Wiedemann",
+    "email": "nico.wiedemann@gmail.com",
+    "url": "https://nico.wiedemann.rocks/"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/EarMaster/stashpad.git"
+  },
+  "license": "AGPL-3.0",
+  "keywords": [
+    "tauri",
+    "svelte",
+    "rust",
+    "ai",
+    "developer-tool",
+    "clipboard",
+    "productivity"
+  ],
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "tauri:icons": "tauri icon --output ./assets/stashpad/tauri/icons --ios-color #d8d8d9 ./assets/stashpad/Icon.svg"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^6.2.1",
+    "@tailwindcss/postcss": "^4.1.17",
+    "@tauri-apps/api": "^2.9.1",
+    "@tauri-apps/cli": "^2.9.5",
+    "@types/node": "^24.10.1",
+    "autoprefixer": "^10.4.22",
+    "postcss": "^8.5.6",
+    "svelte": "^5.45.6",
+    "tailwindcss": "^4.1.17",
+    "tailwindcss-animate": "^1.0.7",
+    "typescript": "~5.9.3",
+    "vite": "^7.2.6"
+  },
+  "dependencies": {
+    "bits-ui": "^2.14.4",
+    "clsx": "^2.1.1",
+    "lucide-svelte": "^0.556.0",
+    "tailwind-merge": "^3.4.0"
+  }
+}

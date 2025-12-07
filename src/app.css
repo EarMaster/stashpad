@@ -1,0 +1,15 @@
+@import './style.css';
+
+@import "tailwindcss";
+@plugin "tailwindcss-animate";
+@config "../tailwind.config.js";
+
+@theme {
+  --font-sans: "Inter", sans-serif;
+}
+
+@layer base {
+  body {
+    @apply bg-background text-white antialiased font-sans;
+  }
+}
