@@ -35,7 +35,7 @@ Instead of interrupting your AI agent (like Claude, ChatGPT, or GitHub Copilot) 
 
 1.  **Clone the repository**
     ```bash
-    git clone [https://github.com/EarMaster/stashpad.git](https://github.com/eEarMaster/stashpad.git)
+    git clone [https://github.com/EarMaster/stashpad.git](https://github.com/EarMaster/stashpad.git)
     cd stashpad
     ```
 
