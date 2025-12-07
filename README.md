@@ -2,7 +2,7 @@
 
 ![Status](https://img.shields.io/badge/Status-Prototype-blueviolet) ![Stack](https://img.shields.io/badge/Stack-Tauri_v2_|_Svelte_5_|_Rust-orange)
 
-> **Don't interrupt the AI. Stash it!**
+![Don't interrupt the AI. Stash it!](assets/stashpad/Key%20Visual.jpg)
 
 Stashpad is a **Local-First Developer Utility** designed for the age of AI coding. It acts as a temporary buffer ("Staging Area") for your thoughts, bugs, and context assets.
 
