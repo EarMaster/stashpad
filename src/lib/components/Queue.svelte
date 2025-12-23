@@ -19,13 +19,20 @@
    import type { StashItem } from "$lib/types";
    import StashCard from "./StashCard.svelte";
 
-   let { transferMode, refreshTrigger } = $props<{
+   let { transferMode, refreshTrigger, currentContextId } = $props<{
       transferMode: string;
       refreshTrigger: number;
+      currentContextId: string;
    }>();
 
    let stashes = $state<StashItem[]>([]);
    let effectiveMode = $state<"Drag" | "Copy">("Drag");
+
+   let filteredStashes = $derived(
+      stashes.filter(
+         (s) => (s.contextId || "default") === (currentContextId || "default"),
+      ),
+   );
 
    const adapter = new DesktopStorageAdapter();
 
@@ -73,7 +80,7 @@
       <h2
          class="text-xs font-bold text-muted-foreground uppercase tracking-wider"
       >
-         Stash Queue
+         Stash Queue ({filteredStashes.length})
       </h2>
       <span
          class="text-[10px] text-muted-foreground bg-muted px-2 py-0.5 rounded"
@@ -86,7 +93,7 @@
       </span>
    </div>
 
-   {#each stashes as item (item.id)}
+   {#each filteredStashes as item (item.id)}
       <StashCard {item} mode={effectiveMode} />
    {/each}
 

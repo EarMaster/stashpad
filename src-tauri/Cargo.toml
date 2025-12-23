@@ -29,3 +29,4 @@ base64 = "0.22"
 dirs = "6.0.0"
 arboard = "3.6.1"
 drag = { git = "https://github.com/crabnebula-dev/drag-rs" }
+tauri-plugin-global-shortcut = "2.3.1"

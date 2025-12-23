@@ -13,7 +13,7 @@
 // See the GNU Affero General Public License for more details.
 
 import { invoke } from '@tauri-apps/api/core';
-import type { IStorageService, StashItem, AppContext } from '../types';
+import type { IStorageService, StashItem, AppContext, Settings } from '../types';
 
 export class DesktopStorageAdapter implements IStorageService {
     async saveStash(stash: StashItem): Promise<void> {
@@ -48,5 +48,13 @@ export class DesktopStorageAdapter implements IStorageService {
 
     async saveAssetFromPath(path: string): Promise<string> {
         return await invoke('save_asset_from_path', { path });
+    }
+
+    async getSettings(): Promise<Settings> {
+        return await invoke('get_settings');
+    }
+
+    async saveSettings(settings: Settings): Promise<void> {
+        await invoke('save_settings', { settings });
     }
 }

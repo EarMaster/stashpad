@@ -17,11 +17,32 @@ export interface StashItem {
     content: string;
     files: string[];
     createdAt: string;
+    contextId?: string;
 }
 
 export interface AppContext {
     windowTitle: string;
     processName: string;
+    detectedContextId?: string;
+}
+
+export interface ContextRule {
+    ruleType: 'process' | 'title';
+    value: string;
+    matchType: 'contains' | 'exact';
+}
+
+export interface Context {
+    id: string;
+    name: string;
+    rules: ContextRule[];
+}
+
+export interface Settings {
+    autoContextDetection: boolean;
+    contexts: Context[];
+    activeContextId?: string | null;
+    shortcuts: Record<string, string>;
 }
 
 export interface IStorageService {
@@ -33,4 +54,8 @@ export interface IStorageService {
     copyToClipboard(text: string): Promise<void>;
     startDrag(text: string, files: string[]): Promise<void>;
     saveAssetFromPath(path: string): Promise<string>;
+    getSettings(): Promise<Settings>;
+    saveSettings(settings: Settings): Promise<void>;
 }
+
+

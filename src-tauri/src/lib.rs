@@ -21,12 +21,14 @@ use std::time::Duration;
 use tauri::State;
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct StashItem {
-    id: String,
-    content: String,
-    files: Vec<String>,
-    #[serde(rename = "createdAt")]
-    created_at: String,
+    pub id: String,
+    pub content: String,
+    pub files: Vec<String>,
+    pub created_at: String,
+    #[serde(default)]
+    pub context_id: Option<String>,
 }
 
 #[derive(serde::Serialize, Debug, Clone)]
@@ -34,10 +36,12 @@ pub struct StashItem {
 pub struct AppContext {
     window_title: String,
     process_name: String,
+    detected_context_id: Option<String>,
 }
 
 struct TrackerState {
     last_external_app: Option<AppContext>,
+    current_context_id: Option<String>,
 }
 
 struct StashState {
@@ -48,6 +52,7 @@ impl TrackerState {
     fn new() -> Self {
         Self {
             last_external_app: None,
+            current_context_id: None,
         }
     }
 }
@@ -90,15 +95,125 @@ fn load_stashes_from_disk() -> Vec<StashItem> {
     Vec::new() // Default empty
 }
 
+// --- Settings ---
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextRule {
+    pub rule_type: String, // "process" or "title"
+    pub value: String,
+    pub match_type: String, // "contains", "exact"
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct Context {
+    pub id: String,
+    pub name: String,
+    pub rules: Vec<ContextRule>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct Settings {
+    pub auto_context_detection: bool,
+    #[serde(default)]
+    pub contexts: Vec<Context>,
+    #[serde(default)]
+    pub active_context_id: Option<String>,
+    #[serde(default)]
+    pub shortcuts: std::collections::HashMap<String, String>,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            auto_context_detection: true,
+            contexts: vec![],
+            active_context_id: None,
+            shortcuts: std::collections::HashMap::new(),
+        }
+    }
+}
+
+struct SettingsState {
+    settings: Mutex<Settings>,
+}
+
+fn get_settings_path() -> PathBuf {
+    get_app_dir().join("settings.json")
+}
+
+fn load_settings_from_disk() -> Settings {
+    let path = get_settings_path();
+    if path.exists() {
+        if let Ok(file) = fs::File::open(path) {
+            if let Ok(settings) = serde_json::from_reader(file) {
+                return settings;
+            }
+        }
+    }
+    Settings::default()
+}
+
+fn persist_settings_to_disk(settings: &Settings) {
+    let path = get_settings_path();
+    if let Ok(file) = fs::File::create(path) {
+        let _ = serde_json::to_writer_pretty(file, settings);
+    }
+}
+
 // --- Commands ---
+
+#[tauri::command]
+fn get_settings(state: State<Arc<SettingsState>>) -> Settings {
+    state.settings.lock().unwrap().clone()
+}
+
+#[tauri::command]
+
+fn save_settings(app: tauri::AppHandle, state: State<Arc<SettingsState>>, settings: Settings) {
+    println!("Saving settings: {:?}", settings);
+    
+    // Update global shortcuts
+    use tauri_plugin_global_shortcut::GlobalShortcutExt;
+    
+    let mut current = state.settings.lock().unwrap();
+    
+    // Simple logic: Unregister known old/register new
+    if let Some(old_shortcut) = current.shortcuts.get("global_toggle") {
+         if !old_shortcut.is_empty() {
+             let _ = app.global_shortcut().unregister(old_shortcut.as_str());
+         }
+    }
+
+    if let Some(new_shortcut) = settings.shortcuts.get("global_toggle") {
+        if !new_shortcut.is_empty() {
+            // Note: register expects a str
+            if let Err(e) = app.global_shortcut().register(new_shortcut.as_str()) {
+                println!("Failed to register shortcut '{}': {}", new_shortcut, e);
+            }
+        }
+    }
+
+    *current = settings.clone();
+    persist_settings_to_disk(&settings);
+}
 
 #[tauri::command]
 fn get_previous_app_info(state: State<Arc<Mutex<TrackerState>>>) -> AppContext {
     let state = state.lock().unwrap();
-    state.last_external_app.clone().unwrap_or(AppContext {
-        window_title: "Unknown".into(),
-        process_name: "Unknown".into(),
-    })
+    if let Some(app) = &state.last_external_app {
+        let mut app_ctx = app.clone();
+        app_ctx.detected_context_id = state.current_context_id.clone();
+        app_ctx
+    } else {
+        AppContext {
+            window_title: "Unknown".into(),
+            process_name: "Unknown".into(),
+            detected_context_id: None,
+        }
+    }
 }
 
 #[tauri::command]
@@ -235,36 +350,97 @@ pub fn run() {
     let stash_state = Arc::new(StashState {
         stashes: Mutex::new(initial_stashes),
     });
+    let settings_state = Arc::new(SettingsState {
+        settings: Mutex::new(load_settings_from_disk()),
+    });
+    
     let tracker_state_clone = tracker_state.clone();
+    let settings_state_clone = settings_state.clone();
 
     // Start background polling
     thread::spawn(move || {
         loop {
-            if let Ok(window) = get_active_window() {
-                let app_name = window.app_name;
-                let title = window.title;
+            // Check settings first
+            let is_auto = {
+                let settings = settings_state_clone.settings.lock().unwrap();
+                settings.auto_context_detection
+            };
 
-                // Adjust these names based on actual process names
-                if app_name != "stashpad"
-                    && app_name != "Stashpad"
-                    && app_name != "app"
-                    && app_name != "electron.exe"
-                {
-                    let mut state = tracker_state_clone.lock().unwrap();
-                    state.last_external_app = Some(AppContext {
-                        window_title: title,
-                        process_name: app_name,
-                    });
+            if is_auto {
+                if let Ok(window) = get_active_window() {
+                    let app_name = window.app_name;
+                    let title = window.title;
+
+                    // Match context
+                    let mut matched_context_id = None;
+                    {
+                        let settings = settings_state_clone.settings.lock().unwrap();
+                        'ctx_loop: for ctx in &settings.contexts {
+                            for rule in &ctx.rules {
+                                let target = if rule.rule_type == "process" {
+                                    &app_name
+                                } else {
+                                    &title
+                                };
+                                
+                                let matched = if rule.match_type == "exact" {
+                                    target == &rule.value
+                                } else {
+                                    target.contains(&rule.value)
+                                };
+
+                                if matched {
+                                    matched_context_id = Some(ctx.id.clone());
+                                    break 'ctx_loop;
+                                }
+                            }
+                        }
+                    }
+
+                    // Adjust these names based on actual process names
+                    // Ignore stashpad itself
+                    let app_name_lower = app_name.to_lowercase();
+                    if !app_name_lower.contains("stashpad")
+                        && app_name_lower != "app"
+                        && app_name_lower != "webview"
+                    {
+                        let mut state = tracker_state_clone.lock().unwrap();
+                        state.last_external_app = Some(AppContext {
+                            window_title: title,
+                            process_name: app_name,
+                            detected_context_id: None, // Filled by getter
+                        });
+                        state.current_context_id = matched_context_id;
+                    }
                 }
             }
             thread::sleep(Duration::from_millis(500));
         }
     });
 
+
+
     tauri::Builder::default()
         .manage(tracker_state)
         .manage(stash_state)
+        .manage(settings_state)
         .plugin(tauri_plugin_log::Builder::default().build())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().with_handler(move |app, _shortcut, event| {
+             // Handle global shortcut (toggle window)
+             use tauri_plugin_global_shortcut::ShortcutState;
+             use tauri::Manager; // For get_webview_window
+
+             if event.state == ShortcutState::Pressed {
+                 if let Some(window) = app.get_webview_window("main") {
+                        if window.is_visible().unwrap_or(false) && window.is_focused().unwrap_or(false) {
+                            let _ = window.hide();
+                        } else {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                 }
+             }
+        }).build())
         .invoke_handler(tauri::generate_handler![
             get_previous_app_info,
             get_smart_transfer_target,
@@ -273,7 +449,9 @@ pub fn run() {
             save_asset,
             save_asset_from_path,
             copy_to_clipboard,
-            start_drag
+            start_drag,
+            get_settings,
+            save_settings
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

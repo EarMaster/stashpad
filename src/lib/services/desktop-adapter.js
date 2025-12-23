@@ -35,4 +35,13 @@ export class DesktopStorageAdapter {
     async startDrag(text, files) {
         await invoke('start_drag', { text, files });
     }
+    async saveAssetFromPath(path) {
+        return await invoke('save_asset_from_path', { path });
+    }
+    async getSettings() {
+        return await invoke('get_settings');
+    }
+    async saveSettings(settings) {
+        await invoke('save_settings', { settings });
+    }
 }

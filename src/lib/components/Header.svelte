@@ -16,44 +16,90 @@
 
 <script lang="ts">
   import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
-  import type { AppContext } from "$lib/types";
+  import type { AppContext, Settings } from "$lib/types";
   import { onMount } from "svelte";
 
-  let context = $state<AppContext>({
+  let contextInfo = $state<AppContext>({
     windowTitle: "Checking...",
     processName: "",
+    detectedContextId: undefined,
   });
-  let { transferMode = $bindable("Drag") } = $props<{ transferMode: string }>();
+
+  let {
+    transferMode = $bindable("Drag"),
+    onOpenSettings,
+    settings,
+    currentContextId = $bindable(),
+    onOpenContextSwitcher,
+  } = $props<{
+    transferMode: string;
+    onOpenSettings: () => void;
+    settings: Settings;
+    currentContextId: string;
+    onOpenContextSwitcher: () => void;
+  }>();
 
   const adapter = new DesktopStorageAdapter();
+
+  function updateEffectiveContext() {
+    if (settings.autoContextDetection) {
+      currentContextId = contextInfo.detectedContextId || "default";
+    } else {
+      currentContextId = settings.activeContextId || "default";
+    }
+  }
+
+  $effect(() => {
+    // Re-run when dependencies change
+    settings;
+    contextInfo;
+    updateEffectiveContext();
+  });
 
   onMount(() => {
     const interval = setInterval(async () => {
       try {
-        context = await adapter.getPreviousAppInfo();
+        contextInfo = await adapter.getPreviousAppInfo();
       } catch (e) {
         console.error(e);
       }
     }, 1000);
     return () => clearInterval(interval);
   });
+
+  function getContextName(id: string) {
+    if (id === "default") return "Default";
+    return settings.contexts.find((c) => c.id === id)?.name || "Unknown";
+  }
 </script>
 
 <header
   class="flex h-12 w-full items-center justify-between border-b border-border bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/60"
 >
-  <div class="flex items-center gap-2 overflow-hidden">
-    <span class="flex h-2 w-2 rounded-full bg-accent animate-pulse"></span>
-    <span class="text-sm font-semibold text-muted-foreground whitespace-nowrap"
-      >Active Context:</span
-    >
-    <span
-      class="text-xs text-foreground truncate max-w-[200px]"
-      title={context.windowTitle}
-    >
-      {context.windowTitle}
-      <span class="opacity-50">({context.processName})</span>
-    </span>
+  <div class="flex items-center gap-2 overflow-hidden min-w-[200px]">
+    <div
+      class="flex h-2 w-2 shrink-0 rounded-full bg-accent"
+      class:animate-pulse={settings.autoContextDetection}
+    ></div>
+
+    <div class="flex flex-col">
+      <span
+        class="text-[10px] font-semibold text-muted-foreground uppercase leading-none mb-0.5"
+      >
+        {settings.autoContextDetection ? "Auto Context" : "Manual Context"}
+      </span>
+
+      <button
+        class="flex items-center gap-1.5 text-sm font-medium text-foreground hover:bg-muted/50 rounded -ml-1 py-0.5 px-1 transition-colors text-left"
+        onclick={onOpenContextSwitcher}
+        title={contextInfo.windowTitle}
+      >
+        <span class="truncate max-w-[150px]"
+          >{getContextName(currentContextId || "default")}</span
+        >
+        <span class="text-muted-foreground text-xs">▼</span>
+      </button>
+    </div>
   </div>
 
   <div class="flex items-center rounded-lg border border-input bg-muted p-1">
@@ -71,4 +117,12 @@
       </button>
     {/each}
   </div>
+
+  <button
+    class="ml-2 p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded-md transition-colors"
+    onclick={onOpenSettings}
+    title="Settings"
+  >
+    ⚙️
+  </button>
 </header>

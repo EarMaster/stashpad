@@ -18,7 +18,10 @@
   import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
   import type { StashItem } from "$lib/types";
 
-  let { onStash } = $props<{ onStash: () => void }>();
+  let { onStash, currentContextId } = $props<{
+    onStash: () => void;
+    currentContextId: string;
+  }>();
 
   let content = $state("");
   let files = $state<string[]>([]);
@@ -62,6 +65,7 @@
         content,
         files: [...files], // copy
         createdAt: new Date().toISOString(),
+        contextId: currentContextId,
       };
       await adapter.saveStash(stash);
       content = "";
