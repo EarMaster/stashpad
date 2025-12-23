@@ -45,4 +45,8 @@ export class DesktopStorageAdapter implements IStorageService {
     async startDrag(text: string, files: string[]): Promise<void> {
         await invoke('start_drag', { text, files });
     }
+
+    async saveAssetFromPath(path: string): Promise<string> {
+        return await invoke('save_asset_from_path', { path });
+    }
 }

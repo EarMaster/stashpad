@@ -141,6 +141,29 @@ fn save_asset(name: String, data: Vec<u8>) -> Result<String, String> {
 }
 
 #[tauri::command]
+fn save_asset_from_path(path: String) -> Result<String, String> {
+    println!("Importing asset from path: {}", path);
+    let path = std::path::Path::new(&path);
+    if !path.exists() {
+        return Err("File does not exist".into());
+    }
+
+    let cache_dir = get_app_dir().join("cache");
+    let file_name = path
+        .file_name()
+        .unwrap_or_else(|| std::ffi::OsStr::new("unknown_file"))
+        .to_string_lossy();
+    
+    // Create unique name if collision
+    let dest_path = cache_dir.join(file_name.as_ref());
+
+    match fs::copy(path, &dest_path) {
+        Ok(_) => Ok(dest_path.to_string_lossy().into_owned()),
+        Err(e) => Err(format!("Failed to copy file: {}", e)),
+    }
+}
+
+#[tauri::command]
 fn copy_to_clipboard(text: String) -> Result<(), String> {
     println!("Copying to clipboard: {}", text);
     let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
@@ -149,9 +172,23 @@ fn copy_to_clipboard(text: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn start_drag(text: String, files: Vec<String>) {
+fn start_drag(window: tauri::Window, text: String, files: Vec<String>) -> Result<(), String> {
     println!("Starting drag: {} with files {:?}", text, files);
-    // TODO: Implement drag
+
+    let items = if !files.is_empty() {
+        use std::path::PathBuf;
+        let paths: Vec<PathBuf> = files.iter().map(PathBuf::from).collect();
+        drag::DragItem::Files(paths)
+    } else {
+        return Err("No files to drag".into());
+    };
+
+    let image = drag::Image::Raw(vec![]);
+
+    drag::start_drag(&window, items, image, |_, _| {}, Default::default())
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
 }
 
 // Basic list of terminal/CLI applications
@@ -234,6 +271,7 @@ pub fn run() {
             save_stash,
             load_stashes,
             save_asset,
+            save_asset_from_path,
             copy_to_clipboard,
             start_drag
         ])

@@ -32,4 +32,5 @@ export interface IStorageService {
     getSmartTransferTarget(): Promise<'GUI' | 'CLI'>;
     copyToClipboard(text: string): Promise<void>;
     startDrag(text: string, files: string[]): Promise<void>;
+    saveAssetFromPath(path: string): Promise<string>;
 }
