@@ -16,7 +16,7 @@
 
 <script lang="ts">
    import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
-   import type { Settings } from "$lib/types";
+   import type { Settings, StashItem } from "$lib/types";
    import Header from "$lib/components/Header.svelte";
    import Editor from "$lib/components/Editor.svelte";
    import Queue from "$lib/components/Queue.svelte";
@@ -29,6 +29,7 @@
    let view = $state<"Main" | "Settings" | "Contexts">("Main");
    let navigationSource = $state<"Settings" | "Switcher">("Settings");
    let currentContextId = $state<string>("default");
+   let movingStash = $state<StashItem | null>(null);
 
    // Centralized settings state
    let settings = $state<Settings>({
@@ -132,12 +133,44 @@
       }
    }
 
-   function selectContext(ctxId: string) {
-      settings.autoContextDetection = false;
-      settings.activeContextId = ctxId;
-      currentContextId = ctxId;
-      adapter.saveSettings(settings);
+   function selectContext(ctxId: string, shiftKey = false) {
+      if (movingStash) {
+         handleMoveStash(movingStash, ctxId, shiftKey);
+         movingStash = null;
+      } else {
+         settings.autoContextDetection = false;
+         settings.activeContextId = ctxId;
+         currentContextId = ctxId;
+         adapter.saveSettings(settings);
+      }
       contextSelectorOpen = false;
+   }
+
+   async function handleMoveStash(
+      item: StashItem,
+      targetId: string,
+      keepCopy: boolean,
+   ) {
+      try {
+         if (keepCopy) {
+            const copy: StashItem = {
+               ...item,
+               id: crypto.randomUUID(),
+               contextId: targetId,
+               createdAt: new Date().toISOString(),
+            };
+            await adapter.saveStash(copy);
+         } else {
+            const updated: StashItem = {
+               ...item,
+               contextId: targetId,
+            };
+            await adapter.saveStash(updated);
+         }
+         refreshTrigger++;
+      } catch (e) {
+         console.error("Failed to move/copy stash", e);
+      }
    }
 
    function getAvailableContexts() {
@@ -182,8 +215,10 @@
          contexts={settings.contexts}
          {currentContextId}
          bind:selectedIndex={selectedContextIndex}
-         bind:autoContextDetection={settings.autoContextDetection}
-         onSelect={(ctx) => selectContext(ctx.id)}
+         autoContextDetection={settings.autoContextDetection}
+         mode={movingStash ? "move" : "switch"}
+         title={movingStash ? "Move Stash to..." : "Switch Context"}
+         onSelect={(ctx, shift) => selectContext(ctx.id, shift)}
          onAutoContextToggle={(enabled) => {
             settings.autoContextDetection = enabled;
             adapter.saveSettings(settings); // Immediate save
@@ -195,6 +230,7 @@
          onClose={() => {
             contextSelectorOpen = false;
             isCycling = false;
+            movingStash = null;
          }}
       />
    {/if}
@@ -218,7 +254,17 @@
 
          <div class="h-px bg-border/50 my-2 mx-4 shrink-0"></div>
 
-         <Queue {transferMode} {refreshTrigger} {currentContextId} />
+         <Queue
+            {transferMode}
+            {refreshTrigger}
+            {currentContextId}
+            contexts={settings.contexts}
+            onMoveRequest={(stash) => {
+               movingStash = stash;
+               contextSelectorOpen = true;
+               selectedContextIndex = 0;
+            }}
+         />
       </div>
    {:else if view === "Settings"}
       <SettingsView

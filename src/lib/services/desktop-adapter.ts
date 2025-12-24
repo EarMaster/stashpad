@@ -20,6 +20,10 @@ export class DesktopStorageAdapter implements IStorageService {
         await invoke('save_stash', { stash });
     }
 
+    async saveStashes(stashesList: StashItem[]): Promise<void> {
+        await invoke('save_stashes', { stashesList });
+    }
+
     async loadStashes(): Promise<StashItem[]> {
         return await invoke('load_stashes');
     }
@@ -56,5 +60,13 @@ export class DesktopStorageAdapter implements IStorageService {
 
     async saveSettings(settings: Settings): Promise<void> {
         await invoke('save_settings', { settings });
+    }
+
+    async deleteStash(id: string): Promise<void> {
+        await invoke('delete_stash', { id });
+    }
+
+    async deleteCompletedStashes(): Promise<void> {
+        await invoke('delete_completed_stashes');
     }
 }

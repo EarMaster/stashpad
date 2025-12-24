@@ -18,6 +18,8 @@ export interface StashItem {
     files: string[];
     createdAt: string;
     contextId?: string;
+    completed?: boolean;
+    isDndShadowItem?: boolean; // Added by svelte-dnd-action during drag operations
 }
 
 export interface AppContext {
@@ -47,6 +49,7 @@ export interface Settings {
 
 export interface IStorageService {
     saveStash(stash: StashItem): Promise<void>;
+    saveStashes(stashes: StashItem[]): Promise<void>;
     loadStashes(): Promise<StashItem[]>;
     saveAsset(file: File): Promise<string>;
     getPreviousAppInfo(): Promise<AppContext>;
@@ -56,6 +59,8 @@ export interface IStorageService {
     saveAssetFromPath(path: string): Promise<string>;
     getSettings(): Promise<Settings>;
     saveSettings(settings: Settings): Promise<void>;
+    deleteStash(id: string): Promise<void>;
+    deleteCompletedStashes(): Promise<void>;
 }
 
 

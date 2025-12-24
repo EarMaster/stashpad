@@ -6,6 +6,7 @@
 
 @theme {
   --font-sans: "Inter", sans-serif;
+  --color-background: var(--background);
 }
 
 @layer base {

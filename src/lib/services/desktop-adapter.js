@@ -15,6 +15,9 @@ export class DesktopStorageAdapter {
     async saveStash(stash) {
         await invoke('save_stash', { stash });
     }
+    async saveStashes(stashesList) {
+        await invoke('save_stashes', { stashesList });
+    }
     async loadStashes() {
         return await invoke('load_stashes');
     }
@@ -43,5 +46,11 @@ export class DesktopStorageAdapter {
     }
     async saveSettings(settings) {
         await invoke('save_settings', { settings });
+    }
+    async deleteStash(id) {
+        await invoke('delete_stash', { id });
+    }
+    async deleteCompletedStashes() {
+        await invoke('delete_completed_stashes');
     }
 }

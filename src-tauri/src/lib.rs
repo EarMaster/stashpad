@@ -29,6 +29,8 @@ pub struct StashItem {
     pub created_at: String,
     #[serde(default)]
     pub context_id: Option<String>,
+    #[serde(default)]
+    pub completed: bool,
 }
 
 #[derive(serde::Serialize, Debug, Clone)]
@@ -237,6 +239,26 @@ fn load_stashes(state: State<Arc<StashState>>) -> Vec<StashItem> {
 }
 
 #[tauri::command]
+fn delete_stash(state: State<Arc<StashState>>, id: String) {
+    let mut stashes = state.stashes.lock().unwrap();
+    stashes.retain(|s| s.id != id);
+    persist_stashes_to_disk(&stashes);
+}
+
+#[tauri::command]
+fn delete_completed_stashes(state: State<Arc<StashState>>) {
+    let mut stashes = state.stashes.lock().unwrap();
+    stashes.retain(|s| !s.completed);
+    persist_stashes_to_disk(&stashes);
+}
+
+#[tauri::command]
+fn save_stashes(state: State<Arc<StashState>>, stashes_list: Vec<StashItem>) {
+    let mut stashes = state.stashes.lock().unwrap();
+    *stashes = stashes_list;
+    persist_stashes_to_disk(&stashes);
+}
+#[tauri::command]
 fn save_asset(name: String, data: Vec<u8>) -> Result<String, String> {
     println!("Saving asset: {} ({} bytes)", name, data.len());
 
@@ -295,7 +317,22 @@ fn start_drag(window: tauri::Window, text: String, files: Vec<String>) -> Result
         let paths: Vec<PathBuf> = files.iter().map(PathBuf::from).collect();
         drag::DragItem::Files(paths)
     } else {
-        return Err("No files to drag".into());
+        // Create temporary text file for text-only stashes
+        use std::fs;
+        let cache_dir = get_app_dir().join("cache").join("drags");
+        let _ = fs::create_dir_all(&cache_dir);
+        
+        // Use a hash or sanitized content for filename
+        let safe_name = text.chars().take(20).filter(|c| c.is_alphanumeric()).collect::<String>();
+        let filename = if safe_name.is_empty() { "stash.txt".to_string() } else { format!("{}.txt", safe_name) };
+        let temp_path = cache_dir.join(filename);
+        
+        if let Err(e) = fs::write(&temp_path, &text) {
+             println!("Failed to write temp drag file: {}", e);
+             return Err("Failed to create drag data".into());
+        }
+        
+        drag::DragItem::Files(vec![temp_path])
     };
 
     let image = drag::Image::Raw(vec![]);
@@ -340,6 +377,10 @@ fn get_smart_transfer_target(state: State<Arc<Mutex<TrackerState>>>) -> String {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // 0. init devtools
+    #[cfg(debug_assertions)] // only enable instrumentation in development builds
+    let devtools = tauri_plugin_devtools::init();
+
     // 1. Initialize Storage
     ensure_storage_ready();
 
@@ -418,13 +459,22 @@ pub fn run() {
         }
     });
 
-
-
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default()
         .manage(tracker_state)
         .manage(stash_state)
-        .manage(settings_state)
-        .plugin(tauri_plugin_log::Builder::default().build())
+        .manage(settings_state);
+
+    #[cfg(debug_assertions)]
+    {
+        builder = builder.plugin(devtools);
+    }
+
+    #[cfg(not(debug_assertions))]
+    {
+        builder = builder.plugin(tauri_plugin_log::Builder::default().build());
+    }
+
+    builder
         .plugin(tauri_plugin_global_shortcut::Builder::new().with_handler(move |app, _shortcut, event| {
              // Handle global shortcut (toggle window)
              use tauri_plugin_global_shortcut::ShortcutState;
@@ -445,7 +495,10 @@ pub fn run() {
             get_previous_app_info,
             get_smart_transfer_target,
             save_stash,
+            save_stashes,
             load_stashes,
+            delete_stash,
+            delete_completed_stashes,
             save_asset,
             save_asset_from_path,
             copy_to_clipboard,

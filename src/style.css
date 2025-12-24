@@ -1,6 +1,7 @@
 :root {
   --midnight-graphite: #2c373d;
   --deep-charcoal: #18181b;
+  --background: var(--deep-charcoal);
   --lighter-charcoal: #27272a;
   --terminal-white: #d8d8d9;
   --electric-violet: #8b5cf6;

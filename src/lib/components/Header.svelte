@@ -18,6 +18,8 @@
   import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
   import type { AppContext, Settings } from "$lib/types";
   import { onMount } from "svelte";
+  import logoIcon from "../../../assets/stashpad/Icon-Darkmode.svg";
+  import logoTypo from "../../../assets/stashpad/Typo.svg";
 
   let contextInfo = $state<AppContext>({
     windowTitle: "Checking...",
@@ -74,9 +76,10 @@
 </script>
 
 <header
-  class="flex h-12 w-full items-center justify-between border-b border-border bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/60"
+  class="relative flex mt-1 h-12 w-full items-center justify-between border-b border-border bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/60"
 >
-  <div class="flex items-center gap-2 overflow-hidden min-w-[200px]">
+  <!-- Left side: Context Display -->
+  <div class="flex items-center gap-3 overflow-hidden">
     <div
       class="flex h-2 w-2 shrink-0 rounded-full bg-accent"
       class:animate-pulse={settings.autoContextDetection}
@@ -84,9 +87,9 @@
 
     <div class="flex flex-col">
       <span
-        class="text-[10px] font-semibold text-muted-foreground uppercase leading-none mb-0.5"
+        class="text-[8px] font-semibold text-muted-foreground uppercase leading-none mb-0.5"
       >
-        {settings.autoContextDetection ? "Auto Context" : "Manual Context"}
+        {settings.autoContextDetection ? "Auto Context" : "Manual Context"}:
       </span>
 
       <button
@@ -94,32 +97,25 @@
         onclick={onOpenContextSwitcher}
         title={contextInfo.windowTitle}
       >
-        <span class="truncate max-w-[150px]"
-          >{getContextName(currentContextId || "default")}</span
-        >
+        <span class="truncate max-w-[150px] lg:max-w-[200px]">
+          {getContextName(currentContextId || "default")}
+        </span>
         <span class="text-muted-foreground text-xs">▼</span>
       </button>
     </div>
   </div>
 
-  <div class="flex items-center rounded-lg border border-input bg-muted p-1">
-    {#each ["Drag", "Copy", "Auto"] as mode}
-      <button
-        class={transferMode === mode
-          ? "rounded-md bg-background px-3 py-1 text-xs font-medium shadow-sm transition-all text-primary"
-          : "px-3 py-1 text-xs font-medium text-muted-foreground hover:text-foreground transition-all"}
-        onclick={() => (transferMode = mode)}
-      >
-        <span class="mr-1"
-          >{mode === "Drag" ? "✋" : mode === "Copy" ? "📋" : "🤖"}</span
-        >
-        {mode}
-      </button>
-    {/each}
+  <!-- Center: Brand Logo (hidden automatically when narrow) -->
+  <div
+    class="absolute left-1/2 -translate-x-1/2 hidden sm:flex items-center gap-1.5 shrink-0 pointer-events-none select-none"
+  >
+    <img src={logoIcon} alt="Stashpad Icon" class="h-8 w-8" />
+    <img src={logoTypo} alt="Stashpad" class="h-7" />
   </div>
 
+  <!-- Right Side: Settings -->
   <button
-    class="ml-2 p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded-md transition-colors"
+    class="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded-md transition-colors shrink-0"
     onclick={onOpenSettings}
     title="Settings"
   >

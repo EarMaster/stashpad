@@ -1,0 +1,31 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "codelldb",
+            "request": "launch",
+            "name": "Stashpad (Debug)",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--manifest-path=./src-tauri/Cargo.toml",
+                    "--no-default-features"
+                ]
+            },
+            "preLaunchTask": "ui:dev",
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "cppvsdbg",
+            "request": "launch",
+            "name": "Stashpad (Windows C++)",
+            "program": "${workspaceFolder}/src-tauri/target/debug/stashpad.exe",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}/src-tauri",
+            "environment": [],
+            "console": "integratedTerminal",
+            "preLaunchTask": "tauri:build-debug"
+        }
+    ]
+}
