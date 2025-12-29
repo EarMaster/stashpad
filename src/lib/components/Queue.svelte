@@ -78,8 +78,7 @@
    async function load() {
       const loaded = await adapter.loadStashes();
       if (loaded) {
-         // Filter out any shadow items that might have been persisted
-         stashes = loaded.filter(s => !s.isDndShadowItem);
+         stashes = loaded;
          syncLists();
       }
    }
@@ -127,27 +126,48 @@
    }
 
    function handleDndConsider(e: CustomEvent) {
+      console.log(
+         "CONSIDER - items received:",
+         e.detail.items.map((i) => ({
+            id: i.id,
+            isShadow: i.isDndShadowItem,
+            content: i.content?.substring(0, 20),
+         })),
+      );
+
+      // MUST keep shadows in array - library needs them to track dragged item
       activeStashes = e.detail.items;
+
       if (e.detail.info?.id) {
          draggedItemId = e.detail.info.id;
       }
    }
 
-   async function handleDndFinalize(e: CustomEvent) {
+   function handleDndFinalize(e: CustomEvent) {
+      console.log(
+         "FINALIZE - items received:",
+         e.detail.items.map((i) => ({
+            id: i.id,
+            isShadow: i.isDndShadowItem,
+            content: i.content?.substring(0, 30),
+         })),
+      );
+
       activeStashes = e.detail.items;
       draggedItemId = null;
 
-      // Filter out shadow items before saving
-      const cleanActiveStashes = activeStashes.filter(s => !s.isDndShadowItem);
-
       // Rebuild full stashes array with new order and save
+      // Filter out any shadow items before saving (library should have cleaned them, but just in case)
+      const cleanItems = activeStashes.filter((item) => !item.isDndShadowItem);
       const otherStashes = stashes.filter(
          (s) =>
             s.completed ||
             (s.contextId || "default") !== (currentContextId || "default"),
       );
-      stashes = [...cleanActiveStashes, ...otherStashes];
-      await adapter.saveStashes(stashes);
+      stashes = [...cleanItems, ...otherStashes];
+
+      // Save asynchronously after state updates complete
+      adapter.saveStashes(stashes);
    }
 </script>
 
@@ -164,7 +184,8 @@
          <h2
             class="text-[10px] font-bold text-muted-foreground uppercase tracking-wider pointer-events-auto"
          >
-            Stash Queue ({activeStashes.length})
+            Stash Queue ({activeStashes.filter((s) => !s.isDndShadowItem)
+               .length})
          </h2>
       </div>
 
@@ -176,22 +197,29 @@
       >
          {#each activeStashes as item (item.id)}
             <div
-               class="dnd-item {draggedItemId === item.id && !item.isDndShadowItem ? 'is-dragging' : ''}"
+               class="dnd-item {draggedItemId === item.id ? 'is-dragging' : ''}"
                role="listitem"
                animate:flip={{ duration: flipDurationMs }}
             >
-               <StashCard
-                  {item}
-                  mode={effectiveMode}
-                  onMoveRequest={() => onMoveRequest(item)}
-                  onToggleComplete={() => toggleComplete(item)}
-                  onDelete={() => deleteStash(item.id)}
-                  onUpdateContent={(content) => updateContent(item, content)}
-               />
+               {#if item.isDndShadowItem}
+                  <!-- Shadow placeholder for drop position -->
+                  <div
+                     class="h-20 rounded-lg border-2 border-dashed border-primary/50 bg-primary/5"
+                  ></div>
+               {:else}
+                  <StashCard
+                     {item}
+                     mode={effectiveMode}
+                     onMoveRequest={() => onMoveRequest(item)}
+                     onToggleComplete={() => toggleComplete(item)}
+                     onDelete={() => deleteStash(item.id)}
+                     onUpdateContent={(content) => updateContent(item, content)}
+                  />
+               {/if}
             </div>
          {/each}
 
-         {#if activeStashes.length === 0}
+         {#if activeStashes.filter((s) => !s.isDndShadowItem).length === 0}
             <div
                class="flex flex-col items-center justify-center py-12 text-muted-foreground/30 border border-dashed border-border/50 rounded-lg"
             >
@@ -256,21 +284,9 @@
       transition: transform 0.2s;
    }
    :global(.dnd-item.is-dragging) {
-      /* Custom class for dragged items - customize as needed */
       opacity: 0.5;
    }
    :global([aria-grabbed="true"]) {
       opacity: 0.5;
-   }
-   :global([aria-dropeffect="move"]) {
-      outline: 2px solid var(--electric-violet);
-      outline-offset: 4px;
-      border-radius: 0.5rem;
-   }
-   /* Style the shadow placeholder to show where item will drop */
-   :global([data-is-dnd-shadow-item-internal]) {
-      visibility: visible !important;
-      opacity: 0.3;
-      border: 2px dashed var(--electric-violet);
    }
 </style>
