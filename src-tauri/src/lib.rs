@@ -122,6 +122,8 @@ pub struct Context {
 pub struct Settings {
     pub auto_context_detection: bool,
     #[serde(default)]
+    pub visual_effects_enabled: Option<bool>,
+    #[serde(default)]
     pub contexts: Vec<Context>,
     #[serde(default)]
     pub active_context_id: Option<String>,
@@ -133,6 +135,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             auto_context_detection: true,
+            visual_effects_enabled: None, // None implies "follow OS/default"
             contexts: vec![],
             active_context_id: None,
             shortcuts: std::collections::HashMap::new(),
@@ -178,7 +181,7 @@ fn get_settings(state: State<Arc<SettingsState>>) -> Settings {
 
 fn save_settings(app: tauri::AppHandle, state: State<Arc<SettingsState>>, settings: Settings) {
     println!("Saving settings: {:?}", settings);
-    
+
     // Update global shortcuts
     use tauri_plugin_global_shortcut::GlobalShortcutExt;
     
@@ -399,6 +402,10 @@ pub fn run() {
     
     let tracker_state_clone = tracker_state.clone();
     let settings_state_clone = settings_state.clone();
+    
+    // Apply initial effects
+    // Need AppHandle. But we are in run() building the app.
+    // We can use setup hook.
 
     // Start background polling
     thread::spawn(move || {
@@ -443,10 +450,18 @@ pub fn run() {
                     // Adjust these names based on actual process names
                     // Ignore stashpad itself
                     let app_name_lower = app_name.to_lowercase();
+                    // Additional check for "electron" or "tauri" generic wrappers if necessary
+                    // But importantly, we MUST ignore our own window
                     if !app_name_lower.contains("stashpad")
-                        && app_name_lower != "app"
+                        && app_name_lower != "app" 
                         && app_name_lower != "webview"
                     {
+                        // Check if we matched a context
+                        // If NO context was matched, we should NOT overwrite the current context if it was
+                        // previously set by a valid external app. 
+                        // However, the rule is: "If is_auto is enabled, the active window determines the context".
+                        // If the active window is NOT Stashpad, we update.
+                        
                         let mut state = tracker_state_clone.lock().unwrap();
                         state.last_external_app = Some(AppContext {
                             window_title: title,

@@ -34,6 +34,7 @@
    // Centralized settings state
    let settings = $state<Settings>({
       autoContextDetection: true,
+      visualEffectsEnabled: undefined,
       contexts: [],
       activeContextId: "default",
       shortcuts: {
@@ -42,6 +43,11 @@
    });
 
    const adapter = new DesktopStorageAdapter();
+
+   let isGlass = $derived(
+      settings.visualEffectsEnabled ??
+         !window.matchMedia("(prefers-reduced-transparency: reduce)").matches,
+   );
 
    // Context Switching Logic
    let contextSelectorOpen = $state(false);
@@ -164,8 +170,16 @@
             const updated: StashItem = {
                ...item,
                contextId: targetId,
+               createdAt: item.createdAt, // Ensure created_at is preserved? Or update? Types say it is string.
+               content: item.content,
+               files: item.files || [],
+               completed: item.completed,
+               // ...item might override something if I am not careful.
             };
-            await adapter.saveStash(updated);
+            // Ideally just ...item and overwrite contextId
+            // But let's stick to safe spread
+            const safeUpdated = { ...item, contextId: targetId };
+            await adapter.saveStash(safeUpdated);
          }
          refreshTrigger++;
       } catch (e) {
@@ -201,7 +215,9 @@
 <svelte:window onkeydown={handleKeydown} onkeyup={handleKeyup} />
 
 <main
-   class="h-screen w-screen flex flex-col bg-background text-foreground overflow-hidden font-sans select-none relative"
+   class="h-screen w-screen flex flex-col overflow-hidden font-sans select-none relative rounded-xl border border-white/10 {isGlass
+      ? 'bg-background/80 backdrop-blur-md'
+      : 'bg-background text-foreground'}"
 >
    {#if contextSelectorOpen}
       <ContextSwitcher

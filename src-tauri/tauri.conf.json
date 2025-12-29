@@ -16,7 +16,21 @@
         "width": 800,
         "height": 600,
         "resizable": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "decorations": false,
+        "transparent": true,
+        "shadow": true,
+        "windowEffects": {
+          "effects": [
+            "blur"
+          ],
+          "color": [
+            24,
+            24,
+            27,
+            200
+          ]
+        }
       }
     ],
     "security": {

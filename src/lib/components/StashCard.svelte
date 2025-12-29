@@ -30,6 +30,9 @@
     Copy,
     GripVertical,
     RotateCcw,
+    Move,
+    MoveRightIcon,
+    ArrowBigRightDash,
   } from "lucide-svelte";
 
   let {
@@ -268,7 +271,7 @@
               }}
               title="Move to context"
             >
-              <ExternalLink size={13} />
+              <ArrowBigRightDash size={13} />
             </button>
 
             <!-- Delete -->

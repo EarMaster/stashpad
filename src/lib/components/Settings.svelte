@@ -17,6 +17,7 @@
 <script lang="ts">
   import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
   import type { Settings } from "$lib/types";
+  import ShortcutInput from "./ShortcutInput.svelte";
 
   let { onBack, onOpenContexts } = $props<{
     onBack: () => void;
@@ -126,7 +127,34 @@
                 onchange={save}
               />
               <div
-                class="w-11 h-6 bg-muted peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"
+                class="w-11 h-6 bg-muted rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary peer-focus-visible:ring-2 peer-focus-visible:ring-primary peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-background"
+              ></div>
+            </label>
+          </div>
+
+          <div
+            class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
+          >
+            <div class="space-y-0.5">
+              <div class="text-sm font-medium">Visual Effects</div>
+              <div class="text-xs text-muted-foreground">
+                Enable translucency and blur (Glass effect)
+              </div>
+            </div>
+            <label class="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                class="sr-only peer"
+                checked={settings.visualEffectsEnabled ??
+                  !window.matchMedia("(prefers-reduced-transparency: reduce)")
+                    .matches}
+                onchange={(e) => {
+                  settings.visualEffectsEnabled = e.currentTarget.checked;
+                  save();
+                }}
+              />
+              <div
+                class="w-11 h-6 bg-muted rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary peer-focus-visible:ring-2 peer-focus-visible:ring-primary peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-background"
               ></div>
             </label>
           </div>
@@ -151,18 +179,15 @@
                   Short press to switch, hold to cycle
                 </div>
               </div>
-              <input
-                class="bg-muted px-2 py-1 rounded text-sm text-center font-mono w-40"
+              <ShortcutInput
                 value={settings.shortcuts?.["switch_context"] ||
                   "CommandOrControl+P"}
-                onchange={(e) => {
+                placeholder="Click to set..."
+                onchange={(shortcut) => {
                   if (!settings.shortcuts) settings.shortcuts = {};
-                  settings.shortcuts["switch_context"] = (
-                    e.target as HTMLInputElement
-                  ).value;
+                  settings.shortcuts["switch_context"] = shortcut;
                   save();
                 }}
-                placeholder="CommandOrControl+P"
               />
             </div>
 
@@ -176,17 +201,14 @@
                   Global shortcut to show/hide window
                 </div>
               </div>
-              <input
-                class="bg-muted px-2 py-1 rounded text-sm text-center font-mono w-40"
+              <ShortcutInput
                 value={settings.shortcuts?.["global_toggle"] || ""}
-                onchange={(e) => {
+                placeholder="Click to set..."
+                onchange={(shortcut) => {
                   if (!settings.shortcuts) settings.shortcuts = {};
-                  settings.shortcuts["global_toggle"] = (
-                    e.target as HTMLInputElement
-                  ).value;
+                  settings.shortcuts["global_toggle"] = shortcut;
                   save();
                 }}
-                placeholder="e.g. Alt+Space"
               />
             </div>
           </div>
@@ -196,10 +218,10 @@
         <div class="pt-8 pb-4 text-center">
           <div class="text-xs text-muted-foreground space-y-2">
             <p class="font-medium text-foreground/80">Stashpad v0.1.0</p>
-            <p>© 2025 Nico Wiedemann</p>
+            <p>© 2025-2026 Nico Wiedemann</p>
             <p>Licensed under AGPL-3.0-only</p>
             <div class="pt-2 opacity-50 text-[10px]">
-              Made with Tauri, Svelte 5, and Rust
+              Made with Tauri and Svelte 5
             </div>
           </div>
         </div>

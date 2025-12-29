@@ -180,12 +180,13 @@
     role="dialog"
     aria-modal="true"
     tabindex="-1"
-    onclick={onClose}
+    onclick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+    }}
     onkeydown={(e) => e.key === "Escape" && onClose()}
 >
     <div
         class="bg-card border border-border rounded-lg shadow-xl w-[350px] overflow-hidden flex flex-col"
-        onclick={(e) => e.stopPropagation()}
         role="document"
     >
         <div class="p-2 border-b border-border bg-muted/50 flex flex-col gap-2">
@@ -206,7 +207,9 @@
                                 "Enter",
                                 "Escape",
                             ].includes(e.key) ||
-                            (e.key === "a" && e.altKey)
+                            (e.key === "a" && e.altKey) ||
+                            e.ctrlKey ||
+                            e.metaKey
                         ) {
                             return;
                         }

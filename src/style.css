@@ -13,7 +13,6 @@
 
   color-scheme: dark;
   color: var(--terminal-white);
-  background-color: var(--deep-charcoal);
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -27,6 +26,6 @@ body {
   place-items: center;
   min-width: 320px;
   min-height: 100vh;
-  background-color: var(--deep-charcoal);
+  background-color: transparent;
   color: var(--terminal-white);
 }

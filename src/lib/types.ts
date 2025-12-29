@@ -43,6 +43,7 @@ export interface Context {
 
 export interface Settings {
     autoContextDetection: boolean;
+    visualEffectsEnabled?: boolean;
     contexts: Context[];
     activeContextId?: string | null;
     shortcuts: Record<string, string>;

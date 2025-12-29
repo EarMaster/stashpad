@@ -76,10 +76,11 @@
 </script>
 
 <header
-  class="relative flex mt-1 h-12 w-full items-center justify-between border-b border-border bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/60"
+  data-tauri-drag-region
+  class="relative flex mt-1 h-12 w-full items-center justify-between border-b border-border bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/60 z-50 select-none"
 >
   <!-- Left side: Context Display -->
-  <div class="flex items-center gap-3 overflow-hidden">
+  <div class="flex items-center gap-3 overflow-hidden pointer-events-none">
     <div
       class="flex h-2 w-2 shrink-0 rounded-full bg-accent"
       class:animate-pulse={settings.autoContextDetection}
@@ -93,7 +94,7 @@
       </span>
 
       <button
-        class="flex items-center gap-1.5 text-sm font-medium text-foreground hover:bg-muted/50 rounded -ml-1 py-0.5 px-1 transition-colors text-left"
+        class="flex items-center gap-1.5 text-sm font-medium text-foreground hover:bg-muted/50 rounded -ml-1 py-0.5 px-1 transition-colors text-left pointer-events-auto"
         onclick={onOpenContextSwitcher}
         title={contextInfo.windowTitle}
       >
@@ -107,15 +108,20 @@
 
   <!-- Center: Brand Logo (hidden automatically when narrow) -->
   <div
-    class="absolute left-1/2 -translate-x-1/2 hidden sm:flex items-center gap-1.5 shrink-0 pointer-events-none select-none"
+    data-tauri-drag-region
+    class="absolute left-1/2 -translate-x-1/2 hidden sm:flex items-center gap-1.5 shrink-0 select-none cursor-default py-2 pointer-events-auto"
   >
-    <img src={logoIcon} alt="Stashpad Icon" class="h-8 w-8" />
-    <img src={logoTypo} alt="Stashpad" class="h-7" />
+    <img
+      src={logoIcon}
+      alt="Stashpad Icon"
+      class="h-8 w-8 pointer-events-none"
+    />
+    <img src={logoTypo} alt="Stashpad" class="h-7 pointer-events-none" />
   </div>
 
   <!-- Right Side: Settings -->
   <button
-    class="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded-md transition-colors shrink-0"
+    class="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded-md transition-colors shrink-0 pointer-events-auto"
     onclick={onOpenSettings}
     title="Settings"
   >
