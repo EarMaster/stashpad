@@ -38,6 +38,7 @@ export interface Context {
     id: string;
     name: string;
     rules: ContextRule[];
+    lastUsed?: string;
 }
 
 export interface Settings {

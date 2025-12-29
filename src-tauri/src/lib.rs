@@ -113,6 +113,8 @@ pub struct Context {
     pub id: String,
     pub name: String,
     pub rules: Vec<ContextRule>,
+    #[serde(default)]
+    pub last_used: Option<String>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]

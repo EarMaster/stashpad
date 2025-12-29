@@ -123,7 +123,16 @@
                             />
                             <button
                                 class="text-muted-foreground hover:text-destructive text-xs px-2 py-1 rounded hover:bg-muted"
-                                onclick={() => removeContext(i)}>Remove</button
+                                onclick={(e) => {
+                                    if (
+                                        e.shiftKey ||
+                                        confirm("Delete this context?")
+                                    ) {
+                                        removeContext(i);
+                                    }
+                                }}
+                                title="Shift+Click to skip confirmation"
+                                >Remove</button
                             >
                         </div>
 

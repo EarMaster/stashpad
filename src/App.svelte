@@ -73,7 +73,6 @@
          if (!contextSelectorOpen) {
             contextSelectorOpen = true;
             isCycling = false; // Reset cycling state on initial open
-            selectedContextIndex = 0; // Reset
          } else {
             // Cycle selection
             selectNextContext();
@@ -117,20 +116,14 @@
       }
    }
 
-   let selectedContextIndex = $state(0);
+   let contextSwitcher = $state<any>(null);
 
    function selectNextContext() {
-      const available = getAvailableContexts();
-      if (available.length > 0) {
-         selectedContextIndex = (selectedContextIndex + 1) % available.length;
-      }
+      contextSwitcher?.next();
    }
 
    function confirmContextSelection() {
-      const available = getAvailableContexts();
-      if (available[selectedContextIndex]) {
-         selectContext(available[selectedContextIndex].id);
-      }
+      contextSwitcher?.confirm();
    }
 
    function selectContext(ctxId: string, shiftKey = false) {
@@ -141,6 +134,13 @@
          settings.autoContextDetection = false;
          settings.activeContextId = ctxId;
          currentContextId = ctxId;
+
+         // Update lastUsed timestamp
+         const ctx = settings.contexts.find((c) => c.id === ctxId);
+         if (ctx) {
+            ctx.lastUsed = new Date().toISOString();
+         }
+
          adapter.saveSettings(settings);
       }
       contextSelectorOpen = false;
@@ -193,13 +193,6 @@
       loadSettings();
    });
 
-   $effect(() => {
-      if (contextSelectorOpen) {
-         // Reset selection when opening
-         selectedContextIndex = 0;
-      }
-   });
-
    function handleStash() {
       refreshTrigger++;
    }
@@ -212,9 +205,9 @@
 >
    {#if contextSelectorOpen}
       <ContextSwitcher
+         bind:this={contextSwitcher}
          contexts={settings.contexts}
          {currentContextId}
-         bind:selectedIndex={selectedContextIndex}
          autoContextDetection={settings.autoContextDetection}
          mode={movingStash ? "move" : "switch"}
          title={movingStash ? "Move Stash to..." : "Switch Context"}
@@ -262,7 +255,6 @@
             onMoveRequest={(stash) => {
                movingStash = stash;
                contextSelectorOpen = true;
-               selectedContextIndex = 0;
             }}
          />
       </div>
