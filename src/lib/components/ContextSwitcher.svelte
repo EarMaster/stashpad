@@ -1,6 +1,7 @@
 <script lang="ts">
     import type { Context } from "$lib/types";
     import { Search, ArrowDownUp, Clock } from "lucide-svelte";
+    import fuzzysort from "fuzzysort";
 
     let {
         contexts,
@@ -42,8 +43,8 @@
 
         // Filter
         if (searchQuery) {
-            const q = searchQuery.toLowerCase();
-            list = list.filter((c) => c.name.toLowerCase().includes(q));
+            const results = fuzzysort.go(searchQuery, list, { key: "name" });
+            return results.map((r) => r.obj);
         }
 
         // Sort
@@ -186,7 +187,6 @@
         class="bg-card border border-border rounded-lg shadow-xl w-[350px] overflow-hidden flex flex-col"
         onclick={(e) => e.stopPropagation()}
         role="document"
-        onkeydown={() => {}}
     >
         <div class="p-2 border-b border-border bg-muted/50 flex flex-col gap-2">
             <div

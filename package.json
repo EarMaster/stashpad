@@ -49,6 +49,7 @@
     "@thisux/sveltednd": "^0.0.20",
     "bits-ui": "^2.14.4",
     "clsx": "^2.1.1",
+    "fuzzysort": "^3.1.0",
     "lucide-svelte": "^0.556.0",
     "svelte-dnd-action": "^0.9.68",
     "tailwind-merge": "^3.4.0"
