@@ -15,9 +15,14 @@
 import { mount } from 'svelte';
 import './app.css';
 import App from './App.svelte';
+import { setupI18n } from '$lib/i18n';
 
-const app = mount(App, {
-  target: document.getElementById('app')!,
+// Initialize i18n before mounting the app
+setupI18n().then(() => {
+  const app = mount(App, {
+    target: document.getElementById('app')!,
+  });
+
+  // Export for potential HMR usage
+  (window as any).__app__ = app;
 });
-
-export default app;

@@ -17,6 +17,7 @@
 <script lang="ts">
   import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
   import type { Settings } from "$lib/types";
+  import { _ } from "$lib/i18n";
   import ShortcutInput from "./ShortcutInput.svelte";
 
   let { onBack, onOpenContexts } = $props<{
@@ -64,17 +65,17 @@
     <button
       class="p-2 hover:bg-muted rounded-md text-muted-foreground hover:text-foreground transition-colors"
       onclick={onBack}
-      title="Back to Stash"
+      title={$_("settings.backToStash")}
     >
       ←
     </button>
-    <h1 class="text-xl font-bold tracking-tight">Settings</h1>
+    <h1 class="text-xl font-bold tracking-tight">{$_("settings.title")}</h1>
   </div>
 
   <div class="flex-1 overflow-y-auto p-4 scrollbar-hide">
     {#if isLoading}
       <div class="text-sm text-muted-foreground animate-pulse">
-        Loading settings...
+        {$_("settings.loadingSettings")}
       </div>
     {:else}
       <div class="space-y-6 max-w-2xl mx-auto">
@@ -83,17 +84,18 @@
           <h2
             class="text-sm font-semibold uppercase tracking-wider text-muted-foreground"
           >
-            Context Management
+            {$_("settings.contextManagement.title")}
           </h2>
           <button
             class="w-full flex items-center justify-between p-4 rounded-lg border border-border bg-card hover:bg-muted/50 transition-colors group"
             onclick={onOpenContexts}
           >
             <div class="flex flex-col items-start gap-1">
-              <span class="font-medium">Manage Contexts</span>
+              <span class="font-medium"
+                >{$_("settings.contextManagement.manageContexts")}</span
+              >
               <span class="text-xs text-muted-foreground"
-                >Configure custom contexts and auto-switching rules (Process
-                Name, Window Title)</span
+                >{$_("settings.contextManagement.description")}</span
               >
             </div>
             <span class="text-muted-foreground group-hover:text-foreground"
@@ -107,16 +109,18 @@
           <h2
             class="text-sm font-semibold uppercase tracking-wider text-muted-foreground"
           >
-            General
+            {$_("settings.general.title")}
           </h2>
 
           <div
             class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
           >
             <div class="space-y-0.5">
-              <div class="text-sm font-medium">Auto Context Detection</div>
+              <div class="text-sm font-medium">
+                {$_("settings.general.autoContextDetection.label")}
+              </div>
               <div class="text-xs text-muted-foreground">
-                Automatically switch stash context based on active window
+                {$_("settings.general.autoContextDetection.description")}
               </div>
             </div>
             <label class="relative inline-flex items-center cursor-pointer">
@@ -136,9 +140,11 @@
             class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
           >
             <div class="space-y-0.5">
-              <div class="text-sm font-medium">Visual Effects</div>
+              <div class="text-sm font-medium">
+                {$_("settings.general.visualEffects.label")}
+              </div>
               <div class="text-xs text-muted-foreground">
-                Enable translucency and blur (Glass effect)
+                {$_("settings.general.visualEffects.description")}
               </div>
             </div>
             <label class="relative inline-flex items-center cursor-pointer">
@@ -165,7 +171,7 @@
           <h2
             class="text-sm font-semibold uppercase tracking-wider text-muted-foreground"
           >
-            Shortcuts
+            {$_("settings.shortcuts.title")}
           </h2>
 
           <div class="space-y-3">
@@ -174,15 +180,17 @@
               class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
             >
               <div class="space-y-0.5">
-                <div class="text-sm font-medium">Switch Context</div>
+                <div class="text-sm font-medium">
+                  {$_("settings.shortcuts.switchContext.label")}
+                </div>
                 <div class="text-xs text-muted-foreground">
-                  Short press to switch, hold to cycle
+                  {$_("settings.shortcuts.switchContext.description")}
                 </div>
               </div>
               <ShortcutInput
                 value={settings.shortcuts?.["switch_context"] ||
                   "CommandOrControl+P"}
-                placeholder="Click to set..."
+                placeholder={$_("settings.shortcuts.clickToSet")}
                 onchange={(shortcut) => {
                   if (!settings.shortcuts) settings.shortcuts = {};
                   settings.shortcuts["switch_context"] = shortcut;
@@ -196,14 +204,16 @@
               class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
             >
               <div class="space-y-0.5">
-                <div class="text-sm font-medium">Toggle Stashpad</div>
+                <div class="text-sm font-medium">
+                  {$_("settings.shortcuts.toggleStashpad.label")}
+                </div>
                 <div class="text-xs text-muted-foreground">
-                  Global shortcut to show/hide window
+                  {$_("settings.shortcuts.toggleStashpad.description")}
                 </div>
               </div>
               <ShortcutInput
                 value={settings.shortcuts?.["global_toggle"] || ""}
-                placeholder="Click to set..."
+                placeholder={$_("settings.shortcuts.clickToSet")}
                 onchange={(shortcut) => {
                   if (!settings.shortcuts) settings.shortcuts = {};
                   settings.shortcuts["global_toggle"] = shortcut;
@@ -217,11 +227,14 @@
         <!-- About / Footer -->
         <div class="pt-8 pb-4 text-center">
           <div class="text-xs text-muted-foreground space-y-2">
-            <p class="font-medium text-foreground/80">Stashpad v0.1.0</p>
-            <p>© 2025-2026 Nico Wiedemann</p>
-            <p>Licensed under AGPL-3.0-only</p>
+            <p class="font-medium text-foreground/80">
+              {$_("app.name")}
+              {$_("app.version")}
+            </p>
+            <p>{$_("app.copyright")}</p>
+            <p>{$_("app.license")}</p>
             <div class="pt-2 opacity-50 text-[10px]">
-              Made with Tauri and Svelte 5
+              {$_("app.madeWith")}
             </div>
           </div>
         </div>

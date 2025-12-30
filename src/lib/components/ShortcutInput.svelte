@@ -15,6 +15,7 @@
 -->
 
 <script lang="ts">
+    import { _ } from "$lib/i18n";
     /**
      * ShortcutInput Component
      *
@@ -326,10 +327,12 @@
         onclick={handleClick}
         onblur={handleBlur}
         onkeydown={handleKeyDown}
-        aria-label="Keyboard shortcut input. Press Enter to record a new shortcut."
+        aria-label={$_("shortcutInput.ariaLabel")}
     >
         {#if isRecording}
-            <span class="recording-text">Press shortcut...</span>
+            <span class="recording-text"
+                >{$_("settings.shortcuts.pressShortcut")}</span
+            >
         {:else if shortcutParts.length > 0}
             <span class="key-badges">
                 {#each shortcutParts as part, index}
@@ -349,8 +352,8 @@
             type="button"
             class="clear-button"
             onclick={handleClear}
-            title="Clear shortcut"
-            aria-label="Clear shortcut"
+            title={$_("settings.shortcuts.clearShortcut")}
+            aria-label={$_("settings.shortcuts.clearShortcut")}
         >
             ×
         </button>

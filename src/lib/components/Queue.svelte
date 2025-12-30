@@ -19,6 +19,7 @@
    import { flip } from "svelte/animate";
    import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
    import type { StashItem } from "$lib/types";
+   import { _ } from "$lib/i18n";
    import StashCard from "./StashCard.svelte";
    import { Trash2 } from "lucide-svelte";
 
@@ -184,8 +185,9 @@
          <h2
             class="text-[10px] font-bold text-muted-foreground uppercase tracking-wider pointer-events-auto"
          >
-            Stash Queue ({activeStashes.filter((s) => !s.isDndShadowItem)
-               .length})
+            {$_("queue.stashQueue")} ({activeStashes.filter(
+               (s) => !s.isDndShadowItem,
+            ).length})
          </h2>
       </div>
 
@@ -223,7 +225,7 @@
             <div
                class="flex flex-col items-center justify-center py-12 text-muted-foreground/30 border border-dashed border-border/50 rounded-lg"
             >
-               <span class="text-sm">No active stashes</span>
+               <span class="text-sm">{$_("queue.noActiveStashes")}</span>
             </div>
          {/if}
       </div>
@@ -239,14 +241,15 @@
             <h2
                class="text-[10px] font-bold text-muted-foreground/60 uppercase tracking-wider pointer-events-auto"
             >
-               Completed ({completedStashes.length})
+               {$_("queue.completed")} ({completedStashes.length})
             </h2>
             <button
                class="text-[9px] flex items-center gap-1 text-red-400/70 hover:text-red-500 transition-colors bg-red-400/5 px-1.5 py-0.5 rounded border border-red-400/10 pointer-events-auto"
                onclick={clearCompleted}
-               title="Delete all completed stashes"
+               title={$_("queue.deleteAllCompleted")}
             >
-               <Trash2 size={10} /> Clear Completed
+               <Trash2 size={10} />
+               {$_("queue.clearCompleted")}
             </button>
          </div>
 
@@ -273,7 +276,7 @@
          class="flex flex-col items-center justify-center py-10 text-muted-foreground/30 border border-dashed border-border/50 rounded-lg"
       >
          <span class="text-2xl mb-2">📭</span>
-         <span class="text-sm">Queue is empty</span>
+         <span class="text-sm">{$_("queue.queueEmpty")}</span>
       </div>
    {/if}
 </div>

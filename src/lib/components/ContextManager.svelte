@@ -6,6 +6,7 @@
 <script lang="ts">
     import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
     import type { Settings } from "$lib/types";
+    import { _ } from "$lib/i18n";
 
     let { onBack } = $props<{ onBack: () => void }>();
 
@@ -47,7 +48,7 @@
             ...settings.contexts,
             {
                 id: crypto.randomUUID(),
-                name: "New Context",
+                name: $_("contexts.newContext"),
                 rules: [],
             },
         ];
@@ -85,27 +86,27 @@
         <button
             class="p-2 hover:bg-muted rounded-md text-muted-foreground hover:text-foreground transition-colors"
             onclick={onBack}
-            title="Back"
+            title={$_("contexts.back")}
         >
             ←
         </button>
-        <h1 class="text-xl font-bold tracking-tight">Contexts</h1>
+        <h1 class="text-xl font-bold tracking-tight">{$_("contexts.title")}</h1>
     </div>
 
     <!-- Content -->
     <div class="flex-1 overflow-y-auto p-4 space-y-6">
         {#if isLoading}
             <div class="text-sm text-muted-foreground animate-pulse">
-                Loading contexts...
+                {$_("contexts.loadingContexts")}
             </div>
         {:else}
             <div class="flex items-center justify-between">
                 <p class="text-sm text-muted-foreground">
-                    Manage your contexts and auto-switching rules.
+                    {$_("contexts.manageDescription")}
                 </p>
                 <button
                     class="text-xs bg-primary text-primary-foreground px-3 py-1.5 rounded-md hover:bg-primary/90 transition-colors shadow-sm font-medium"
-                    onclick={addContext}>+ Add Context</button
+                    onclick={addContext}>{$_("contexts.addContext")}</button
                 >
             </div>
 
@@ -119,20 +120,22 @@
                                 class="flex-1 bg-transparent font-medium focus:outline-none border-b border-transparent focus:border-primary/50 text-sm py-1"
                                 bind:value={context.name}
                                 onchange={save}
-                                placeholder="Context Name"
+                                placeholder={$_(
+                                    "contexts.contextNamePlaceholder",
+                                )}
                             />
                             <button
                                 class="text-muted-foreground hover:text-destructive text-xs px-2 py-1 rounded hover:bg-muted"
                                 onclick={(e) => {
                                     if (
                                         e.shiftKey ||
-                                        confirm("Delete this context?")
+                                        confirm($_("contexts.deleteConfirm"))
                                     ) {
                                         removeContext(i);
                                     }
                                 }}
-                                title="Shift+Click to skip confirmation"
-                                >Remove</button
+                                title={$_("contexts.shiftClickToSkip")}
+                                >{$_("contexts.removeContext")}</button
                             >
                         </div>
 
@@ -143,11 +146,11 @@
                             <div
                                 class="text-[10px] text-muted-foreground font-medium flex justify-between uppercase tracking-wider"
                             >
-                                <span>Auto-Switch Rules</span>
+                                <span>{$_("contexts.autoSwitchRules")}</span>
                                 <button
                                     class="text-xs text-primary hover:underline"
                                     onclick={() => addRule(i)}
-                                    >+ Add Rule</button
+                                    >{$_("contexts.addRule")}</button
                                 >
                             </div>
 
@@ -161,10 +164,14 @@
                                         onchange={save}
                                     >
                                         <option value="process"
-                                            >Process Name</option
+                                            >{$_(
+                                                "contexts.rules.process",
+                                            )}</option
                                         >
                                         <option value="title"
-                                            >Window Title</option
+                                            >{$_(
+                                                "contexts.rules.title",
+                                            )}</option
                                         >
                                     </select>
                                     <select
@@ -173,17 +180,23 @@
                                         onchange={save}
                                     >
                                         <option value="contains"
-                                            >Contains</option
+                                            >{$_(
+                                                "contexts.rules.contains",
+                                            )}</option
                                         >
                                         <option value="exact"
-                                            >Exact Match</option
+                                            >{$_(
+                                                "contexts.rules.exact",
+                                            )}</option
                                         >
                                     </select>
                                     <input
                                         class="flex-1 bg-muted/50 px-2 py-1 rounded border border-transparent focus:border-primary/50 outline-none"
                                         bind:value={rule.value}
                                         onchange={save}
-                                        placeholder="Value (e.g. 'code', 'Project X')"
+                                        placeholder={$_(
+                                            "contexts.rules.valuePlaceholder",
+                                        )}
                                     />
                                     <button
                                         class="text-muted-foreground hover:text-destructive px-1.5 opacity-0 group-hover:opacity-100 transition-opacity"
@@ -196,8 +209,7 @@
                                 <div
                                     class="text-[10px] text-muted-foreground/50 italic py-1"
                                 >
-                                    No rules defined. This context will only be
-                                    active if selected manually.
+                                    {$_("contexts.noRules")}
                                 </div>
                             {/if}
                         </div>
@@ -208,7 +220,7 @@
                     <div
                         class="text-center py-12 text-muted-foreground/50 text-sm italic border-2 border-dashed border-border/50 rounded-xl bg-muted/5"
                     >
-                        No custom contexts defined. <br /> Stashes will go to "Default".
+                        {$_("contexts.noContexts")}
                     </div>
                 {/if}
             </div>

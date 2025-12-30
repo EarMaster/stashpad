@@ -17,6 +17,7 @@
 <script lang="ts">
   import type { StashItem } from "$lib/types";
   import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
+  import { _ } from "$lib/i18n";
   import { fade, fly } from "svelte/transition";
   import { dragHandle } from "svelte-dnd-action";
   import {
@@ -125,7 +126,9 @@
           e.stopPropagation();
           onToggleComplete();
         }}
-        title={item.completed ? "Restore to active queue" : "Mark as completed"}
+        title={item.completed
+          ? $_("stashCard.restoreToActive")
+          : $_("stashCard.markAsCompleted")}
       >
         {#if item.completed}
           <RotateCcw
@@ -148,7 +151,7 @@
         }}
         onclick={(e) => e.stopPropagation()}
         onkeydown={(e) => e.stopPropagation()}
-        title="Drag to AI Context"
+        title={$_("stashCard.dragToAIContext")}
       >
         {#if copied}
           <Check size={14} />
@@ -170,7 +173,7 @@
             bind:value={editContent}
             use:focusOnMount
             class="w-full bg-muted/50 border border-border rounded p-2 text-sm font-mono outline-none focus:border-primary min-h-[80px] resize-none"
-            placeholder="Edit stash content..."
+            placeholder={$_("stashCard.editPlaceholder")}
             onkeydown={(e) => {
               if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) saveEdit();
               if (e.key === "Escape") cancelEdit();
@@ -181,13 +184,15 @@
               class="p-1 px-2 rounded text-[10px] bg-muted hover:bg-muted/80 transition-colors flex items-center gap-1"
               onclick={cancelEdit}
             >
-              <X size={10} /> Cancel
+              <X size={10} />
+              {$_("common.cancel")}
             </button>
             <button
               class="p-1 px-2 rounded text-[10px] bg-primary text-primary-foreground hover:bg-primary/90 transition-colors flex items-center gap-1 font-bold"
               onclick={saveEdit}
             >
-              <Check size={10} /> Save
+              <Check size={10} />
+              {$_("common.save")}
             </button>
           </div>
         </div>
@@ -197,7 +202,7 @@
             ? 'line-through text-muted-foreground/70'
             : ''}"
         >
-          {item.content || "Empty stash"}
+          {item.content || $_("stashCard.emptyStash")}
         </div>
       {/if}
 
@@ -225,7 +230,7 @@
           {#if copied}
             <span
               class="text-green-500 font-medium animate-pulse"
-              transition:fade>Copied!</span
+              transition:fade>{$_("stashCard.copied")}</span
             >
           {/if}
         </div>
@@ -244,7 +249,7 @@
                 e.stopPropagation();
                 handleCopy();
               }}
-              title="Copy to clipboard"
+              title={$_("stashCard.copyToClipboard")}
             >
               <Copy size={13} />
             </button>
@@ -256,7 +261,7 @@
                 e.stopPropagation();
                 isEditing = true;
               }}
-              title="Edit content"
+              title={$_("stashCard.editContent")}
               disabled={item.completed}
             >
               <Edit3 size={13} />
@@ -269,7 +274,7 @@
                 e.stopPropagation();
                 onMoveRequest();
               }}
-              title="Move to context"
+              title={$_("stashCard.moveToContext")}
             >
               <ArrowBigRightDash size={13} />
             </button>
@@ -279,11 +284,11 @@
               class="p-1.5 rounded hover:bg-red-500/10 text-muted-foreground hover:text-red-500 transition-all"
               onclick={(e) => {
                 e.stopPropagation();
-                if (e.shiftKey || confirm("Delete this stash?")) {
+                if (e.shiftKey || confirm($_("stashCard.deleteStashConfirm"))) {
                   onDelete();
                 }
               }}
-              title="Delete stash (Shift+Click to skip confirmation)"
+              title={$_("stashCard.shiftClickDelete")}
             >
               <Trash2 size={13} />
             </button>
@@ -293,13 +298,13 @@
           {#if showReorderHandle}
             <div
               class="reorder-handle p-1 text-muted-foreground/30 group-hover:text-muted-foreground/60 cursor-grab active:cursor-grabbing transition-colors"
-              title="Drag to reorder"
+              title={$_("stashCard.dragToReorder")}
               use:dragHandle
               onclick={(e) => e.stopPropagation()}
               onkeydown={(e) => e.stopPropagation()}
               role="button"
               tabindex="0"
-              aria-label="Drag to reorder"
+              aria-label={$_("stashCard.dragToReorder")}
             >
               <GripVertical size={16} />
             </div>

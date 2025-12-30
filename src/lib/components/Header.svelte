@@ -17,12 +17,13 @@
 <script lang="ts">
   import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
   import type { AppContext, Settings } from "$lib/types";
+  import { _ } from "$lib/i18n";
   import { onMount } from "svelte";
   import logoIcon from "../../../assets/stashpad/Icon-Darkmode.svg";
   import logoTypo from "../../../assets/stashpad/Typo.svg";
 
   let contextInfo = $state<AppContext>({
-    windowTitle: "Checking...",
+    windowTitle: $_("header.checking"),
     processName: "",
     detectedContextId: undefined,
   });
@@ -70,8 +71,10 @@
   });
 
   function getContextName(id: string) {
-    if (id === "default") return "Default";
-    return settings.contexts.find((c) => c.id === id)?.name || "Unknown";
+    if (id === "default") return $_("common.default");
+    return (
+      settings.contexts.find((c) => c.id === id)?.name || $_("common.unknown")
+    );
   }
 </script>
 
@@ -90,7 +93,9 @@
       <span
         class="text-[8px] font-semibold text-muted-foreground uppercase leading-none mb-0.5"
       >
-        {settings.autoContextDetection ? "Auto Context" : "Manual Context"}:
+        {settings.autoContextDetection
+          ? $_("header.autoContext")
+          : $_("header.manualContext")}:
       </span>
 
       <button
@@ -113,17 +118,17 @@
   >
     <img
       src={logoIcon}
-      alt="Stashpad Icon"
+      alt="{$_('app.name')} Icon"
       class="h-8 w-8 pointer-events-none"
     />
-    <img src={logoTypo} alt="Stashpad" class="h-7 pointer-events-none" />
+    <img src={logoTypo} alt={$_("app.name")} class="h-7 pointer-events-none" />
   </div>
 
   <!-- Right Side: Settings -->
   <button
     class="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded-md transition-colors shrink-0 pointer-events-auto"
     onclick={onOpenSettings}
-    title="Settings"
+    title={$_("header.settings")}
   >
     ⚙️
   </button>

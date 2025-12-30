@@ -1,5 +1,22 @@
+<!--
+// SPDX-License-Identifier: AGPL-3.0-only
+
+// Copyright (C) 2025 Nico Wiedemann
+//
+// This file is part of Stashpad.
+// Stashpad is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+// See the GNU Affero General Public License for more details.
+-->
+
 <script lang="ts">
     import type { Context } from "$lib/types";
+    import { _, date as formatDate } from "$lib/i18n";
     import { Search, ArrowDownUp, Clock } from "lucide-svelte";
     import fuzzysort from "fuzzysort";
 
@@ -8,7 +25,7 @@
         currentContextId,
         autoContextDetection = $bindable(false),
         mode = "switch",
-        title = "Select Context",
+        title = "",
         onSelect,
         onAutoContextToggle,
         onManageContexts,
@@ -29,12 +46,20 @@
     let sortBy = $state<"lastUsed" | "alpha">("lastUsed");
     let selectedIndex = $state(0);
 
+    // Computed title based on mode
+    let displayTitle = $derived(
+        title ||
+            (mode === "move"
+                ? $_("contextSwitcher.moveStashTo")
+                : $_("contextSwitcher.switchContext")),
+    );
+
     // Derived state for the list
     let displayedContexts = $derived.by(() => {
         let list = [
             {
                 id: "default",
-                name: "Default",
+                name: $_("common.default"),
                 rules: [] as any[],
                 lastUsed: undefined,
             },
@@ -133,25 +158,39 @@
         );
 
         if (diffInSeconds < 60) {
-            return "just now";
+            return $_("contextSwitcher.time.justNow");
         }
 
         const diffInMinutes = Math.floor(diffInSeconds / 60);
         if (diffInMinutes < 60) {
-            return `${diffInMinutes} minute${diffInMinutes === 1 ? "" : "s"} ago`;
+            return diffInMinutes === 1
+                ? $_("contextSwitcher.time.minute", {
+                      values: { count: diffInMinutes },
+                  })
+                : $_("contextSwitcher.time.minutes", {
+                      values: { count: diffInMinutes },
+                  });
         }
 
         const diffInHours = Math.floor(diffInMinutes / 60);
         if (diffInHours < 24) {
-            return `${diffInHours} hour${diffInHours === 1 ? "" : "s"} ago`;
+            return diffInHours === 1
+                ? $_("contextSwitcher.time.hour", {
+                      values: { count: diffInHours },
+                  })
+                : $_("contextSwitcher.time.hours", {
+                      values: { count: diffInHours },
+                  });
         }
 
         const diffInDays = Math.floor(diffInHours / 24);
         if (diffInDays === 1) {
-            return "Yesterday";
+            return $_("contextSwitcher.time.yesterday");
         }
         if (diffInDays < 7) {
-            return `${diffInDays} days ago`;
+            return $_("contextSwitcher.time.daysAgo", {
+                values: { count: diffInDays },
+            });
         }
 
         // Check if same year
@@ -196,7 +235,7 @@
                 <Search size={14} class="text-muted-foreground" />
                 <input
                     class="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/50"
-                    placeholder="Search contexts..."
+                    placeholder={$_("contextSwitcher.searchPlaceholder")}
                     bind:value={searchQuery}
                     use:focusAction
                     onkeydown={(e) => {
@@ -227,7 +266,7 @@
             <div class="flex items-center justify-between px-1">
                 <span
                     class="text-[10px] font-semibold text-muted-foreground uppercase"
-                    >{title}</span
+                    >{displayTitle}</span
                 >
 
                 <div class="flex items-center gap-1">
@@ -236,7 +275,7 @@
                         'lastUsed'
                             ? 'text-primary'
                             : ''}"
-                        title="Sort by Last Used"
+                        title={$_("contextSwitcher.sortByLastUsed")}
                         onclick={() => (sortBy = "lastUsed")}
                     >
                         <Clock size={12} />
@@ -246,7 +285,7 @@
                         'alpha'
                             ? 'text-primary'
                             : ''}"
-                        title="Sort Alphabetically"
+                        title={$_("contextSwitcher.sortAlphabetically")}
                         onclick={() => (sortBy = "alpha")}
                     >
                         <ArrowDownUp size={12} />
@@ -277,14 +316,14 @@
                     {#if ctx.id === currentContextId && mode === "switch"}
                         <span
                             class="text-[10px] bg-primary/20 text-primary px-1 rounded"
-                            >Active</span
+                            >{$_("common.active")}</span
                         >
                     {/if}
                 </button>
             {/each}
             {#if displayedContexts.length === 0}
                 <div class="p-4 text-center text-sm text-muted-foreground">
-                    No contexts found
+                    {$_("contextSwitcher.noContextsFound")}
                 </div>
             {/if}
         </div>
@@ -296,7 +335,9 @@
                 <div class="flex items-center justify-between px-2 py-1">
                     <label
                         class="flex items-center gap-2 cursor-pointer select-none"
-                        title="Automatically switch context based on active window"
+                        title={$_(
+                            "settings.general.autoContextDetection.description",
+                        )}
                     >
                         <input
                             type="checkbox"
@@ -309,7 +350,7 @@
                             }}
                         />
                         <span class="text-xs text-muted-foreground leading-none"
-                            >Auto Context Detection</span
+                            >{$_("contextSwitcher.autoContextDetection")}</span
                         >
                     </label>
                     <span class="text-[10px] text-muted-foreground/50 font-mono"
@@ -324,14 +365,14 @@
                         onManageContexts?.();
                     }}
                 >
-                    Manage Contexts...
+                    {$_("contextSwitcher.manageContexts")}
                 </button>
             </div>
         {:else}
             <div
                 class="p-2 border-t border-border bg-muted/30 text-[10px] text-muted-foreground italic text-center"
             >
-                Hold Shift to Copy instead of Move
+                {$_("contextSwitcher.holdShiftToCopy")}
             </div>
         {/if}
     </div>

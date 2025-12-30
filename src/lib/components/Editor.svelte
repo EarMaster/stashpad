@@ -17,6 +17,7 @@
 <script lang="ts">
   import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
   import type { StashItem } from "$lib/types";
+  import { _ } from "$lib/i18n";
 
   let { onStash, currentContextId } = $props<{
     onStash: () => void;
@@ -100,14 +101,14 @@
     >
       <span
         class="text-primary font-bold bg-background/80 px-4 py-2 rounded-full shadow-sm"
-        >Drop files to stash</span
+        >{$_("editor.dropFiles")}</span
       >
     </div>
   {/if}
 
   <textarea
     class="flex-1 bg-transparent resize-none outline-none text-sm p-4 placeholder:text-muted-foreground/50 font-mono"
-    placeholder="Type your stash here... (Cmd+Enter to save)"
+    placeholder={$_("editor.placeholder")}
     bind:value={content}
     onkeydown={handleKeydown}
   ></textarea>
@@ -126,7 +127,7 @@
       {/each}
       {#if files.length === 0}
         <span class="text-[10px] text-muted-foreground/60 italic pl-2"
-          >Drag files here</span
+          >{$_("editor.dragFilesHere")}</span
         >
       {/if}
     </div>
@@ -136,7 +137,7 @@
       onclick={save}
       disabled={isSaving || (!content && files.length === 0)}
     >
-      {isSaving ? "Saving..." : "Stash"}
+      {isSaving ? $_("editor.saving") : $_("editor.addStash")}
     </button>
   </div>
 </div>

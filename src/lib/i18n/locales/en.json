@@ -1,0 +1,142 @@
+{
+    "app": {
+        "name": "Stashpad",
+        "version": "v0.1.0",
+        "copyright": "© 2025-2026 Nico Wiedemann",
+        "license": "Licensed under AGPL-3.0-only",
+        "madeWith": "Made with Tauri and Svelte 5"
+    },
+    "common": {
+        "back": "Back",
+        "save": "Save",
+        "cancel": "Cancel",
+        "delete": "Delete",
+        "edit": "Edit",
+        "copy": "Copy",
+        "clear": "Clear",
+        "remove": "Remove",
+        "add": "Add",
+        "loading": "Loading…",
+        "active": "Active",
+        "default": "Default",
+        "unknown": "Unknown"
+    },
+    "header": {
+        "autoContext": "Auto Context",
+        "manualContext": "Manual Context",
+        "settings": "Settings",
+        "checking": "Checking…"
+    },
+    "settings": {
+        "title": "Settings",
+        "backToStash": "Back to Stash",
+        "loadingSettings": "Loading settings…",
+        "contextManagement": {
+            "title": "Context Management",
+            "manageContexts": "Manage Contexts",
+            "description": "Configure custom contexts and auto-switching rules (Process Name, Window Title)"
+        },
+        "general": {
+            "title": "General",
+            "autoContextDetection": {
+                "label": "Auto Context Detection",
+                "description": "Automatically switch stash context based on active window"
+            },
+            "visualEffects": {
+                "label": "Visual Effects",
+                "description": "Enable translucency and blur (Glass effect)"
+            }
+        },
+        "shortcuts": {
+            "title": "Shortcuts",
+            "switchContext": {
+                "label": "Switch Context",
+                "description": "Short press to switch, hold to cycle"
+            },
+            "toggleStashpad": {
+                "label": "Toggle Stashpad",
+                "description": "Global shortcut to show/hide window"
+            },
+            "clickToSet": "Click to set...",
+            "pressShortcut": "Press shortcut...",
+            "clearShortcut": "Clear shortcut"
+        }
+    },
+    "contexts": {
+        "title": "Contexts",
+        "back": "Back",
+        "loadingContexts": "Loading contexts...",
+        "manageDescription": "Manage your contexts and auto-switching rules.",
+        "addContext": "+ Add Context",
+        "addRule": "+ Add Rule",
+        "newContext": "New Context",
+        "contextNamePlaceholder": "Context Name",
+        "removeContext": "Remove",
+        "shiftClickToSkip": "Shift+Click to skip confirmation",
+        "deleteConfirm": "Delete this context?",
+        "autoSwitchRules": "Auto-Switch Rules",
+        "noRules": "No rules defined. This context will only be active if selected manually.",
+        "noContexts": "No custom contexts defined. Stashes will go to \"Default\".",
+        "rules": {
+            "process": "Process Name",
+            "title": "Window Title",
+            "contains": "Contains",
+            "exact": "Exact Match",
+            "valuePlaceholder": "Value (e.g. 'code', 'Project X')"
+        }
+    },
+    "contextSwitcher": {
+        "searchPlaceholder": "Search contexts...",
+        "selectContext": "Select Context",
+        "switchContext": "Switch Context",
+        "moveStashTo": "Move Stash to...",
+        "sortByLastUsed": "Sort by Last Used",
+        "sortAlphabetically": "Sort Alphabetically",
+        "noContextsFound": "No contexts found",
+        "autoContextDetection": "Auto Context Detection",
+        "manageContexts": "Manage Contexts...",
+        "holdShiftToCopy": "Hold Shift to Copy instead of Move",
+        "time": {
+            "justNow": "just now",
+            "minute": "{count} minute ago",
+            "minutes": "{count} minutes ago",
+            "hour": "{count} hour ago",
+            "hours": "{count} hours ago",
+            "yesterday": "Yesterday",
+            "daysAgo": "{count} days ago"
+        }
+    },
+    "queue": {
+        "stashQueue": "Stash Queue",
+        "completed": "Completed",
+        "clearCompleted": "Clear Completed",
+        "deleteAllCompleted": "Delete all completed stashes",
+        "noActiveStashes": "No active stashes",
+        "queueEmpty": "Queue is empty"
+    },
+    "stashCard": {
+        "emptyStash": "Empty stash",
+        "copied": "Copied!",
+        "restoreToActive": "Restore to active queue",
+        "markAsCompleted": "Mark as completed",
+        "dragToAIContext": "Drag to AI Context",
+        "editPlaceholder": "Edit stash content...",
+        "copyToClipboard": "Copy to clipboard",
+        "editContent": "Edit content",
+        "moveToContext": "Move to context",
+        "deleteStash": "Delete stash",
+        "deleteStashConfirm": "Delete this stash?",
+        "shiftClickDelete": "Shift+Click to skip confirmation",
+        "dragToReorder": "Drag to reorder"
+    },
+    "editor": {
+        "placeholder": "Type your stash here... (Cmd+Enter to save)",
+        "addStash": "Stash",
+        "saving": "Saving...",
+        "dropFiles": "Drop files to stash",
+        "dragFilesHere": "Drag files here"
+    },
+    "shortcutInput": {
+        "ariaLabel": "Keyboard shortcut input. Press Enter to record a new shortcut."
+    }
+}

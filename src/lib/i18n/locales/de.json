@@ -1,0 +1,142 @@
+{
+    "app": {
+        "name": "Stashpad",
+        "version": "v0.1.0",
+        "copyright": "© 2025-2026 Nico Wiedemann",
+        "license": "Lizenziert unter AGPL-3.0-only",
+        "madeWith": "Erstellt mit Tauri und Svelte 5"
+    },
+    "common": {
+        "back": "Zurück",
+        "save": "Speichern",
+        "cancel": "Abbrechen",
+        "delete": "Löschen",
+        "edit": "Bearbeiten",
+        "copy": "Kopieren",
+        "clear": "Leeren",
+        "remove": "Entfernen",
+        "add": "Hinzufügen",
+        "loading": "Lädt…",
+        "active": "Aktiv",
+        "default": "Standard",
+        "unknown": "Unbekannt"
+    },
+    "header": {
+        "autoContext": "Automatischer Kontext",
+        "manualContext": "Manueller Kontext",
+        "settings": "Einstellungen",
+        "checking": "Prüfe…"
+    },
+    "settings": {
+        "title": "Einstellungen",
+        "backToStash": "Zurück zum Stash",
+        "loadingSettings": "Einstellungen werden geladen…",
+        "contextManagement": {
+            "title": "Kontextverwaltung",
+            "manageContexts": "Kontexte verwalten",
+            "description": "Konfigurieren Sie benutzerdefinierte Kontexte und Auto-Wechsel-Regeln (Prozessname, Fenstertitel)"
+        },
+        "general": {
+            "title": "Allgemein",
+            "autoContextDetection": {
+                "label": "Automatische Kontexterkennung",
+                "description": "Automatisch den Stash-Kontext basierend auf dem aktiven Fenster wechseln"
+            },
+            "visualEffects": {
+                "label": "Visuelle Effekte",
+                "description": "Transparenz und Unschärfe aktivieren (Glas-Effekt)"
+            }
+        },
+        "shortcuts": {
+            "title": "Tastenkürzel",
+            "switchContext": {
+                "label": "Kontext wechseln",
+                "description": "Kurz drücken zum Wechseln, gedrückt halten zum Durchblättern"
+            },
+            "toggleStashpad": {
+                "label": "Stashpad ein-/ausblenden",
+                "description": "Globales Tastenkürzel zum Ein-/Ausblenden des Fensters"
+            },
+            "clickToSet": "Klicken zum Festlegen...",
+            "pressShortcut": "Tastenkürzel drücken...",
+            "clearShortcut": "Tastenkürzel löschen"
+        }
+    },
+    "contexts": {
+        "title": "Kontexte",
+        "back": "Zurück",
+        "loadingContexts": "Kontexte werden geladen...",
+        "manageDescription": "Verwalten Sie Ihre Kontexte und Auto-Wechsel-Regeln.",
+        "addContext": "+ Kontext hinzufügen",
+        "addRule": "+ Regel hinzufügen",
+        "newContext": "Neuer Kontext",
+        "contextNamePlaceholder": "Kontextname",
+        "removeContext": "Entfernen",
+        "shiftClickToSkip": "Umschalt+Klick zum Überspringen der Bestätigung",
+        "deleteConfirm": "Diesen Kontext löschen?",
+        "autoSwitchRules": "Auto-Wechsel-Regeln",
+        "noRules": "Keine Regeln definiert. Dieser Kontext wird nur bei manueller Auswahl aktiv.",
+        "noContexts": "Keine benutzerdefinierten Kontexte definiert. Stashes gehen zu \"Standard\".",
+        "rules": {
+            "process": "Prozessname",
+            "title": "Fenstertitel",
+            "contains": "Enthält",
+            "exact": "Exakte Übereinstimmung",
+            "valuePlaceholder": "Wert (z.B. 'code', 'Projekt X')"
+        }
+    },
+    "contextSwitcher": {
+        "searchPlaceholder": "Kontexte suchen...",
+        "selectContext": "Kontext auswählen",
+        "switchContext": "Kontext wechseln",
+        "moveStashTo": "Stash verschieben nach...",
+        "sortByLastUsed": "Nach letzter Verwendung sortieren",
+        "sortAlphabetically": "Alphabetisch sortieren",
+        "noContextsFound": "Keine Kontexte gefunden",
+        "autoContextDetection": "Automatische Kontexterkennung",
+        "manageContexts": "Kontexte verwalten...",
+        "holdShiftToCopy": "Umschalt halten zum Kopieren statt Verschieben",
+        "time": {
+            "justNow": "gerade eben",
+            "minute": "vor {count} Minute",
+            "minutes": "vor {count} Minuten",
+            "hour": "vor {count} Stunde",
+            "hours": "vor {count} Stunden",
+            "yesterday": "Gestern",
+            "daysAgo": "vor {count} Tagen"
+        }
+    },
+    "queue": {
+        "stashQueue": "Stash-Warteschlange",
+        "completed": "Erledigt",
+        "clearCompleted": "Erledigte löschen",
+        "deleteAllCompleted": "Alle erledigten Stashes löschen",
+        "noActiveStashes": "Keine aktiven Stashes",
+        "queueEmpty": "Warteschlange ist leer"
+    },
+    "stashCard": {
+        "emptyStash": "Leerer Stash",
+        "copied": "Kopiert!",
+        "restoreToActive": "Zur aktiven Warteschlange wiederherstellen",
+        "markAsCompleted": "Als erledigt markieren",
+        "dragToAIContext": "Zum KI-Kontext ziehen",
+        "editPlaceholder": "Stash-Inhalt bearbeiten...",
+        "copyToClipboard": "In Zwischenablage kopieren",
+        "editContent": "Inhalt bearbeiten",
+        "moveToContext": "Zu Kontext verschieben",
+        "deleteStash": "Stash löschen",
+        "deleteStashConfirm": "Diesen Stash löschen?",
+        "shiftClickDelete": "Umschalt+Klick zum Überspringen der Bestätigung",
+        "dragToReorder": "Zum Neuordnen ziehen"
+    },
+    "editor": {
+        "placeholder": "Stash hier eingeben... (Cmd+Enter zum Speichern)",
+        "addStash": "Stashen",
+        "saving": "Speichere...",
+        "dropFiles": "Dateien hier ablegen",
+        "dragFilesHere": "Dateien hierher ziehen"
+    },
+    "shortcutInput": {
+        "ariaLabel": "Tastenkürzel-Eingabe. Drücken Sie Enter, um ein neues Tastenkürzel aufzuzeichnen."
+    }
+}
