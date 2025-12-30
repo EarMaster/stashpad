@@ -160,5 +160,10 @@
     },
     "shortcutInput": {
         "ariaLabel": "Keyboard shortcut input. Press Enter to record a new shortcut."
+    },
+    "exitDialog": {
+        "title": "Discard Draft?",
+        "description": "You have unsaved content in the editor. Are you sure you want to quit?",
+        "discardAndExit": "Discard & Exit"
     }
 }

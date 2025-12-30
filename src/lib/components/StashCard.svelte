@@ -50,7 +50,7 @@
     showReorderHandle?: boolean;
     onMoveRequest: () => void;
     onToggleComplete: () => void;
-    onDelete: () => void;
+    onDelete: (skipConfirm?: boolean) => void;
     onUpdateContent: (content: string) => void;
   }>();
 
@@ -284,9 +284,7 @@
               class="p-1.5 rounded hover:bg-red-500/10 text-muted-foreground hover:text-red-500 transition-all"
               onclick={(e) => {
                 e.stopPropagation();
-                if (e.shiftKey || confirm($_("stashCard.deleteStashConfirm"))) {
-                  onDelete();
-                }
+                onDelete(e.shiftKey);
               }}
               title={$_("stashCard.shiftClickDelete")}
             >

@@ -21,6 +21,7 @@
    import type { StashItem } from "$lib/types";
    import { _ } from "$lib/i18n";
    import StashCard from "./StashCard.svelte";
+   import ConfirmationDialog from "./ConfirmationDialog.svelte";
    import { Trash2 } from "lucide-svelte";
 
    let {
@@ -44,6 +45,10 @@
    let activeStashes = $state<StashItem[]>([]);
    let completedStashes = $state<StashItem[]>([]);
    let draggedItemId = $state<string | null>(null);
+
+   // Confirmation state
+   let stashToDelete = $state<string | null>(null);
+   let showClearCompletedConfirm = $state(false);
 
    const flipDurationMs = 200;
 
@@ -110,9 +115,13 @@
       load();
    }
 
-   async function deleteStash(id: string) {
-      await adapter.deleteStash(id);
-      load();
+   async function deleteStash(id: string, skipConfirm = false) {
+      if (skipConfirm) {
+         await adapter.deleteStash(id);
+         load();
+      } else {
+         stashToDelete = id;
+      }
    }
 
    async function updateContent(item: StashItem, content: string) {
@@ -214,7 +223,7 @@
                      mode={effectiveMode}
                      onMoveRequest={() => onMoveRequest(item)}
                      onToggleComplete={() => toggleComplete(item)}
-                     onDelete={() => deleteStash(item.id)}
+                     onDelete={(skip) => deleteStash(item.id, skip)}
                      onUpdateContent={(content) => updateContent(item, content)}
                   />
                {/if}
@@ -245,7 +254,7 @@
             </h2>
             <button
                class="text-[9px] flex items-center gap-1 text-red-500/70 dark:text-red-400/70 hover:text-red-600 dark:hover:text-red-500 transition-colors bg-red-500/5 dark:bg-red-400/5 px-1.5 py-0.5 rounded border border-red-500/10 dark:border-red-400/10 pointer-events-auto"
-               onclick={clearCompleted}
+               onclick={() => (showClearCompletedConfirm = true)}
                title={$_("queue.deleteAllCompleted")}
             >
                <Trash2 size={10} />
@@ -279,6 +288,33 @@
          <span class="text-sm">{$_("queue.queueEmpty")}</span>
       </div>
    {/if}
+   <!-- Confirmations -->
+   <ConfirmationDialog
+      open={!!stashToDelete}
+      title={$_("stashCard.deleteStashConfirm")}
+      description={$_("stashCard.deleteStashConfirm")}
+      confirmText={$_("common.delete")}
+      variant="destructive"
+      onConfirm={() => {
+         if (stashToDelete) {
+            adapter.deleteStash(stashToDelete).then(() => load());
+         }
+         stashToDelete = null;
+      }}
+      onCancel={() => (stashToDelete = null)}
+   />
+
+   <ConfirmationDialog
+      bind:open={showClearCompletedConfirm}
+      title={$_("queue.clearCompleted")}
+      description={$_("queue.deleteAllCompleted")}
+      confirmText={$_("common.delete")}
+      variant="destructive"
+      onConfirm={() => {
+         clearCompleted();
+         showClearCompletedConfirm = false; // handled by dialog close but good to be explicit
+      }}
+   />
 </div>
 
 <style>

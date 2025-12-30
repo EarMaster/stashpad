@@ -24,9 +24,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build",
-    "preview": "vite preview",
+    "dev": "tauri dev",
+    "vite:dev": "vite",
+    "vite:build": "tsc && vite build",
+    "vite:preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:icons": "tauri icon --output ./assets/stashpad/tauri/icons --ios-color #d8d8d9 ./assets/stashpad/Icon.svg"

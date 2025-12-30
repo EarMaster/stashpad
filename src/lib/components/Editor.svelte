@@ -19,13 +19,18 @@
   import type { StashItem } from "$lib/types";
   import { _ } from "$lib/i18n";
 
-  let { onStash, currentContextId } = $props<{
+  let {
+    onStash,
+    currentContextId,
+    content = $bindable(""),
+    files = $bindable([]),
+  } = $props<{
     onStash: () => void;
     currentContextId: string;
+    content?: string;
+    files?: string[];
   }>();
 
-  let content = $state("");
-  let files = $state<string[]>([]);
   let dragOver = $state(false);
   let isSaving = $state(false);
 

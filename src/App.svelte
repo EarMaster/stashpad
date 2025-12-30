@@ -16,6 +16,7 @@
 
 <script lang="ts">
    import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
+   import { _ } from "$lib/i18n";
    import type { Settings, StashItem } from "$lib/types";
    import Header from "$lib/components/Header.svelte";
    import Editor from "$lib/components/Editor.svelte";
@@ -23,6 +24,9 @@
    import SettingsView from "$lib/components/Settings.svelte";
    import ContextManager from "$lib/components/ContextManager.svelte";
    import ContextSwitcher from "$lib/components/ContextSwitcher.svelte";
+   import ConfirmationDialog from "$lib/components/ConfirmationDialog.svelte";
+   import { onMount } from "svelte";
+   import { getCurrentWindow } from "@tauri-apps/api/window";
 
    let transferMode = $state("Drag");
    let refreshTrigger = $state(0);
@@ -30,6 +34,25 @@
    let navigationSource = $state<"Settings" | "Switcher">("Settings");
    let currentContextId = $state<string>("default");
    let movingStash = $state<StashItem | null>(null);
+
+   // Draft state persistence
+   let editorDraft = $state("");
+   let editorFiles = $state<string[]>([]);
+   let showExitConfirmation = $state(false);
+
+   const appWindow = getCurrentWindow();
+
+   onMount(() => {
+      const unlisten = appWindow.onCloseRequested(async (event) => {
+         if (editorDraft.trim() || editorFiles.length > 0) {
+            event.preventDefault();
+            showExitConfirmation = true;
+         }
+      });
+      return () => {
+         unlisten.then((f) => f());
+      };
+   });
 
    // Centralized settings state
    let settings = $state<Settings>({
@@ -297,7 +320,12 @@
 
       <div class="flex-1 flex flex-col min-h-0">
          <div class="p-4 shrink-0">
-            <Editor onStash={handleStash} {currentContextId} />
+            <Editor
+               onStash={handleStash}
+               {currentContextId}
+               bind:content={editorDraft}
+               bind:files={editorFiles}
+            />
          </div>
 
          <Queue
@@ -337,4 +365,17 @@
          }}
       />
    {/if}
+
+   <ConfirmationDialog
+      bind:open={showExitConfirmation}
+      title={$_("exitDialog.title")}
+      description={$_("exitDialog.description")}
+      confirmText={$_("exitDialog.discardAndExit")}
+      variant="destructive"
+      onConfirm={() => {
+         editorDraft = "";
+         editorFiles = [];
+         appWindow.close();
+      }}
+   />
 </main>

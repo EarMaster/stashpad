@@ -160,5 +160,10 @@
     },
     "shortcutInput": {
         "ariaLabel": "Tastenkürzel-Eingabe. Drücken Sie Enter, um ein neues Tastenkürzel aufzuzeichnen."
+    },
+    "exitDialog": {
+        "title": "Entwurf verwerfen?",
+        "description": "Sie haben ungespeicherte Inhalte im Editor. Möchten Sie wirklich beenden?",
+        "discardAndExit": "Verwerfen & Beenden"
     }
 }

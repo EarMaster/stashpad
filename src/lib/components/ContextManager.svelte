@@ -7,6 +7,7 @@
     import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
     import type { Settings } from "$lib/types";
     import { _ } from "$lib/i18n";
+    import ConfirmationDialog from "./ConfirmationDialog.svelte";
 
     let { onBack } = $props<{ onBack: () => void }>();
 
@@ -17,6 +18,7 @@
         shortcuts: {},
     });
     let isLoading = $state(true);
+    let contextToDelete = $state<number | null>(null);
 
     const adapter = new DesktopStorageAdapter();
 
@@ -128,11 +130,10 @@
                             <button
                                 class="text-muted-foreground hover:text-destructive text-xs px-2 py-1 rounded hover:bg-muted"
                                 onclick={(e) => {
-                                    if (
-                                        e.shiftKey ||
-                                        confirm($_("contexts.deleteConfirm"))
-                                    ) {
+                                    if (e.shiftKey) {
                                         removeContext(i);
+                                    } else {
+                                        contextToDelete = i;
                                     }
                                 }}
                                 title={$_("contexts.shiftClickToSkip")}
@@ -227,4 +228,19 @@
             </div>
         {/if}
     </div>
+
+    {#if contextToDelete !== null}
+        <ConfirmationDialog
+            open={true}
+            title={$_("contexts.deleteConfirm")}
+            description={$_("contexts.deleteConfirm")}
+            confirmText={$_("common.delete")}
+            variant="destructive"
+            onConfirm={() => {
+                if (contextToDelete !== null) removeContext(contextToDelete);
+                contextToDelete = null;
+            }}
+            onCancel={() => (contextToDelete = null)}
+        />
+    {/if}
 </div>
