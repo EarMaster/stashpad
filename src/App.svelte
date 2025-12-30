@@ -198,6 +198,16 @@
          if (!settings.shortcuts) {
             settings.shortcuts = {};
          }
+
+         const loadedId = settings.activeContextId;
+         // Validate context exists (or is default)
+         const exists =
+            loadedId === "default" ||
+            settings.contexts.some((c) => c.id === loadedId);
+
+         if (loadedId && exists) {
+            currentContextId = loadedId;
+         }
       } catch (e) {
          console.error(e);
       }
@@ -210,6 +220,35 @@
    function handleStash() {
       refreshTrigger++;
    }
+
+   $effect(() => {
+      const theme = settings.theme || "system";
+      const root = document.documentElement;
+
+      const applyTheme = (isDark: boolean) => {
+         if (isDark) {
+            root.classList.add("dark");
+         } else {
+            root.classList.remove("dark");
+         }
+      };
+
+      if (theme === "system") {
+         const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+         applyTheme(mediaQuery.matches);
+
+         const handler = (e: MediaQueryListEvent) => {
+            if (settings.theme === "system" || !settings.theme) {
+               applyTheme(e.matches);
+            }
+         };
+
+         mediaQuery.addEventListener("change", handler);
+         return () => mediaQuery.removeEventListener("change", handler);
+      } else {
+         applyTheme(theme === "dark");
+      }
+   });
 </script>
 
 <svelte:window onkeydown={handleKeydown} onkeyup={handleKeyup} />
@@ -257,11 +296,9 @@
       />
 
       <div class="flex-1 flex flex-col min-h-0">
-         <div class="p-4 pb-0 shrink-0">
+         <div class="p-4 shrink-0">
             <Editor onStash={handleStash} {currentContextId} />
          </div>
-
-         <div class="h-px bg-border/50 my-2 mx-4 shrink-0"></div>
 
          <Queue
             {transferMode}
@@ -276,9 +313,11 @@
       </div>
    {:else if view === "Settings"}
       <SettingsView
+         bind:settings
          onBack={() => {
             view = "Main";
-            loadSettings(); // Reload on return in case of changes
+            // No need to reload, we are bound. But safe to keep or remove.
+            // loadSettings();
          }}
          onOpenContexts={() => {
             navigationSource = "Settings";

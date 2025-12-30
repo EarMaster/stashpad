@@ -198,7 +198,7 @@
         </div>
       {:else}
         <div
-          class="prose prose-invert prose-xs max-w-none line-clamp-3 text-sm text-foreground/90 leading-relaxed font-sans {item.completed
+          class="prose dark:prose-invert prose-xs max-w-none line-clamp-3 text-sm text-foreground/90 leading-relaxed font-sans {item.completed
             ? 'line-through text-muted-foreground/70'
             : ''}"
         >

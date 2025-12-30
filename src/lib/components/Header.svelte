@@ -20,6 +20,7 @@
   import { _ } from "$lib/i18n";
   import { onMount } from "svelte";
   import logoIcon from "../../../assets/stashpad/Icon-Darkmode.svg";
+  import logoIconLight from "../../../assets/stashpad/Icon.svg";
   import logoTypo from "../../../assets/stashpad/Typo.svg";
 
   let contextInfo = $state<AppContext>({
@@ -85,7 +86,9 @@
   <!-- Left side: Context Display -->
   <div class="flex items-center gap-3 overflow-hidden pointer-events-none">
     <div
-      class="flex h-2 w-2 shrink-0 rounded-full bg-accent"
+      class="flex h-2 w-2 shrink-0 rounded-full transition-colors {settings.autoContextDetection
+        ? 'bg-primary dark:bg-[var(--amber)]'
+        : 'bg-[#27272a] dark:bg-[#d8d8d9]'}"
       class:animate-pulse={settings.autoContextDetection}
     ></div>
 
@@ -116,12 +119,24 @@
     data-tauri-drag-region
     class="absolute left-1/2 -translate-x-1/2 hidden sm:flex items-center gap-1.5 shrink-0 select-none cursor-default py-2 pointer-events-auto"
   >
+    <!-- Light Mode Logo -->
+    <img
+      src={logoIconLight}
+      alt="{$_('app.name')} Icon"
+      class="h-8 w-8 pointer-events-none dark:hidden block"
+    />
+    <!-- Dark Mode Logo -->
     <img
       src={logoIcon}
       alt="{$_('app.name')} Icon"
-      class="h-8 w-8 pointer-events-none"
+      class="h-8 w-8 pointer-events-none hidden dark:block"
     />
-    <img src={logoTypo} alt={$_("app.name")} class="h-7 pointer-events-none" />
+    <!-- Typo (Inverted in light mode if it's white, assuming white original) -->
+    <img
+      src={logoTypo}
+      alt={$_("app.name")}
+      class="h-7 pointer-events-none invert dark:invert-0 transition-all"
+    />
   </div>
 
   <!-- Right Side: Settings -->

@@ -87,7 +87,7 @@
 </script>
 
 <div
-  class="relative flex flex-col rounded-xl border border-border bg-card text-card-foreground shadow-sm h-[200px] transition-colors"
+  class="relative flex flex-col rounded-xl border border-border bg-[var(--muted-editor)] text-card-foreground shadow-sm h-[200px] transition-colors"
   ondrop={handleDrop}
   ondragover={handleDragOver}
   ondragleave={handleDragLeave}

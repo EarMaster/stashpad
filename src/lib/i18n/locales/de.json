@@ -57,6 +57,13 @@
         },
         "appearance": {
             "title": "Erscheinungsbild",
+            "theme": {
+                "label": "Design",
+                "description": "Anwendungsdesign auswählen",
+                "light": "Hell",
+                "dark": "Dunkel",
+                "system": "System"
+            },
             "visualEffects": {
                 "label": "Visuelle Effekte",
                 "description": "Transparenz und Unschärfe aktivieren (Glas-Effekt)"

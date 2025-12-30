@@ -5,30 +5,37 @@ export default {
     theme: {
         extend: {
             colors: {
-                background: '#18181b', // Deep Charcoal
-                foreground: '#d8d8d9', // Terminal White
+                background: 'var(--background)',
+                foreground: 'var(--foreground)',
 
-                muted: '#27272a',      // Lighter Charcoal
-                'muted-foreground': '#a1a1aa', // Standard muted text (zinc-400 equivalent for contrast)
+                muted: 'var(--muted)',
+                'muted-foreground': 'var(--muted-foreground)',
 
-                card: '#2c373d',       // Midnight Graphite
-                'card-foreground': '#d8d8d9',
+                card: 'var(--card)',
+                'card-foreground': 'var(--card-foreground)',
+
+                popover: 'var(--popover)',
+                'popover-foreground': 'var(--popover-foreground)',
 
                 primary: {
-                    DEFAULT: '#8b5cf6', // Electric Violet
-                    foreground: '#ffffff'
+                    DEFAULT: 'var(--primary)',
+                    foreground: 'var(--primary-foreground)'
                 },
                 secondary: {
-                    DEFAULT: '#2c373d', // Midnight Graphite
-                    foreground: '#d8d8d9'
+                    DEFAULT: 'var(--secondary)',
+                    foreground: 'var(--secondary-foreground)'
                 },
                 accent: {
-                    DEFAULT: '#f59e0b', // Amber
-                    foreground: '#ffffff'
+                    DEFAULT: 'var(--accent)',
+                    foreground: 'var(--accent-foreground)'
                 },
-                border: '#27272a',
-                input: '#27272a',
-                ring: '#8b5cf6',
+                destructive: {
+                    DEFAULT: 'var(--destructive)',
+                    foreground: 'var(--destructive-foreground)'
+                },
+                border: 'var(--border)',
+                input: 'var(--input)',
+                ring: 'var(--ring)',
             }
         },
     },

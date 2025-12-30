@@ -173,7 +173,7 @@
 </script>
 
 <div
-   class="flex-1 overflow-y-auto p-4 pt-0 pb-10 space-y-8 scrollbar-hide"
+   class="flex-1 overflow-y-auto p-4 pt-0 pb-10 space-y-8 scrollbar-hide bg-[var(--background-queue)]"
    role="list"
 >
    <!-- Active Section -->
@@ -244,7 +244,7 @@
                {$_("queue.completed")} ({completedStashes.length})
             </h2>
             <button
-               class="text-[9px] flex items-center gap-1 text-red-400/70 hover:text-red-500 transition-colors bg-red-400/5 px-1.5 py-0.5 rounded border border-red-400/10 pointer-events-auto"
+               class="text-[9px] flex items-center gap-1 text-red-500/70 dark:text-red-400/70 hover:text-red-600 dark:hover:text-red-500 transition-colors bg-red-500/5 dark:bg-red-400/5 px-1.5 py-0.5 rounded border border-red-500/10 dark:border-red-400/10 pointer-events-auto"
                onclick={clearCompleted}
                title={$_("queue.deleteAllCompleted")}
             >

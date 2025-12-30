@@ -26,36 +26,17 @@
   } from "$lib/i18n";
   import ShortcutInput from "./ShortcutInput.svelte";
 
-  let { onBack, onOpenContexts } = $props<{
+  let {
+    settings = $bindable(),
+    onBack,
+    onOpenContexts,
+  } = $props<{
+    settings: Settings;
     onBack: () => void;
     onOpenContexts: () => void;
   }>();
 
-  let settings = $state<Settings>({
-    autoContextDetection: true,
-    contexts: [],
-    activeContextId: undefined,
-    shortcuts: {},
-    newStashPosition: "top",
-  });
-  let isLoading = $state(true);
-
   const adapter = new DesktopStorageAdapter();
-
-  async function load() {
-    try {
-      const loaded = await adapter.getSettings();
-      // Ensure defaults for missing fields (migration)
-      if (loaded && (loaded as any).newStashPosition === undefined) {
-        (loaded as any).newStashPosition = "top";
-      }
-      settings = loaded;
-    } catch (e) {
-      console.error("Failed to load settings", e);
-    } finally {
-      isLoading = false;
-    }
-  }
 
   async function save() {
     try {
@@ -64,10 +45,7 @@
       console.error("Failed to save settings", e);
     }
   }
-
-  $effect(() => {
-    load();
-  });
+  // Force rebuild
 </script>
 
 <div class="h-full flex flex-col bg-background">
@@ -86,255 +64,288 @@
   </div>
 
   <div class="flex-1 overflow-y-auto p-4 scrollbar-hide">
-    {#if isLoading}
-      <div class="text-sm text-muted-foreground animate-pulse">
-        {$_("settings.loadingSettings")}
-      </div>
-    {:else}
-      <div class="space-y-6 max-w-2xl mx-auto">
-        <!-- Navigation to Contexts -->
-        <section class="space-y-4">
-          <h2
-            class="text-sm font-semibold uppercase tracking-wider text-muted-foreground"
-          >
-            {$_("settings.contextManagement.title")}
-          </h2>
-          <button
-            class="w-full flex items-center justify-between p-4 rounded-lg border border-border bg-card hover:bg-muted/50 transition-colors group"
-            onclick={onOpenContexts}
-          >
-            <div class="flex flex-col items-start gap-1">
-              <span class="font-medium"
-                >{$_("settings.contextManagement.manageContexts")}</span
-              >
-              <span class="text-xs text-muted-foreground"
-                >{$_("settings.contextManagement.description")}</span
-              >
-            </div>
-            <span class="text-muted-foreground group-hover:text-foreground"
-              >→</span
+    <div class="space-y-6 max-w-2xl mx-auto">
+      <!-- Navigation to Contexts -->
+      <section class="space-y-4">
+        <h2
+          class="text-sm font-semibold uppercase tracking-wider text-muted-foreground"
+        >
+          {$_("settings.contextManagement.title")}
+        </h2>
+        <button
+          class="w-full flex items-center justify-between p-4 rounded-lg border border-border bg-card hover:bg-muted/50 transition-colors group"
+          onclick={onOpenContexts}
+        >
+          <div class="flex flex-col items-start gap-1">
+            <span class="font-medium"
+              >{$_("settings.contextManagement.manageContexts")}</span
             >
-          </button>
-        </section>
-
-        <!-- General Section -->
-        <section class="space-y-4">
-          <h2
-            class="text-sm font-semibold uppercase tracking-wider text-muted-foreground"
+            <span class="text-xs text-muted-foreground"
+              >{$_("settings.contextManagement.description")}</span
+            >
+          </div>
+          <span class="text-muted-foreground group-hover:text-foreground"
+            >→</span
           >
-            {$_("settings.general.title")}
-          </h2>
+        </button>
+      </section>
 
-          <!-- Language Selector -->
-          <div
-            class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
-          >
-            <div class="space-y-0.5">
-              <div class="text-sm font-medium">
-                {$_("settings.general.language.label")}
-              </div>
-              <div class="text-xs text-muted-foreground">
-                {$_("settings.general.language.description")}
-              </div>
+      <!-- General Section -->
+      <section class="space-y-4">
+        <h2
+          class="text-sm font-semibold uppercase tracking-wider text-muted-foreground"
+        >
+          {$_("settings.general.title")}
+        </h2>
+
+        <!-- Language Selector -->
+        <div
+          class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
+        >
+          <div class="space-y-0.5">
+            <div class="text-sm font-medium">
+              {$_("settings.general.language.label")}
             </div>
-            <select
-              class="bg-muted border border-border rounded-md px-3 py-1.5 text-sm font-medium cursor-pointer outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors"
-              value={settings.locale ?? "auto"}
+            <div class="text-xs text-muted-foreground">
+              {$_("settings.general.language.description")}
+            </div>
+          </div>
+          <select
+            class="bg-muted border border-border rounded-md px-3 py-1.5 text-sm font-medium cursor-pointer outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors"
+            value={settings.locale ?? "auto"}
+            onchange={(e) => {
+              const newLocale = e.currentTarget.value as
+                | "auto"
+                | SupportedLocale;
+              settings.locale = newLocale;
+              setLocale(newLocale);
+              save();
+            }}
+          >
+            <option value="auto">
+              {$_("settings.general.language.automatic")}
+            </option>
+            {#each SUPPORTED_LOCALES as localeCode}
+              <option value={localeCode}>
+                {LOCALE_DISPLAY_NAMES[localeCode]}
+              </option>
+            {/each}
+          </select>
+        </div>
+
+        <div
+          class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
+        >
+          <div class="space-y-0.5">
+            <div class="text-sm font-medium">
+              {$_("settings.general.autoContextDetection.label")}
+            </div>
+            <div class="text-xs text-muted-foreground">
+              {$_("settings.general.autoContextDetection.description")}
+            </div>
+          </div>
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input
+              type="checkbox"
+              class="sr-only peer"
+              bind:checked={settings.autoContextDetection}
+              onchange={save}
+            />
+            <div
+              class="w-11 h-6 bg-muted rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary peer-focus-visible:ring-2 peer-focus-visible:ring-primary peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-background"
+            ></div>
+          </label>
+        </div>
+
+        <!-- New Stash Position Selector -->
+        <div
+          class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
+        >
+          <div class="space-y-0.5">
+            <div class="text-sm font-medium">
+              {$_("settings.general.newStashPosition.label")}
+            </div>
+            <div class="text-xs text-muted-foreground">
+              {$_("settings.general.newStashPosition.description")}
+            </div>
+          </div>
+          <div class="flex bg-muted p-1 rounded-lg border border-border">
+            {#each ["top", "bottom"] as pos}
+              <label
+                class="flex items-center gap-2 px-4 py-1.5 rounded-md text-xs font-semibold cursor-pointer transition-all focus-within:ring-2 focus-within:ring-primary focus-within:ring-offset-2 focus-within:ring-offset-background {settings.newStashPosition ===
+                pos
+                  ? 'bg-primary text-primary-foreground shadow-sm ring-1 ring-primary/20'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-accent'}"
+              >
+                <input
+                  type="radio"
+                  name="newStashPosition"
+                  value={pos}
+                  class="sr-only"
+                  checked={settings.newStashPosition === pos}
+                  onchange={(e) => {
+                    settings.newStashPosition = e.currentTarget.value as
+                      | "top"
+                      | "bottom";
+                    save();
+                  }}
+                />
+                {$_(`settings.general.newStashPosition.${pos}`)}
+              </label>
+            {/each}
+          </div>
+        </div>
+      </section>
+
+      <!-- Appearance Section -->
+      <section class="space-y-4">
+        <h2
+          class="text-sm font-semibold uppercase tracking-wider text-muted-foreground"
+        >
+          {$_("settings.appearance.title")}
+        </h2>
+
+        <div
+          class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
+        >
+          <div class="space-y-0.5">
+            <div class="text-sm font-medium">
+              {$_("settings.appearance.theme.label")}
+            </div>
+            <div class="text-xs text-muted-foreground">
+              {$_("settings.appearance.theme.description")}
+            </div>
+          </div>
+          <div class="flex bg-muted p-1 rounded-lg border border-border">
+            {#each ["light", "dark", "system"] as theme}
+              <label
+                class="flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-semibold cursor-pointer transition-all focus-within:ring-2 focus-within:ring-primary focus-within:ring-offset-2 focus-within:ring-offset-background {(settings.theme ??
+                  'system') === theme
+                  ? 'bg-primary text-primary-foreground shadow-sm ring-1 ring-primary/20'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-accent'}"
+              >
+                <input
+                  type="radio"
+                  name="theme"
+                  value={theme}
+                  class="sr-only"
+                  checked={(settings.theme ?? "system") === theme}
+                  onchange={(e) => {
+                    settings.theme = e.currentTarget.value as
+                      | "light"
+                      | "dark"
+                      | "system";
+                    save();
+                  }}
+                />
+                {$_(`settings.appearance.theme.${theme}`)}
+              </label>
+            {/each}
+          </div>
+        </div>
+
+        <div
+          class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
+        >
+          <div class="space-y-0.5">
+            <div class="text-sm font-medium">
+              {$_("settings.appearance.visualEffects.label")}
+            </div>
+            <div class="text-xs text-muted-foreground">
+              {$_("settings.appearance.visualEffects.description")}
+            </div>
+          </div>
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input
+              type="checkbox"
+              class="sr-only peer"
+              checked={settings.visualEffectsEnabled ??
+                !window.matchMedia("(prefers-reduced-transparency: reduce)")
+                  .matches}
               onchange={(e) => {
-                const newLocale = e.currentTarget.value as
-                  | "auto"
-                  | SupportedLocale;
-                settings.locale = newLocale;
-                setLocale(newLocale);
+                settings.visualEffectsEnabled = e.currentTarget.checked;
                 save();
               }}
-            >
-              <option value="auto">
-                {$_("settings.general.language.automatic")}
-              </option>
-              {#each SUPPORTED_LOCALES as localeCode}
-                <option value={localeCode}>
-                  {LOCALE_DISPLAY_NAMES[localeCode]}
-                </option>
-              {/each}
-            </select>
-          </div>
-
-          <div
-            class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
-          >
-            <div class="space-y-0.5">
-              <div class="text-sm font-medium">
-                {$_("settings.general.autoContextDetection.label")}
-              </div>
-              <div class="text-xs text-muted-foreground">
-                {$_("settings.general.autoContextDetection.description")}
-              </div>
-            </div>
-            <label class="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                class="sr-only peer"
-                bind:checked={settings.autoContextDetection}
-                onchange={save}
-              />
-              <div
-                class="w-11 h-6 bg-muted rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary peer-focus-visible:ring-2 peer-focus-visible:ring-primary peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-background"
-              ></div>
-            </label>
-          </div>
-
-          <!-- New Stash Position Selector -->
-          <div
-            class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
-          >
-            <div class="space-y-0.5">
-              <div class="text-sm font-medium">
-                {$_("settings.general.newStashPosition.label")}
-              </div>
-              <div class="text-xs text-muted-foreground">
-                {$_("settings.general.newStashPosition.description")}
-              </div>
-            </div>
-            <div class="flex bg-muted p-1 rounded-lg border border-border">
-              {#each ["top", "bottom"] as pos}
-                <label
-                  class="flex items-center gap-2 px-4 py-1.5 rounded-md text-xs font-semibold cursor-pointer transition-all {(settings.newStashPosition ??
-                    'top') === pos
-                    ? 'bg-primary text-primary-foreground shadow-sm ring-1 ring-primary/20'
-                    : 'text-muted-foreground hover:text-foreground hover:bg-white/5'}"
-                >
-                  <input
-                    type="radio"
-                    name="newStashPosition"
-                    value={pos}
-                    class="sr-only"
-                    checked={(settings.newStashPosition ?? "top") === pos}
-                    onchange={(e) => {
-                      settings.newStashPosition = e.currentTarget.value as
-                        | "top"
-                        | "bottom";
-                      save();
-                    }}
-                  />
-                  {$_(`settings.general.newStashPosition.${pos}`)}
-                </label>
-              {/each}
-            </div>
-          </div>
-        </section>
-
-        <!-- Appearance Section -->
-        <section class="space-y-4">
-          <h2
-            class="text-sm font-semibold uppercase tracking-wider text-muted-foreground"
-          >
-            {$_("settings.appearance.title")}
-          </h2>
-
-          <div
-            class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
-          >
-            <div class="space-y-0.5">
-              <div class="text-sm font-medium">
-                {$_("settings.appearance.visualEffects.label")}
-              </div>
-              <div class="text-xs text-muted-foreground">
-                {$_("settings.appearance.visualEffects.description")}
-              </div>
-            </div>
-            <label class="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                class="sr-only peer"
-                checked={settings.visualEffectsEnabled ??
-                  !window.matchMedia("(prefers-reduced-transparency: reduce)")
-                    .matches}
-                onchange={(e) => {
-                  settings.visualEffectsEnabled = e.currentTarget.checked;
-                  save();
-                }}
-              />
-              <div
-                class="w-11 h-6 bg-muted rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary peer-focus-visible:ring-2 peer-focus-visible:ring-primary peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-background"
-              ></div>
-            </label>
-          </div>
-        </section>
-
-        <!-- Shortcuts Section -->
-        <section class="space-y-4">
-          <h2
-            class="text-sm font-semibold uppercase tracking-wider text-muted-foreground"
-          >
-            {$_("settings.shortcuts.title")}
-          </h2>
-
-          <div class="space-y-3">
-            <!-- Local Switching -->
+            />
             <div
-              class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
-            >
-              <div class="space-y-0.5">
-                <div class="text-sm font-medium">
-                  {$_("settings.shortcuts.switchContext.label")}
-                </div>
-                <div class="text-xs text-muted-foreground">
-                  {$_("settings.shortcuts.switchContext.description")}
-                </div>
-              </div>
-              <ShortcutInput
-                value={settings.shortcuts?.["switch_context"] ||
-                  "CommandOrControl+P"}
-                placeholder={$_("settings.shortcuts.clickToSet")}
-                onchange={(shortcut) => {
-                  if (!settings.shortcuts) settings.shortcuts = {};
-                  settings.shortcuts["switch_context"] = shortcut;
-                  save();
-                }}
-              />
-            </div>
+              class="w-11 h-6 bg-muted rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary peer-focus-visible:ring-2 peer-focus-visible:ring-primary peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-background"
+            ></div>
+          </label>
+        </div>
+      </section>
 
-            <!-- Global Toggle -->
-            <div
-              class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
-            >
-              <div class="space-y-0.5">
-                <div class="text-sm font-medium">
-                  {$_("settings.shortcuts.toggleStashpad.label")}
-                </div>
-                <div class="text-xs text-muted-foreground">
-                  {$_("settings.shortcuts.toggleStashpad.description")}
-                </div>
+      <!-- Shortcuts Section -->
+      <section class="space-y-4">
+        <h2
+          class="text-sm font-semibold uppercase tracking-wider text-muted-foreground"
+        >
+          {$_("settings.shortcuts.title")}
+        </h2>
+
+        <div class="space-y-3">
+          <!-- Local Switching -->
+          <div
+            class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
+          >
+            <div class="space-y-0.5">
+              <div class="text-sm font-medium">
+                {$_("settings.shortcuts.switchContext.label")}
               </div>
-              <ShortcutInput
-                value={settings.shortcuts?.["global_toggle"] || ""}
-                placeholder={$_("settings.shortcuts.clickToSet")}
-                onchange={(shortcut) => {
-                  if (!settings.shortcuts) settings.shortcuts = {};
-                  settings.shortcuts["global_toggle"] = shortcut;
-                  save();
-                }}
-              />
+              <div class="text-xs text-muted-foreground">
+                {$_("settings.shortcuts.switchContext.description")}
+              </div>
             </div>
+            <ShortcutInput
+              value={settings.shortcuts?.["switch_context"] ||
+                "CommandOrControl+P"}
+              placeholder={$_("settings.shortcuts.clickToSet")}
+              onchange={(shortcut) => {
+                if (!settings.shortcuts) settings.shortcuts = {};
+                settings.shortcuts["switch_context"] = shortcut;
+                save();
+              }}
+            />
           </div>
-        </section>
 
-        <!-- About / Footer -->
-        <div class="pt-8 pb-4 text-center">
-          <div class="text-xs text-muted-foreground space-y-2">
-            <p class="font-medium text-foreground/80">
-              {$_("app.name")}
-              {$_("app.version")}
-            </p>
-            <p>{$_("app.copyright")}</p>
-            <p>{$_("app.license")}</p>
-            <div class="pt-2 opacity-50 text-[10px]">
-              {$_("app.madeWith")}
+          <!-- Global Toggle -->
+          <div
+            class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
+          >
+            <div class="space-y-0.5">
+              <div class="text-sm font-medium">
+                {$_("settings.shortcuts.toggleStashpad.label")}
+              </div>
+              <div class="text-xs text-muted-foreground">
+                {$_("settings.shortcuts.toggleStashpad.description")}
+              </div>
             </div>
+            <ShortcutInput
+              value={settings.shortcuts?.["global_toggle"] || ""}
+              placeholder={$_("settings.shortcuts.clickToSet")}
+              onchange={(shortcut) => {
+                if (!settings.shortcuts) settings.shortcuts = {};
+                settings.shortcuts["global_toggle"] = shortcut;
+                save();
+              }}
+            />
+          </div>
+        </div>
+      </section>
+
+      <!-- About / Footer -->
+      <div class="pt-8 pb-4 text-center">
+        <div class="text-xs text-muted-foreground space-y-2">
+          <p class="font-medium text-foreground/80">
+            {$_("app.name")}
+            {$_("app.version")}
+          </p>
+          <p>{$_("app.copyright")}</p>
+          <p>{$_("app.license")}</p>
+          <div class="pt-2 opacity-50 text-[10px]">
+            {$_("app.madeWith")}
           </div>
         </div>
       </div>
-    {/if}
+    </div>
   </div>
 </div>

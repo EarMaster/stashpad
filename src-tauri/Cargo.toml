@@ -32,3 +32,4 @@ drag = { git = "https://github.com/crabnebula-dev/drag-rs" }
 tauri-plugin-global-shortcut = "2.3.1"
 tauri-plugin-devtools = "2.0.0"
 window-vibrancy = "0.5"
+tauri-plugin-window-state = "2.4.1"

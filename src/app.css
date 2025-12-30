@@ -9,14 +9,68 @@
 
 /* CSS Custom Properties (Design Tokens) */
 :root {
-  --midnight-graphite: #2c373d;
-  --deep-charcoal: #18181b;
-  --lighter-charcoal: #27272a;
-  --terminal-white: #d8d8d9;
+  /* Base palette - shared colors */
   --electric-violet: #8b5cf6;
   --amber: #f59e0b;
 
-  --background: var(--deep-charcoal);
+  /* Light Mode Defaults */
+  --background: #f9fafb;
+  /* Zinc-50 */
+  --background-queue: #f4f4f5;
+  /* Zinc-100/Lighter for queue in light mode */
+  --muted-editor: #ffffff;
+  /* White for editor in light mode */
+  --foreground: #18181b;
+  --card: #ffffff;
+  /* White */
+  --card-foreground: #18181b;
+  --popover: #ffffff;
+  --popover-foreground: #18181b;
+  --primary: #8b5cf6;
+  --primary-foreground: #ffffff;
+  --secondary: #f4f4f5;
+  --secondary-foreground: #18181b;
+  --muted: #f4f4f5;
+  --muted-foreground: #71717a;
+  --accent: #f4f4f5;
+  --accent-foreground: #18181b;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --border: #e4e4e7;
+  --input: #e4e4e7;
+  --ring: #8b5cf6;
+  --radius: 0.5rem;
+
+  color-scheme: light;
+}
+
+.dark {
+  /* Dark Mode Overrides */
+  --background: #18181b;
+  --background-queue: #18181b;
+  /* Default dark background for queue */
+  --muted-editor: #27272a;
+  /* Slightly lighter for editor in dark mode */
+  --foreground: #d8d8d9;
+  --card: #2c373d;
+  --card-foreground: #d8d8d9;
+  --popover: #18181b;
+  --popover-foreground: #d8d8d9;
+  --primary: #f59e0b;
+  /* Amber */
+  --primary-foreground: #ffffff;
+  --secondary: #2c373d;
+  --secondary-foreground: #d8d8d9;
+  --muted: #27272a;
+  --muted-foreground: #a1a1aa;
+  --accent: #2c373d;
+  --accent-foreground: #d8d8d9;
+  --destructive: #7f1d1d;
+  --destructive-foreground: #d8d8d9;
+  --border: #27272a;
+  --input: #27272a;
+  --ring: #f59e0b;
+  /* Amber */
 
   color-scheme: dark;
 }
@@ -32,7 +86,7 @@
 
   html,
   body {
-    @apply text-white antialiased font-sans;
+    @apply text-foreground antialiased font-sans;
     margin: 0;
     padding: 0;
     width: 100%;

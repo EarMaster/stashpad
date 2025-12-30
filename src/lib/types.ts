@@ -51,6 +51,7 @@ export interface Settings {
     locale?: 'auto' | string;
     /** Where to put new stashes and newly completed stashes */
     newStashPosition?: 'top' | 'bottom';
+    theme?: 'light' | 'dark' | 'system';
 }
 
 export interface IStorageService {

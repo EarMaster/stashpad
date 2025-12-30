@@ -57,6 +57,13 @@
         },
         "appearance": {
             "title": "Appearance",
+            "theme": {
+                "label": "Theme",
+                "description": "Select application theme",
+                "light": "Light",
+                "dark": "Dark",
+                "system": "System"
+            },
             "visualEffects": {
                 "label": "Visual Effects",
                 "description": "Enable translucency and blur (Glass effect)"

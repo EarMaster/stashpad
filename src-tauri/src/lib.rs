@@ -139,8 +139,14 @@ pub struct Settings {
     /// Locale preference: 'auto' for automatic detection or a specific locale code
     #[serde(default)]
     pub locale: Option<String>,
-    #[serde(default)]
+    #[serde(default = "default_new_stash_position")]
     pub new_stash_position: String, // "top" or "bottom"
+    #[serde(default)]
+    pub theme: Option<String>, // "light", "dark", "system"
+}
+
+fn default_new_stash_position() -> String {
+    "top".to_string()
 }
 
 impl Default for Settings {
@@ -153,6 +159,7 @@ impl Default for Settings {
             shortcuts: std::collections::HashMap::new(),
             locale: None,
             new_stash_position: "top".into(),
+            theme: None,
         }
     }
 }
@@ -651,6 +658,7 @@ pub fn run() {
     }
 
     builder
+        .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_global_shortcut::Builder::new().with_handler(move |app, _shortcut, event| {
              // Handle global shortcut (toggle window)
              use tauri_plugin_global_shortcut::ShortcutState;
