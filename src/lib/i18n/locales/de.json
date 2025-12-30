@@ -42,6 +42,21 @@
                 "label": "Automatische Kontexterkennung",
                 "description": "Automatisch den Stash-Kontext basierend auf dem aktiven Fenster wechseln"
             },
+            "language": {
+                "label": "Sprache",
+                "description": "Wählen Sie Ihre bevorzugte Sprache",
+                "automatic": "Automatisch",
+                "automaticDescription": "Systemspracheinstellungen verwenden"
+            },
+            "newStashPosition": {
+                "label": "Position neuer Einträge",
+                "description": "Wo neue und gerade erledigte Einträge in der Liste platziert werden",
+                "top": "Oben in der Liste",
+                "bottom": "Unten in der Liste"
+            }
+        },
+        "appearance": {
+            "title": "Erscheinungsbild",
             "visualEffects": {
                 "label": "Visuelle Effekte",
                 "description": "Transparenz und Unschärfe aktivieren (Glas-Effekt)"
@@ -57,15 +72,15 @@
                 "label": "Stashpad ein-/ausblenden",
                 "description": "Globales Tastenkürzel zum Ein-/Ausblenden des Fensters"
             },
-            "clickToSet": "Klicken zum Festlegen...",
-            "pressShortcut": "Tastenkürzel drücken...",
+            "clickToSet": "Klicken zum Festlegen…",
+            "pressShortcut": "Tastenkürzel drücken…",
             "clearShortcut": "Tastenkürzel löschen"
         }
     },
     "contexts": {
         "title": "Kontexte",
         "back": "Zurück",
-        "loadingContexts": "Kontexte werden geladen...",
+        "loadingContexts": "Kontexte werden geladen…",
         "manageDescription": "Verwalten Sie Ihre Kontexte und Auto-Wechsel-Regeln.",
         "addContext": "+ Kontext hinzufügen",
         "addRule": "+ Regel hinzufügen",
@@ -86,15 +101,15 @@
         }
     },
     "contextSwitcher": {
-        "searchPlaceholder": "Kontexte suchen...",
+        "searchPlaceholder": "Kontexte suchen…",
         "selectContext": "Kontext auswählen",
         "switchContext": "Kontext wechseln",
-        "moveStashTo": "Stash verschieben nach...",
+        "moveStashTo": "Stash verschieben nach…",
         "sortByLastUsed": "Nach letzter Verwendung sortieren",
         "sortAlphabetically": "Alphabetisch sortieren",
         "noContextsFound": "Keine Kontexte gefunden",
         "autoContextDetection": "Automatische Kontexterkennung",
-        "manageContexts": "Kontexte verwalten...",
+        "manageContexts": "Kontexte verwalten…",
         "holdShiftToCopy": "Umschalt halten zum Kopieren statt Verschieben",
         "time": {
             "justNow": "gerade eben",
@@ -120,7 +135,7 @@
         "restoreToActive": "Zur aktiven Warteschlange wiederherstellen",
         "markAsCompleted": "Als erledigt markieren",
         "dragToAIContext": "Zum KI-Kontext ziehen",
-        "editPlaceholder": "Stash-Inhalt bearbeiten...",
+        "editPlaceholder": "Stash-Inhalt bearbeiten…",
         "copyToClipboard": "In Zwischenablage kopieren",
         "editContent": "Inhalt bearbeiten",
         "moveToContext": "Zu Kontext verschieben",
@@ -130,9 +145,9 @@
         "dragToReorder": "Zum Neuordnen ziehen"
     },
     "editor": {
-        "placeholder": "Stash hier eingeben... (Cmd+Enter zum Speichern)",
+        "placeholder": "Stash hier eingeben… (Cmd+Enter zum Speichern)",
         "addStash": "Stashen",
-        "saving": "Speichere...",
+        "saving": "Speichere…",
         "dropFiles": "Dateien hier ablegen",
         "dragFilesHere": "Dateien hierher ziehen"
     },

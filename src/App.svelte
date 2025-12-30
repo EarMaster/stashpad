@@ -215,8 +215,8 @@
 <svelte:window onkeydown={handleKeydown} onkeyup={handleKeyup} />
 
 <main
-   class="h-screen w-screen flex flex-col overflow-hidden font-sans select-none relative rounded-xl border border-white/10 {isGlass
-      ? 'bg-background/80 backdrop-blur-md'
+   class="absolute inset-0 flex flex-col overflow-hidden font-sans select-none {isGlass
+      ? 'bg-background/60'
       : 'bg-background text-foreground'}"
 >
    {#if contextSelectorOpen}
@@ -226,7 +226,7 @@
          {currentContextId}
          autoContextDetection={settings.autoContextDetection}
          mode={movingStash ? "move" : "switch"}
-         title={movingStash ? "Move Stash to..." : "Switch Context"}
+         title={movingStash ? "Move Stash to…" : "Switch Context"}
          onSelect={(ctx, shift) => selectContext(ctx.id, shift)}
          onAutoContextToggle={(enabled) => {
             settings.autoContextDetection = enabled;

@@ -18,7 +18,14 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
-use tauri::State;
+use tauri::{Manager, State};
+use tauri::window::Color;
+
+// Window vibrancy effects (Windows and macOS only)
+#[cfg(target_os = "windows")]
+use window_vibrancy::{apply_acrylic, apply_mica, clear_acrylic, clear_mica};
+#[cfg(target_os = "macos")]
+use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial};
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -129,6 +136,11 @@ pub struct Settings {
     pub active_context_id: Option<String>,
     #[serde(default)]
     pub shortcuts: std::collections::HashMap<String, String>,
+    /// Locale preference: 'auto' for automatic detection or a specific locale code
+    #[serde(default)]
+    pub locale: Option<String>,
+    #[serde(default)]
+    pub new_stash_position: String, // "top" or "bottom"
 }
 
 impl Default for Settings {
@@ -139,6 +151,8 @@ impl Default for Settings {
             contexts: vec![],
             active_context_id: None,
             shortcuts: std::collections::HashMap::new(),
+            locale: None,
+            new_stash_position: "top".into(),
         }
     }
 }
@@ -170,6 +184,88 @@ fn persist_settings_to_disk(settings: &Settings) {
     }
 }
 
+/// Apply window vibrancy effects based on the visual_effects_enabled setting.
+/// - None: Use OS defaults (effects enabled)
+/// - Some(true): Enable effects
+/// - Some(false): Disable effects (opaque background)
+/// 
+/// Platform support:
+/// - Windows 11: Mica effect
+/// - Windows 10: Acrylic effect (fallback)
+/// - macOS: Vibrancy with HudWindow material
+/// - Linux: No library support (compositor handles transparency)
+fn apply_window_effects_to_window(window: &tauri::WebviewWindow, enabled: Option<bool>) {
+    let should_enable = enabled.unwrap_or(true);
+    
+    if should_enable {
+        // Apply OS-specific vibrancy effects
+        #[cfg(target_os = "windows")]
+        {
+            // Try Mica first (Windows 11)
+            match apply_mica(window, Some(true)) {
+                Ok(_) => {
+                    println!("Applied Mica effect (Windows 11)");
+                }
+                Err(_) => {
+                    // Mica not available (Windows 10 or earlier), try Acrylic
+                    println!("Mica not available, trying Acrylic (Windows 10)…");
+                    match apply_acrylic(window, Some((18, 18, 18, 200))) {
+                        Ok(_) => {
+                            println!("Applied Acrylic effect (Windows 10)");
+                        }
+                        Err(e) => {
+                            println!("Failed to apply Acrylic effect: {:?}", e);
+                            // Fall back to transparent window without effects
+                        }
+                    }
+                }
+            }
+        }
+        
+        #[cfg(target_os = "macos")]
+        {
+            // Apply vibrancy with a dark appearance
+            if let Err(e) = apply_vibrancy(
+                window,
+                NSVisualEffectMaterial::HudWindow,
+                None,
+                None,
+            ) {
+                println!("Failed to apply vibrancy effect: {:?}", e);
+            } else {
+                println!("Applied vibrancy effect (macOS)");
+            }
+        }
+        
+        // Linux: No window-vibrancy support, transparency handled by compositor
+        #[cfg(target_os = "linux")]
+        {
+            println!("Linux: Window transparency is handled by the compositor");
+        }
+    } else {
+        // Clear effects for opaque background
+        #[cfg(target_os = "windows")]
+        {
+            // Try to clear both effects (one will succeed based on what was applied)
+            let _ = clear_mica(window);
+            let _ = clear_acrylic(window);
+            println!("Cleared window effects (Windows)");
+        }
+        
+        #[cfg(target_os = "macos")]
+        {
+            // On macOS, vibrancy can't be easily cleared programmatically,
+            // but the CSS will show an opaque background when effects are disabled
+            println!("macOS: Visual effects disabled (CSS will handle opaque background)");
+        }
+        
+        #[cfg(target_os = "linux")]
+        {
+            println!("Linux: Visual effects disabled");
+        }
+    }
+}
+
 // --- Commands ---
 
 #[tauri::command]
@@ -186,6 +282,9 @@ fn save_settings(app: tauri::AppHandle, state: State<Arc<SettingsState>>, settin
     use tauri_plugin_global_shortcut::GlobalShortcutExt;
     
     let mut current = state.settings.lock().unwrap();
+    
+    // Check if visual effects setting changed
+    let effects_changed = current.visual_effects_enabled != settings.visual_effects_enabled;
     
     // Simple logic: Unregister known old/register new
     if let Some(old_shortcut) = current.shortcuts.get("global_toggle") {
@@ -205,6 +304,14 @@ fn save_settings(app: tauri::AppHandle, state: State<Arc<SettingsState>>, settin
 
     *current = settings.clone();
     persist_settings_to_disk(&settings);
+    drop(current); // Release lock before applying effects
+    
+    // Apply window effects if setting changed
+    if effects_changed {
+        if let Some(window) = app.get_webview_window("main") {
+            apply_window_effects_to_window(&window, settings.visual_effects_enabled);
+        }
+    }
 }
 
 #[tauri::command]
@@ -224,15 +331,36 @@ fn get_previous_app_info(state: State<Arc<Mutex<TrackerState>>>) -> AppContext {
 }
 
 #[tauri::command]
-fn save_stash(state: State<Arc<StashState>>, stash: StashItem) {
+fn save_stash(state: State<Arc<StashState>>, settings_state: State<Arc<SettingsState>>, stash: StashItem) {
     println!("Saving stash: {:?}", stash);
     let mut stashes = state.stashes.lock().unwrap();
+    let settings = settings_state.settings.lock().unwrap();
+    let position = settings.new_stash_position.clone();
 
     // Upsert logic: if id exists, replace; else push
     if let Some(index) = stashes.iter().position(|s| s.id == stash.id) {
-        stashes[index] = stash;
+        let old_item = &stashes[index];
+        let status_changed = old_item.completed != stash.completed;
+
+        if status_changed {
+            // Remove and re-insert at top/bottom according to setting
+            stashes.remove(index);
+            if position == "bottom" {
+                stashes.push(stash);
+            } else {
+                stashes.insert(0, stash);
+            }
+        } else {
+            // Update in place to preserve manual order
+            stashes[index] = stash;
+        }
     } else {
-        stashes.push(stash);
+        // New item
+        if position == "bottom" {
+            stashes.push(stash);
+        } else {
+            stashes.insert(0, stash);
+        }
     }
 
     persist_stashes_to_disk(&stashes);
@@ -476,7 +604,38 @@ pub fn run() {
         }
     });
 
+    // Clone for setup hook
+    let settings_state_for_setup = settings_state.clone();
+
     let mut builder = tauri::Builder::default()
+        .setup(move |app| {
+            // Apply initial window effects based on saved settings
+            let settings = settings_state_for_setup.settings.lock().unwrap();
+            let visual_effects_enabled = settings.visual_effects_enabled;
+            drop(settings); // Release lock
+
+            if let Some(window) = app.get_webview_window("main") {
+                // Platform-specific background handling to ensure correct visual/vibrancy behavior
+                // while keeping 'transparent: false' in config (which fixes Windows border artifacts).
+                
+                // Windows & macOS: Manually clear background to allow Vibrancy/Mica to show through
+                #[cfg(any(target_os = "windows", target_os = "macos"))]
+                {
+                    let _ = window.set_background_color(Some(Color(0, 0, 0, 0)));
+                }
+
+                // Linux: Vibrancy is not supported, so we enforce a consistent dark background
+                // to match the app theme (Zinc-950 #18181b), preventing a potential white flash/background.
+                #[cfg(target_os = "linux")]
+                {
+                    let _ = window.set_background_color(Some(Color(24, 24, 27, 255)));
+                }
+
+                apply_window_effects_to_window(&window, visual_effects_enabled);
+            }
+
+            Ok(())
+        })
         .manage(tracker_state)
         .manage(stash_state)
         .manage(settings_state);

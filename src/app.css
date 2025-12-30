@@ -1,19 +1,53 @@
-@import './style.css';
+/* 
+ * Main application styles for Stashpad
+ * Combines base CSS variables, Tailwind, and custom styles
+ */
 
 @import "tailwindcss";
 @plugin "tailwindcss-animate";
 @config "../tailwind.config.js";
 
+/* CSS Custom Properties (Design Tokens) */
+:root {
+  --midnight-graphite: #2c373d;
+  --deep-charcoal: #18181b;
+  --lighter-charcoal: #27272a;
+  --terminal-white: #d8d8d9;
+  --electric-violet: #8b5cf6;
+  --amber: #f59e0b;
+
+  --background: var(--deep-charcoal);
+
+  color-scheme: dark;
+}
+
+/* Tailwind Theme Extensions */
 @theme {
-  --font-sans: "Inter", sans-serif;
+  --font-sans: "Inter", system-ui, Avenir, Helvetica, Arial, sans-serif;
   --color-background: var(--background);
 }
 
+/* Base Layer Styles */
 @layer base {
 
   html,
   body {
     @apply text-white antialiased font-sans;
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    /* Prevent scrollbars triggering resize issues */
     background: transparent !important;
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  #app {
+    width: 100%;
+    height: 100%;
   }
 }

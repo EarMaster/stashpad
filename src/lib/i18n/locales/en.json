@@ -42,6 +42,21 @@
                 "label": "Auto Context Detection",
                 "description": "Automatically switch stash context based on active window"
             },
+            "language": {
+                "label": "Language",
+                "description": "Select your preferred language",
+                "automatic": "Automatic",
+                "automaticDescription": "Use system language settings"
+            },
+            "newStashPosition": {
+                "label": "New Stash Position",
+                "description": "Where to place new stashes and newly completed items",
+                "top": "Top of List",
+                "bottom": "Bottom of List"
+            }
+        },
+        "appearance": {
+            "title": "Appearance",
             "visualEffects": {
                 "label": "Visual Effects",
                 "description": "Enable translucency and blur (Glass effect)"
@@ -57,15 +72,15 @@
                 "label": "Toggle Stashpad",
                 "description": "Global shortcut to show/hide window"
             },
-            "clickToSet": "Click to set...",
-            "pressShortcut": "Press shortcut...",
+            "clickToSet": "Click to set…",
+            "pressShortcut": "Press shortcut…",
             "clearShortcut": "Clear shortcut"
         }
     },
     "contexts": {
         "title": "Contexts",
         "back": "Back",
-        "loadingContexts": "Loading contexts...",
+        "loadingContexts": "Loading contexts…",
         "manageDescription": "Manage your contexts and auto-switching rules.",
         "addContext": "+ Add Context",
         "addRule": "+ Add Rule",
@@ -86,15 +101,15 @@
         }
     },
     "contextSwitcher": {
-        "searchPlaceholder": "Search contexts...",
+        "searchPlaceholder": "Search contexts…",
         "selectContext": "Select Context",
         "switchContext": "Switch Context",
-        "moveStashTo": "Move Stash to...",
+        "moveStashTo": "Move Stash to…",
         "sortByLastUsed": "Sort by Last Used",
         "sortAlphabetically": "Sort Alphabetically",
         "noContextsFound": "No contexts found",
         "autoContextDetection": "Auto Context Detection",
-        "manageContexts": "Manage Contexts...",
+        "manageContexts": "Manage Contexts…",
         "holdShiftToCopy": "Hold Shift to Copy instead of Move",
         "time": {
             "justNow": "just now",
@@ -120,7 +135,7 @@
         "restoreToActive": "Restore to active queue",
         "markAsCompleted": "Mark as completed",
         "dragToAIContext": "Drag to AI Context",
-        "editPlaceholder": "Edit stash content...",
+        "editPlaceholder": "Edit stash content…",
         "copyToClipboard": "Copy to clipboard",
         "editContent": "Edit content",
         "moveToContext": "Move to context",
@@ -130,9 +145,9 @@
         "dragToReorder": "Drag to reorder"
     },
     "editor": {
-        "placeholder": "Type your stash here... (Cmd+Enter to save)",
+        "placeholder": "Type your stash here… (Cmd+Enter to save)",
         "addStash": "Stash",
-        "saving": "Saving...",
+        "saving": "Saving…",
         "dropFiles": "Drop files to stash",
         "dragFilesHere": "Drag files here"
     },

@@ -81,6 +81,7 @@
 <div class="h-full flex flex-col bg-background">
     <!-- Header -->
     <div
+        data-tauri-drag-region
         class="flex items-center gap-3 p-4 border-b border-border bg-muted/20 shrink-0"
     >
         <button

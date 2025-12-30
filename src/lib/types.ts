@@ -47,6 +47,10 @@ export interface Settings {
     contexts: Context[];
     activeContextId?: string | null;
     shortcuts: Record<string, string>;
+    /** Locale preference: 'auto' for automatic detection or a specific locale code */
+    locale?: 'auto' | string;
+    /** Where to put new stashes and newly completed stashes */
+    newStashPosition?: 'top' | 'bottom';
 }
 
 export interface IStorageService {

@@ -25,7 +25,7 @@
      * Usage:
      *   <ShortcutInput
      *     value="CommandOrControl+P"
-     *     placeholder="Press shortcut..."
+     *     placeholder="Press shortcut…
      *     onchange={(shortcut) => console.log(shortcut)}
      *   />
      */
@@ -41,7 +41,7 @@
 
     let {
         value = "",
-        placeholder = "Click to set...",
+        placeholder = "Click to set…",
         onchange,
     }: Props = $props();
 

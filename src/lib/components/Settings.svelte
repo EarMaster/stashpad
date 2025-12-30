@@ -17,7 +17,13 @@
 <script lang="ts">
   import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
   import type { Settings } from "$lib/types";
-  import { _ } from "$lib/i18n";
+  import {
+    _,
+    setLocale,
+    SUPPORTED_LOCALES,
+    LOCALE_DISPLAY_NAMES,
+    type SupportedLocale,
+  } from "$lib/i18n";
   import ShortcutInput from "./ShortcutInput.svelte";
 
   let { onBack, onOpenContexts } = $props<{
@@ -30,6 +36,7 @@
     contexts: [],
     activeContextId: undefined,
     shortcuts: {},
+    newStashPosition: "top",
   });
   let isLoading = $state(true);
 
@@ -37,7 +44,12 @@
 
   async function load() {
     try {
-      settings = await adapter.getSettings();
+      const loaded = await adapter.getSettings();
+      // Ensure defaults for missing fields (migration)
+      if (loaded && (loaded as any).newStashPosition === undefined) {
+        (loaded as any).newStashPosition = "top";
+      }
+      settings = loaded;
     } catch (e) {
       console.error("Failed to load settings", e);
     } finally {
@@ -60,6 +72,7 @@
 
 <div class="h-full flex flex-col bg-background">
   <div
+    data-tauri-drag-region
     class="flex items-center gap-3 p-4 border-b border-border bg-muted/20 shrink-0"
   >
     <button
@@ -112,6 +125,41 @@
             {$_("settings.general.title")}
           </h2>
 
+          <!-- Language Selector -->
+          <div
+            class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
+          >
+            <div class="space-y-0.5">
+              <div class="text-sm font-medium">
+                {$_("settings.general.language.label")}
+              </div>
+              <div class="text-xs text-muted-foreground">
+                {$_("settings.general.language.description")}
+              </div>
+            </div>
+            <select
+              class="bg-muted border border-border rounded-md px-3 py-1.5 text-sm font-medium cursor-pointer outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors"
+              value={settings.locale ?? "auto"}
+              onchange={(e) => {
+                const newLocale = e.currentTarget.value as
+                  | "auto"
+                  | SupportedLocale;
+                settings.locale = newLocale;
+                setLocale(newLocale);
+                save();
+              }}
+            >
+              <option value="auto">
+                {$_("settings.general.language.automatic")}
+              </option>
+              {#each SUPPORTED_LOCALES as localeCode}
+                <option value={localeCode}>
+                  {LOCALE_DISPLAY_NAMES[localeCode]}
+                </option>
+              {/each}
+            </select>
+          </div>
+
           <div
             class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
           >
@@ -136,15 +184,63 @@
             </label>
           </div>
 
+          <!-- New Stash Position Selector -->
           <div
             class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
           >
             <div class="space-y-0.5">
               <div class="text-sm font-medium">
-                {$_("settings.general.visualEffects.label")}
+                {$_("settings.general.newStashPosition.label")}
               </div>
               <div class="text-xs text-muted-foreground">
-                {$_("settings.general.visualEffects.description")}
+                {$_("settings.general.newStashPosition.description")}
+              </div>
+            </div>
+            <div class="flex bg-muted p-1 rounded-lg border border-border">
+              {#each ["top", "bottom"] as pos}
+                <label
+                  class="flex items-center gap-2 px-4 py-1.5 rounded-md text-xs font-semibold cursor-pointer transition-all {(settings.newStashPosition ??
+                    'top') === pos
+                    ? 'bg-primary text-primary-foreground shadow-sm ring-1 ring-primary/20'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-white/5'}"
+                >
+                  <input
+                    type="radio"
+                    name="newStashPosition"
+                    value={pos}
+                    class="sr-only"
+                    checked={(settings.newStashPosition ?? "top") === pos}
+                    onchange={(e) => {
+                      settings.newStashPosition = e.currentTarget.value as
+                        | "top"
+                        | "bottom";
+                      save();
+                    }}
+                  />
+                  {$_(`settings.general.newStashPosition.${pos}`)}
+                </label>
+              {/each}
+            </div>
+          </div>
+        </section>
+
+        <!-- Appearance Section -->
+        <section class="space-y-4">
+          <h2
+            class="text-sm font-semibold uppercase tracking-wider text-muted-foreground"
+          >
+            {$_("settings.appearance.title")}
+          </h2>
+
+          <div
+            class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
+          >
+            <div class="space-y-0.5">
+              <div class="text-sm font-medium">
+                {$_("settings.appearance.visualEffects.label")}
+              </div>
+              <div class="text-xs text-muted-foreground">
+                {$_("settings.appearance.visualEffects.description")}
               </div>
             </div>
             <label class="relative inline-flex items-center cursor-pointer">
