@@ -47,6 +47,7 @@
     "vite": "^7.2.6"
   },
   "dependencies": {
+    "@tauri-apps/plugin-dialog": "^2.4.2",
     "@thisux/sveltednd": "^0.0.20",
     "bits-ui": "^2.14.4",
     "clsx": "^2.1.1",

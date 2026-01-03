@@ -137,7 +137,7 @@
         "queueEmpty": "Queue is empty"
     },
     "stashCard": {
-        "emptyStash": "Empty stash",
+        "emptyStash": "empty",
         "copied": "Copied!",
         "restoreToActive": "Restore to active queue",
         "markAsCompleted": "Mark as completed",
@@ -156,7 +156,8 @@
         "addStash": "Stash",
         "saving": "Saving…",
         "dropFiles": "Drop files to stash",
-        "dragFilesHere": "Drag files here"
+        "dragFilesHere": "Drag files here",
+        "addFile": "Add file"
     },
     "shortcutInput": {
         "ariaLabel": "Keyboard shortcut input. Press Enter to record a new shortcut."

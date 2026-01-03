@@ -1,7 +1,7 @@
 <!--
 // SPDX-License-Identifier: AGPL-3.0-only
 
-// Copyright (C) 2025 Nico Wiedemann
+// Copyright (C) 2025-2026 Nico Wiedemann
 //
 // This file is part of Stashpad.
 // Stashpad is free software: you can redistribute it and/or modify
@@ -116,20 +116,10 @@
         if (item) attemptSelection(item);
     }
 
+    // Handle Alt+A for auto context detection toggle
+    // Navigation keys (arrows, Enter, Escape) are handled by App.svelte
     function handleKeydown(e: KeyboardEvent) {
-        if (e.key === "ArrowDown") {
-            e.preventDefault();
-            next();
-        } else if (e.key === "ArrowUp") {
-            e.preventDefault();
-            prev();
-        } else if (e.key === "Enter") {
-            e.preventDefault();
-            confirm();
-        } else if (e.key === "Escape") {
-            e.preventDefault();
-            onClose();
-        } else if (e.key === "a" && e.altKey && mode === "switch") {
+        if (e.key === "a" && e.altKey && mode === "switch") {
             e.preventDefault();
             const newState = !autoContextDetection;
             onAutoContextToggle?.(newState);
@@ -296,10 +286,10 @@
 
         <div class="max-h-[300px] overflow-y-auto">
             {#each displayedContexts as ctx, i}
+                {@const isSelected = i === selectedIndex}
                 <button
-                    class="w-full text-left px-4 py-2 text-sm flex items-center justify-between hover:bg-accent/50 transition-colors {i ===
-                    selectedIndex
-                        ? 'bg-accent text-accent-foreground'
+                    class="w-full text-left px-4 py-2 text-sm flex items-center justify-between hover:bg-muted transition-colors {isSelected
+                        ? 'bg-primary/20 text-foreground'
                         : ''}"
                     onclick={(e) => attemptSelection(ctx, e.shiftKey)}
                     onmouseenter={() => (selectedIndex = i)}

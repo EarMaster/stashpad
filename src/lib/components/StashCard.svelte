@@ -34,7 +34,10 @@
     Move,
     MoveRightIcon,
     ArrowBigRightDash,
+    Paperclip,
   } from "lucide-svelte";
+  import Editor from "./Editor.svelte";
+  import { open } from "@tauri-apps/plugin-dialog";
 
   let {
     item,
@@ -51,21 +54,22 @@
     onMoveRequest: () => void;
     onToggleComplete: () => void;
     onDelete: (skipConfirm?: boolean) => void;
-    onUpdateContent: (content: string) => void;
+    onUpdateContent: (content: string, files: string[]) => void;
   }>();
 
   const adapter = new DesktopStorageAdapter();
   let copied = $state(false);
   let isEditing = $state(false);
   let editContent = $state("");
+  let editFiles = $state<string[]>([]);
+  let dragOver = $state(false);
 
   $effect(() => {
-    if (isEditing) editContent = item.content;
+    if (isEditing) {
+      editContent = item.content;
+      editFiles = [...item.files];
+    }
   });
-
-  function focusOnMount(node: HTMLTextAreaElement) {
-    node.focus();
-  }
 
   async function handleCopy() {
     const text =
@@ -85,30 +89,120 @@
     adapter.startDrag(item.content, item.files);
   }
 
-  function saveEdit() {
-    if (editContent.trim() !== item.content) {
-      onUpdateContent(editContent);
+  function saveEdit(content: string, files: string[]) {
+    if (
+      content.trim() !== item.content ||
+      JSON.stringify(files) !== JSON.stringify(item.files)
+    ) {
+      onUpdateContent(content, files);
     }
     isEditing = false;
   }
 
   function cancelEdit() {
-    editContent = item.content;
     isEditing = false;
+  }
+
+  /**
+   * Opens a file picker dialog and adds selected files to the stash.
+   */
+  async function handleAddFile() {
+    try {
+      const selected = await open({
+        multiple: true,
+        title: "Select files to attach",
+      });
+      if (selected) {
+        const paths = Array.isArray(selected) ? selected : [selected];
+        const newFiles = [...item.files];
+        for (const path of paths) {
+          try {
+            const savedPath = await adapter.saveAssetFromPath(path);
+            newFiles.push(savedPath);
+          } catch (err) {
+            console.error("Failed to save asset from path", err);
+          }
+        }
+        // Update the stash with the new files
+        onUpdateContent(item.content, newFiles);
+      }
+    } catch (err) {
+      console.error("Failed to open file picker", err);
+    }
+  }
+
+  /**
+   * Handles file drop onto the stash card.
+   */
+  async function handleFileDrop(e: DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    dragOver = false;
+    if (item.completed) return;
+    if (e.dataTransfer?.files) {
+      const newFiles = [...item.files];
+      for (let i = 0; i < e.dataTransfer.files.length; i++) {
+        const file = e.dataTransfer.files[i];
+        try {
+          const path = await adapter.saveAsset(file);
+          newFiles.push(path);
+        } catch (err) {
+          console.error("Failed to save asset", err);
+        }
+      }
+      if (newFiles.length > item.files.length) {
+        onUpdateContent(item.content, newFiles);
+      }
+    }
+  }
+
+  function handleFileDragOver(e: DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+    if (!item.completed) dragOver = true;
+  }
+
+  function handleFileDragEnter(e: DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!item.completed) dragOver = true;
+  }
+
+  function handleFileDragLeave(e: DragEvent) {
+    const target = e.currentTarget as Node;
+    const related = e.relatedTarget as Node;
+    if (target.contains(related)) return;
+    dragOver = false;
   }
 </script>
 
 <div
   class="group relative flex flex-col gap-2 rounded-lg border border-border bg-card p-3 shadow-sm hover:shadow-md transition-all hover:border-primary/50 cursor-pointer {item.completed
     ? 'opacity-60 grayscale-[0.3]'
-    : ''}"
+    : ''} {dragOver ? 'border-primary border-2' : ''}"
   transition:fly={{ y: 20, duration: 300 }}
   onclick={handleCopy}
   onkeydown={(e) => e.key === "Enter" && handleCopy()}
+  ondrop={handleFileDrop}
+  ondragover={handleFileDragOver}
+  ondragenter={handleFileDragEnter}
+  ondragleave={handleFileDragLeave}
   role="button"
   tabindex="0"
   draggable="false"
 >
+  <!-- Drop overlay -->
+  {#if dragOver}
+    <div
+      class="absolute inset-0 bg-primary/10 rounded-lg flex items-center justify-center z-10 pointer-events-none"
+    >
+      <span
+        class="text-primary font-bold bg-background/90 px-3 py-1.5 rounded-full shadow-sm text-xs"
+        >{$_("editor.dropFiles")}</span
+      >
+    </div>
+  {/if}
   <div class="flex items-start gap-3">
     <!-- Action Sidebar -->
     <div
@@ -169,40 +263,26 @@
           onkeydown={(e) => e.stopPropagation()}
           role="presentation"
         >
-          <textarea
-            bind:value={editContent}
-            use:focusOnMount
-            class="w-full bg-muted/50 border border-border rounded p-2 text-sm font-mono outline-none focus:border-primary min-h-[80px] resize-none"
-            placeholder={$_("stashCard.editPlaceholder")}
-            onkeydown={(e) => {
-              if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) saveEdit();
-              if (e.key === "Escape") cancelEdit();
-            }}
-          ></textarea>
-          <div class="flex justify-end gap-2">
-            <button
-              class="p-1 px-2 rounded text-[10px] bg-muted hover:bg-muted/80 transition-colors flex items-center gap-1"
-              onclick={cancelEdit}
-            >
-              <X size={10} />
-              {$_("common.cancel")}
-            </button>
-            <button
-              class="p-1 px-2 rounded text-[10px] bg-primary text-primary-foreground hover:bg-primary/90 transition-colors flex items-center gap-1 font-bold"
-              onclick={saveEdit}
-            >
-              <Check size={10} />
-              {$_("common.save")}
-            </button>
-          </div>
+          <Editor
+            content={editContent}
+            files={editFiles}
+            onSave={saveEdit}
+            onCancel={cancelEdit}
+            saveLabel={$_("common.save")}
+            autoFocus={true}
+          />
         </div>
-      {:else}
+      {:else if item.content}
         <div
           class="prose dark:prose-invert prose-xs max-w-none line-clamp-3 text-sm text-foreground/90 leading-relaxed font-sans {item.completed
             ? 'line-through text-muted-foreground/70'
             : ''}"
         >
-          {item.content || $_("stashCard.emptyStash")}
+          {item.content}
+        </div>
+      {:else}
+        <div class="text-sm text-muted-foreground/50 italic text-center">
+          {$_("stashCard.emptyStash")}
         </div>
       {/if}
 
@@ -226,6 +306,19 @@
         class="mt-2 text-[10px] text-muted-foreground/50 flex items-center justify-between"
       >
         <div class="flex items-center gap-2">
+          <!-- Add File (always visible) -->
+          {#if !item.completed}
+            <button
+              class="p-1 rounded hover:bg-muted text-muted-foreground/50 hover:text-foreground transition-all"
+              onclick={(e) => {
+                e.stopPropagation();
+                handleAddFile();
+              }}
+              title={$_("editor.addFile")}
+            >
+              <Paperclip size={12} />
+            </button>
+          {/if}
           <span>{new Date(item.createdAt).toLocaleTimeString()}</span>
           {#if copied}
             <span

@@ -440,6 +440,138 @@ fn save_asset_from_path(path: String) -> Result<String, String> {
     }
 }
 
+/// Response structure for file preview data
+#[derive(serde::Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct FilePreviewData {
+    /// Type of the file: "image", "video", "text", or "unsupported"
+    pub file_type: String,
+    /// For images: base64 encoded data with data URI prefix
+    /// For videos: file path (to be converted to asset URL)
+    /// For text: the file content (limited to first 10KB)
+    pub content: String,
+    /// Original file name
+    pub file_name: String,
+    /// MIME type if detected
+    pub mime_type: String,
+}
+
+/// Reads a file and returns preview data based on its type.
+/// - Images: Returns base64 encoded data
+/// - Videos: Returns the file path (frontend converts to asset URL)
+/// - Text files: Returns first 10KB of content
+/// - Other: Returns unsupported type indicator
+#[tauri::command]
+fn read_file_for_preview(path: String) -> Result<FilePreviewData, String> {
+    let file_path = std::path::Path::new(&path);
+    
+    if !file_path.exists() {
+        return Err("File does not exist".into());
+    }
+
+    let file_name = file_path
+        .file_name()
+        .unwrap_or_else(|| std::ffi::OsStr::new("unknown"))
+        .to_string_lossy()
+        .into_owned();
+
+    let extension = file_path
+        .extension()
+        .map(|e| e.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+
+    // Determine file type based on extension
+    let (file_type, mime_type) = match extension.as_str() {
+        // Image types
+        "png" => ("image", "image/png"),
+        "jpg" | "jpeg" => ("image", "image/jpeg"),
+        "gif" => ("image", "image/gif"),
+        "webp" => ("image", "image/webp"),
+        "svg" => ("image", "image/svg+xml"),
+        "bmp" => ("image", "image/bmp"),
+        "ico" => ("image", "image/x-icon"),
+        
+        // Video types
+        "mp4" => ("video", "video/mp4"),
+        "webm" => ("video", "video/webm"),
+        "ogg" | "ogv" => ("video", "video/ogg"),
+        "mov" => ("video", "video/quicktime"),
+        "avi" => ("video", "video/x-msvideo"),
+        "mkv" => ("video", "video/x-matroska"),
+        
+        // Text and code types
+        "txt" | "md" | "markdown" => ("text", "text/plain"),
+        "json" => ("text", "application/json"),
+        "xml" => ("text", "application/xml"),
+        "html" | "htm" => ("text", "text/html"),
+        "css" => ("text", "text/css"),
+        "js" | "mjs" => ("text", "application/javascript"),
+        "ts" | "tsx" => ("text", "text/typescript"),
+        "jsx" => ("text", "text/jsx"),
+        "py" => ("text", "text/x-python"),
+        "rs" => ("text", "text/x-rust"),
+        "go" => ("text", "text/x-go"),
+        "java" => ("text", "text/x-java"),
+        "c" | "h" => ("text", "text/x-c"),
+        "cpp" | "hpp" | "cc" => ("text", "text/x-c++"),
+        "cs" => ("text", "text/x-csharp"),
+        "rb" => ("text", "text/x-ruby"),
+        "php" => ("text", "text/x-php"),
+        "sh" | "bash" | "zsh" => ("text", "text/x-shellscript"),
+        "ps1" => ("text", "text/x-powershell"),
+        "yaml" | "yml" => ("text", "text/yaml"),
+        "toml" => ("text", "text/toml"),
+        "ini" | "cfg" | "conf" => ("text", "text/plain"),
+        "log" => ("text", "text/plain"),
+        "sql" => ("text", "text/x-sql"),
+        "svelte" => ("text", "text/x-svelte"),
+        "vue" => ("text", "text/x-vue"),
+        
+        _ => ("unsupported", "application/octet-stream"),
+    };
+
+    let content = match file_type {
+        "image" => {
+            // Read image and convert to base64
+            match fs::read(file_path) {
+                Ok(data) => {
+                    use base64::{Engine as _, engine::general_purpose};
+                    let b64 = general_purpose::STANDARD.encode(&data);
+                    format!("data:{};base64,{}", mime_type, b64)
+                }
+                Err(e) => return Err(format!("Failed to read image: {}", e)),
+            }
+        }
+        "video" => {
+            // For videos, return the file path - frontend will convert to asset URL
+            path.clone()
+        }
+        "text" => {
+            // Read text file content (limit to 10KB for preview)
+            match fs::read(file_path) {
+                Ok(data) => {
+                    let max_size = 10 * 1024; // 10KB
+                    let truncated = if data.len() > max_size {
+                        &data[..max_size]
+                    } else {
+                        &data
+                    };
+                    String::from_utf8_lossy(truncated).into_owned()
+                }
+                Err(e) => return Err(format!("Failed to read file: {}", e)),
+            }
+        }
+        _ => String::new(),
+    };
+
+    Ok(FilePreviewData {
+        file_type: file_type.into(),
+        content,
+        file_name,
+        mime_type: mime_type.into(),
+    })
+}
+
 #[tauri::command]
 fn copy_to_clipboard(text: String) -> Result<(), String> {
     println!("Copying to clipboard: {}", text);
@@ -659,6 +791,7 @@ pub fn run() {
 
     builder
         .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().with_handler(move |app, _shortcut, event| {
              // Handle global shortcut (toggle window)
              use tauri_plugin_global_shortcut::ShortcutState;

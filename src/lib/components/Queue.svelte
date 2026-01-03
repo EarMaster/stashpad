@@ -124,8 +124,12 @@
       }
    }
 
-   async function updateContent(item: StashItem, content: string) {
-      const updated = { ...item, content };
+   async function updateContent(
+      item: StashItem,
+      content: string,
+      files: string[],
+   ) {
+      const updated = { ...item, content, files };
       await adapter.saveStash(updated);
       load();
    }
@@ -224,7 +228,8 @@
                      onMoveRequest={() => onMoveRequest(item)}
                      onToggleComplete={() => toggleComplete(item)}
                      onDelete={(skip) => deleteStash(item.id, skip)}
-                     onUpdateContent={(content) => updateContent(item, content)}
+                     onUpdateContent={(content, files) =>
+                        updateContent(item, content, files)}
                   />
                {/if}
             </div>
@@ -272,7 +277,8 @@
                      onMoveRequest={() => onMoveRequest(item)}
                      onToggleComplete={() => toggleComplete(item)}
                      onDelete={() => deleteStash(item.id)}
-                     onUpdateContent={(content) => updateContent(item, content)}
+                     onUpdateContent={(content, files) =>
+                        updateContent(item, content, files)}
                   />
                </div>
             {/each}

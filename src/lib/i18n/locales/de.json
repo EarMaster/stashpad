@@ -137,7 +137,7 @@
         "queueEmpty": "Warteschlange ist leer"
     },
     "stashCard": {
-        "emptyStash": "Leerer Stash",
+        "emptyStash": "leer",
         "copied": "Kopiert!",
         "restoreToActive": "Zur aktiven Warteschlange wiederherstellen",
         "markAsCompleted": "Als erledigt markieren",
@@ -156,7 +156,8 @@
         "addStash": "Stashen",
         "saving": "Speichere…",
         "dropFiles": "Dateien hier ablegen",
-        "dragFilesHere": "Dateien hierher ziehen"
+        "dragFilesHere": "Dateien hierher ziehen",
+        "addFile": "Datei hinzufügen"
     },
     "shortcutInput": {
         "ariaLabel": "Tastenkürzel-Eingabe. Drücken Sie Enter, um ein neues Tastenkürzel aufzuzeichnen."

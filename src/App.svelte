@@ -1,7 +1,7 @@
 <!--
 // SPDX-License-Identifier: AGPL-3.0-only
 
-// Copyright (C) 2025 Nico Wiedemann
+// Copyright (C) 2025-2026 Nico Wiedemann
 //
 // This file is part of Stashpad.
 // Stashpad is free software: you can redistribute it and/or modify
@@ -107,12 +107,26 @@
             selectNextContext();
             isCycling = true; // We are now cycling
          }
+         return;
       }
-      // Arrow keys, Escape, Enter are now handled by ContextSwitcher when open!
-      // But wait: if we rely on ContextSwitcher for those, we must ensure it is mounted.
-      // And we handle cycling logic in App (keyup).
-      // The prop "selectedIndex" is bindable, so selectNextContext updates it in App, reflected in Switcher.
-      // The Switcher's own keyDown handler will handle arrows.
+
+      // Handle navigation keys when context switcher is open
+      if (contextSelectorOpen) {
+         if (e.key === "ArrowDown") {
+            e.preventDefault();
+            contextSwitcher?.next();
+         } else if (e.key === "ArrowUp") {
+            e.preventDefault();
+            contextSwitcher?.prev();
+         } else if (e.key === "Enter") {
+            e.preventDefault();
+            contextSwitcher?.confirm();
+         } else if (e.key === "Escape") {
+            e.preventDefault();
+            contextSelectorOpen = false;
+            isCycling = false;
+         }
+      }
    }
 
    function handleKeyup(e: KeyboardEvent) {
@@ -145,7 +159,12 @@
       }
    }
 
-   let contextSwitcher = $state<any>(null);
+   // Component instance binding - don't use $state for bind:this
+   let contextSwitcher: {
+      next: () => void;
+      prev: () => void;
+      confirm: () => void;
+   } | null = null;
 
    function selectNextContext() {
       contextSwitcher?.next();

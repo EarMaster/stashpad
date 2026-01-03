@@ -30,7 +30,7 @@ export class DesktopStorageAdapter implements IStorageService {
 
     async saveAsset(file: File): Promise<string> {
         const buffer = await file.arrayBuffer();
-        const bytes = Array.from(new Uint8Array(buffer));
+        const bytes = new Uint8Array(buffer);
         return await invoke('save_asset', { name: file.name, data: bytes });
     }
 
