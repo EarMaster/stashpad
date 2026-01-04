@@ -71,6 +71,10 @@
             "visualEffects": {
                 "label": "Visual Effects",
                 "description": "Enable translucency and blur (Glass effect)"
+            },
+            "uiScale": {
+                "label": "UI Scale",
+                "description": "Adjust the size of the user interface"
             }
         },
         "shortcuts": {

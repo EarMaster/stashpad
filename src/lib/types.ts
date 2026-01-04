@@ -52,6 +52,8 @@ export interface Settings {
     /** Where to put new stashes and newly completed stashes */
     newStashPosition?: 'top' | 'bottom';
     theme?: 'light' | 'dark' | 'system';
+    /** Scale of the UI: 1-5, default 3 */
+    uiScale?: number;
     videoVolume?: number;
     videoMuted?: boolean;
 }

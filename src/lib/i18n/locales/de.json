@@ -71,6 +71,10 @@
             "visualEffects": {
                 "label": "Visuelle Effekte",
                 "description": "Transparenz und Unschärfe aktivieren (Glas-Effekt)"
+            },
+            "uiScale": {
+                "label": "Größe der Benutzeroberfläche",
+                "description": "Passen Sie die Größe der Benutzeroberfläche an"
             }
         },
         "shortcuts": {

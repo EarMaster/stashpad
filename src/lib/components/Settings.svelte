@@ -252,6 +252,34 @@
         >
           <div class="space-y-0.5">
             <div class="text-sm font-medium">
+              {$_("settings.appearance.uiScale.label")}
+            </div>
+            <div class="text-xs text-muted-foreground">
+              {$_("settings.appearance.uiScale.description")}
+            </div>
+          </div>
+          <div class="flex items-center gap-3">
+            <input
+              type="range"
+              min="1"
+              max="5"
+              step="1"
+              class="w-32 h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
+              value={settings.uiScale ?? 3}
+              onchange={(e) => {
+                const val = parseInt(e.currentTarget.value);
+                settings.uiScale = val;
+                save();
+              }}
+            />
+          </div>
+        </div>
+
+        <div
+          class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
+        >
+          <div class="space-y-0.5">
+            <div class="text-sm font-medium">
               {$_("settings.appearance.visualEffects.label")}
             </div>
             <div class="text-xs text-muted-foreground">

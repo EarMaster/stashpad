@@ -293,6 +293,13 @@
          applyTheme(theme === "dark");
       }
    });
+
+   $effect(() => {
+      const scale = settings.uiScale ?? 3;
+      // 1->14px, 2->15px, 3->16px, 4->17px, 5->18px
+      const fontSize = 16 + (scale - 3);
+      document.documentElement.style.fontSize = `${fontSize}px`;
+   });
 </script>
 
 <svelte:window onkeydown={handleKeydown} onkeyup={handleKeyup} />

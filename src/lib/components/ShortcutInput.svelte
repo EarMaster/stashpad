@@ -382,35 +382,35 @@
         transition: all 0.15s ease;
 
         /* Default state - visible border for accessibility */
-        background-color: #27272a; /* muted */
-        border: 1px solid #3f3f46; /* zinc-700 - more visible than border color */
-        color: #d8d8d9; /* foreground */
+        background-color: var(--background);
+        border: 1px solid var(--border);
+        color: var(--foreground);
     }
 
     .shortcut-input:hover {
-        background-color: #323236;
-        border-color: #52525b; /* zinc-600 - even more visible on hover */
+        background-color: var(--accent);
+        border-color: var(--input);
     }
 
     .shortcut-input:focus {
         outline: none;
-        border-color: #8b5cf6; /* primary */
-        box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.3);
+        border-color: var(--ring);
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring), transparent 70%);
     }
 
     .shortcut-input:focus-visible {
-        outline: 2px solid #8b5cf6; /* primary */
+        outline: 2px solid var(--ring);
         outline-offset: 2px;
     }
 
     .shortcut-input.recording {
-        background-color: rgba(139, 92, 246, 0.15); /* primary with alpha */
-        border-color: #8b5cf6; /* primary */
+        background-color: color-mix(in srgb, var(--primary), transparent 85%);
+        border-color: var(--primary);
         animation: pulse 1.5s infinite;
     }
 
     .shortcut-input.empty {
-        color: #a1a1aa; /* muted-foreground */
+        color: var(--muted-foreground);
     }
 
     .shortcut-input.recording,
@@ -421,10 +421,12 @@
     @keyframes pulse {
         0%,
         100% {
-            box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.3);
+            box-shadow: 0 0 0 2px
+                color-mix(in srgb, var(--primary), transparent 70%);
         }
         50% {
-            box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.15);
+            box-shadow: 0 0 0 4px
+                color-mix(in srgb, var(--primary), transparent 85%);
         }
     }
 
@@ -447,28 +449,28 @@
         font-family: inherit;
 
         /* Key badge styling */
-        background: linear-gradient(180deg, #323236 0%, #27272a 100%);
-        border: 1px solid #3f3f46;
+        background-color: var(--muted);
+        border: 1px solid var(--border);
         box-shadow:
             0 1px 2px rgba(0, 0, 0, 0.1),
-            inset 0 1px 0 rgba(216, 216, 217, 0.05);
-        color: #d8d8d9;
+            inset 0 1px 0 rgba(255, 255, 255, 0.1);
+        color: var(--foreground);
     }
 
     .key-separator {
-        color: #a1a1aa;
+        color: var(--muted-foreground);
         font-size: 0.75rem;
         margin: 0 0.125rem;
     }
 
     .recording-text {
-        color: #8b5cf6;
+        color: var(--primary);
         font-weight: 500;
         font-style: italic;
     }
 
     .placeholder-text {
-        color: #a1a1aa;
+        color: var(--muted-foreground);
         font-style: italic;
     }
 
@@ -482,25 +484,33 @@
         border: none;
         border-radius: 0.25rem;
         background-color: transparent;
-        color: #a1a1aa;
+        color: var(--muted-foreground);
         font-size: 1.125rem;
         cursor: pointer;
         transition: all 0.15s ease;
     }
 
     .clear-button:hover {
-        background-color: rgba(239, 68, 68, 0.1);
-        color: #ef4444;
+        background-color: color-mix(
+            in srgb,
+            var(--destructive),
+            transparent 90%
+        );
+        color: var(--destructive);
     }
 
     .clear-button:focus {
         outline: none;
-        background-color: rgba(239, 68, 68, 0.1);
-        color: #ef4444;
+        background-color: color-mix(
+            in srgb,
+            var(--destructive),
+            transparent 90%
+        );
+        color: var(--destructive);
     }
 
     .clear-button:focus-visible {
-        outline: 2px solid #ef4444;
+        outline: 2px solid var(--destructive);
         outline-offset: 2px;
     }
 </style>
