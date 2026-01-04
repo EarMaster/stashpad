@@ -13,13 +13,15 @@
         "delete": "Löschen",
         "edit": "Bearbeiten",
         "copy": "Kopieren",
+        "copied": "Kopiert!",
         "clear": "Leeren",
         "remove": "Entfernen",
         "add": "Hinzufügen",
         "loading": "Lädt…",
         "active": "Aktiv",
         "default": "Standard",
-        "unknown": "Unbekannt"
+        "unknown": "Unbekannt",
+        "close": "Schließen"
     },
     "header": {
         "autoContext": "Automatischer Kontext",
@@ -137,7 +139,7 @@
         "queueEmpty": "Warteschlange ist leer"
     },
     "stashCard": {
-        "emptyStash": "leer",
+        "emptyStash": "-- leer --",
         "copied": "Kopiert!",
         "restoreToActive": "Zur aktiven Warteschlange wiederherstellen",
         "markAsCompleted": "Als erledigt markieren",
@@ -166,5 +168,11 @@
         "title": "Entwurf verwerfen?",
         "description": "Sie haben ungespeicherte Inhalte im Editor. Möchten Sie wirklich beenden?",
         "discardAndExit": "Verwerfen & Beenden"
+    },
+    "filePreview": {
+        "clickToPreview": "Klicken für Dateivorschau",
+        "openLocation": "Speicherort öffnen",
+        "unsupportedType": "Vorschau für diesen Dateityp nicht verfügbar",
+        "videoNotSupported": "Ihr Browser unterstützt keine Videowiedergabe"
     }
 }

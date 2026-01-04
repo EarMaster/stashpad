@@ -23,7 +23,7 @@ export class DesktopStorageAdapter {
     }
     async saveAsset(file) {
         const buffer = await file.arrayBuffer();
-        const bytes = Array.from(new Uint8Array(buffer));
+        const bytes = new Uint8Array(buffer);
         return await invoke('save_asset', { name: file.name, data: bytes });
     }
     async getPreviousAppInfo() {
@@ -40,6 +40,15 @@ export class DesktopStorageAdapter {
     }
     async saveAssetFromPath(path) {
         return await invoke('save_asset_from_path', { path });
+    }
+    /**
+     * Reads a file and returns preview data based on its type.
+     * Images return base64 data URI, videos return file path, text returns content.
+     * @param path - Absolute path to the file
+     * @returns Preview data including file type, content, and metadata
+     */
+    async readFileForPreview(path) {
+        return await invoke('read_file_for_preview', { path });
     }
     async getSettings() {
         return await invoke('get_settings');

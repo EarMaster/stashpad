@@ -103,15 +103,44 @@ export interface IStorageService {
       * Store `last_active_window_title` (e.g., `server.py - my-api`).
       * Expose this via a Tauri Command `get_previous_app_info`.
 
-### B. The Stash Editor
+### B. The Editor (`Editor.svelte`)
 
-  * **Component:** `StashEditor.svelte`.
+  * **Component:** `Editor.svelte`.
   * **Behavior:** Auto-expanding textarea supporting Markdown.
-  * **Drop Zone:** The entire editor area is a drop zone.
-      * `on:drop`: Prevent default -\> Extract files -\> Call `storageService.saveAsset()`.
-      * UI: Display thumbnails of saved assets below the text.
+  * **Features:**
+      * **Drop Zone:** Full drag-and-drop support with visual overlay.
+      * **Validation:** Save disabled if empty or no files attached.
+      * **Shortcuts:** `Cmd/Ctrl+Enter` to save, `Escape` to cancel.
+      * **Instant Actions:** "Add File" button always visible.
 
-### C. Central Transfer Switch & Smart Dispatch (USP)
+### C. Stash Cards (`StashCard.svelte`)
+
+  * **Component:** `StashCard.svelte`.
+  * **Instant Actions** (Always Visible):
+      * **Add File:** Paperclip icon to attach files quickly.
+      * **Complete:** Toggle completion status (left side).
+      * **Drag Handle:** Hand icon for dragging content to AI context.
+  * **Additional Actions** (Hover/Focus):
+      * **Copy:** Copy content to clipboard.
+      * **Edit:** Inline editing mode.
+      * **Move:** Move request (e.g., to another context).
+      * **Delete:** Trash icon (Shift+Click to skip confirmation).
+  * **Main Actions:**
+      * **Complete:** Mark as done/active.
+      * **Drag:** Drag content to external apps.
+
+### D. Settings & Dialogs
+
+  * **Settings (`Settings.svelte`):**
+      * **Context Management:** Manage/Switch project contexts.
+      * **General:** Language, Auto-Context Detection, New Stash Position (Top/Bottom).
+      * **Appearance:** Theme (Light/Dark/System), Visual Effects (Vibrancy).
+      * **Shortcuts:** Custom keybindings for toggling app and switching contexts.
+  * **Dialogs (`ConfirmationDialog.svelte`):**
+      * Unified modal for destructive actions (Delete, etc.).
+      * Full, accessible keyboard navigation.
+
+### E. Central Transfer Switch & Smart Dispatch (USP)
 
 A global state (Svelte Rune) determines the transfer mode: `transferMode = 'drag' | 'copy' | 'auto'`.
 
@@ -122,7 +151,7 @@ A global state (Svelte Rune) determines the transfer mode: `transferMode = 'drag
   * **Technical Implementation:**
       * **Clipboard:** Write the Markdown `content` to the system clipboard (text/plain).
       * **Drag Payload:** Attach the `assets` (absolute paths) to the native OS drag payload.
-      * *Result:* User drops -\> App uploads files -\> User pastes -\> Text appears.
+      * *Result:* User drops -> App uploads files -> User pastes -> Text appears.
 
 #### Mode 2: 📋 Copy (CLI Mode)
 
@@ -149,8 +178,8 @@ A global state (Svelte Rune) determines the transfer mode: `transferMode = 'drag
     1.  Call `storageService.getPreviousAppInfo()`.
     2.  Check `executable` against a hardcoded list of known terminals:
           * *List:* `iterm2`, `terminal`, `warp`, `hyper`, `alacritty`, `kitty`, `powershell`, `cmd`, `wt` (Windows Terminal), `code` (VSCode is tricky, treat as GUI usually, or check strict context if possible).
-    3.  **IF** Terminal detected -\> Execute **Copy Mode**.
-    4.  **ELSE** -\> Execute **Drag Mode**.
+    3.  **IF** Terminal detected -> Execute **Copy Mode**.
+    4.  **ELSE** -> Execute **Drag Mode**.
 
 -----
 
@@ -184,15 +213,15 @@ src-tauri/
 src/
   lib/
     components/
-      ui/                 # shadcn-svelte components
-      editor/
-        StashEditor.svelte
-        AttachmentList.svelte
-      queue/
-        StashQueue.svelte
-        StashItem.svelte  # Contains the Drag Handle logic
-      layout/
-        Header.svelte     # Contains Transfer Switch
+      ConfirmationDialog.svelte
+      ContextManager.svelte
+      ContextSwitcher.svelte
+      Editor.svelte
+      FilePreviewModal.svelte
+      Header.svelte
+      Queue.svelte        # Was StashQueue
+      Settings.svelte
+      StashCard.svelte    # Contains the Drag Handle logic
     services/
       storage.interface.ts
       adapters/

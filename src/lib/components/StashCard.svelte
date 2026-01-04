@@ -15,7 +15,7 @@
 -->
 
 <script lang="ts">
-  import type { StashItem } from "$lib/types";
+  import type { StashItem, FilePreviewData } from "$lib/types";
   import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
   import { _ } from "$lib/i18n";
   import { fade, fly } from "svelte/transition";
@@ -37,7 +37,10 @@
     Paperclip,
   } from "lucide-svelte";
   import Editor from "./Editor.svelte";
+  import FilePreviewTooltip from "./FilePreviewTooltip.svelte";
+  import FilePreviewModal from "./FilePreviewModal.svelte";
   import { open } from "@tauri-apps/plugin-dialog";
+  import { getRelativeTime } from "$lib/utils/date";
 
   let {
     item,
@@ -62,6 +65,13 @@
   let isEditing = $state(false);
   let editContent = $state("");
   let editFiles = $state<string[]>([]);
+  let clickTimeout: ReturnType<typeof setTimeout> | undefined = undefined; // State for click debounce
+
+  // File preview modal state
+  let previewModalOpen = $state(false);
+  let selectedPreviewFilePath = $state("");
+
+  let isLoadingPreview = $state(false);
   let dragOver = $state(false);
 
   $effect(() => {
@@ -175,6 +185,46 @@
     if (target.contains(related)) return;
     dragOver = false;
   }
+
+  /**
+   * Opens the file preview modal for a specific file.
+   * @param filePath - The path to the file to preview
+   */
+  async function openFilePreview(filePath: string) {
+    selectedPreviewFilePath = filePath;
+    previewModalOpen = true;
+  }
+
+  /**
+   * Closes the file preview modal.
+   */
+  function closeFilePreview() {
+    previewModalOpen = false;
+    selectedPreviewFilePath = "";
+    selectedPreviewFilePath = "";
+  }
+
+  function handleCardClick(e: MouseEvent) {
+    // If text is selected, don't trigger copy/edit behavior (standard UX)
+    const selection = window.getSelection();
+    if (selection && selection.toString().length > 0) return;
+
+    if (clickTimeout) clearTimeout(clickTimeout);
+    clickTimeout = setTimeout(() => {
+      handleCopy();
+      clickTimeout = undefined;
+    }, 250);
+  }
+
+  function handleDoubleClick(e: MouseEvent) {
+    if (clickTimeout) {
+      clearTimeout(clickTimeout);
+      clickTimeout = undefined;
+    }
+    if (item.completed) return;
+    e.stopPropagation();
+    isEditing = true;
+  }
 </script>
 
 <div
@@ -182,8 +232,9 @@
     ? 'opacity-60 grayscale-[0.3]'
     : ''} {dragOver ? 'border-primary border-2' : ''}"
   transition:fly={{ y: 20, duration: 300 }}
-  onclick={handleCopy}
+  onclick={handleCardClick}
   onkeydown={(e) => e.key === "Enter" && handleCopy()}
+  ondblclick={handleDoubleClick}
   ondrop={handleFileDrop}
   ondragover={handleFileDragOver}
   ondragenter={handleFileDragEnter}
@@ -281,7 +332,7 @@
           {item.content}
         </div>
       {:else}
-        <div class="text-sm text-muted-foreground/50 italic text-center">
+        <div class="text-xs text-muted-foreground/50 italic text-center">
           {$_("stashCard.emptyStash")}
         </div>
       {/if}
@@ -291,13 +342,16 @@
           class="mt-2 flex flex-wrap gap-1.5 {item.completed
             ? 'opacity-50'
             : ''}"
+          onclick={(e) => e.stopPropagation()}
+          onkeydown={(e) => e.stopPropagation()}
+          role="presentation"
         >
           {#each item.files as file}
-            <span
-              class="inline-flex items-center rounded-full border border-border bg-secondary/50 px-2 py-0.5 text-[10px] text-muted-foreground truncate max-w-[150px]"
-            >
-              {file.split(/[\\/]/).pop()}
-            </span>
+            <FilePreviewTooltip
+              filePath={file}
+              fileName={file.split(/[\\/]/).pop() || "file"}
+              onclick={() => openFilePreview(file)}
+            />
           {/each}
         </div>
       {/if}
@@ -319,7 +373,7 @@
               <Paperclip size={12} />
             </button>
           {/if}
-          <span>{new Date(item.createdAt).toLocaleTimeString()}</span>
+          <span>{getRelativeTime(item.createdAt, $_)}</span>
           {#if copied}
             <span
               class="text-green-500 font-medium animate-pulse"
@@ -405,3 +459,11 @@
     </div>
   </div>
 </div>
+
+<!-- File Preview Modal -->
+<FilePreviewModal
+  bind:open={previewModalOpen}
+  files={item.files}
+  bind:filePath={selectedPreviewFilePath}
+  onClose={closeFilePreview}
+/>

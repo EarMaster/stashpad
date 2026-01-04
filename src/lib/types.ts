@@ -52,6 +52,8 @@ export interface Settings {
     /** Where to put new stashes and newly completed stashes */
     newStashPosition?: 'top' | 'bottom';
     theme?: 'light' | 'dark' | 'system';
+    videoVolume?: number;
+    videoMuted?: boolean;
 }
 
 export interface IStorageService {
@@ -64,10 +66,32 @@ export interface IStorageService {
     copyToClipboard(text: string): Promise<void>;
     startDrag(text: string, files: string[]): Promise<void>;
     saveAssetFromPath(path: string): Promise<string>;
+    readFileForPreview(path: string): Promise<FilePreviewData>;
     getSettings(): Promise<Settings>;
     saveSettings(settings: Settings): Promise<void>;
     deleteStash(id: string): Promise<void>;
     deleteCompletedStashes(): Promise<void>;
+}
+
+/**
+ * Data structure for file preview information.
+ * Returned by the readFileForPreview method.
+ */
+export interface FilePreviewData {
+    /** Type of file: "image", "video", "text", or "unsupported" */
+    fileType: 'image' | 'video' | 'text' | 'unsupported';
+    /** 
+     * Content varies by type:
+     * - image: base64 data URI
+     * - video: file path (convert to asset:// URL)
+     * - text: file content (max 10KB)
+     * - unsupported: empty string
+     */
+    content: string;
+    /** Original file name */
+    fileName: string;
+    /** MIME type of the file */
+    mimeType: string;
 }
 
 

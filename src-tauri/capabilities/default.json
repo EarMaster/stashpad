@@ -8,6 +8,15 @@
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",
-    "dialog:default"
+    "dialog:default",
+    "fs:default",
+    {
+      "identifier": "fs:scope",
+      "allow": [
+        "$HOME/.stashpad/**/*"
+      ]
+    },
+    "fs:allow-read",
+    "shell:default"
   ]
 }

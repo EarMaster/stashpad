@@ -647,6 +647,30 @@ fn get_smart_transfer_target(state: State<Arc<Mutex<TrackerState>>>) -> String {
     "GUI".into()
 }
 
+#[tauri::command]
+fn show_in_folder(path: String) {
+    #[cfg(target_os = "windows")]
+    {
+        let _ = std::process::Command::new("explorer")
+            .args(["/select,", &path])
+            .spawn();
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("open")
+            .args(["-R", &path])
+            .spawn();
+    }
+    #[cfg(target_os = "linux")]
+    {
+        if let Some(parent) = std::path::Path::new(&path).parent() {
+            let _ = std::process::Command::new("xdg-open")
+                .arg(parent)
+                .spawn();
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // 0. init devtools
@@ -779,6 +803,7 @@ pub fn run() {
         .manage(stash_state)
         .manage(settings_state);
 
+
     #[cfg(debug_assertions)]
     {
         builder = builder.plugin(devtools);
@@ -791,6 +816,8 @@ pub fn run() {
 
     builder
         .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().with_handler(move |app, _shortcut, event| {
              // Handle global shortcut (toggle window)
@@ -818,6 +845,8 @@ pub fn run() {
             delete_completed_stashes,
             save_asset,
             save_asset_from_path,
+            read_file_for_preview,
+            show_in_folder,
             copy_to_clipboard,
             start_drag,
             get_settings,

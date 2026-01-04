@@ -19,6 +19,7 @@
     import { _, date as formatDate } from "$lib/i18n";
     import { Search, ArrowDownUp, Clock } from "lucide-svelte";
     import fuzzysort from "fuzzysort";
+    import { getRelativeTime } from "$lib/utils/date";
 
     let {
         contexts,
@@ -139,64 +140,6 @@
         }
     }
 
-    function getRelativeTime(dateString: string) {
-        if (!dateString) return "";
-        const date = new Date(dateString);
-        const now = new Date();
-        const diffInSeconds = Math.floor(
-            (now.getTime() - date.getTime()) / 1000,
-        );
-
-        if (diffInSeconds < 60) {
-            return $_("contextSwitcher.time.justNow");
-        }
-
-        const diffInMinutes = Math.floor(diffInSeconds / 60);
-        if (diffInMinutes < 60) {
-            return diffInMinutes === 1
-                ? $_("contextSwitcher.time.minute", {
-                      values: { count: diffInMinutes },
-                  })
-                : $_("contextSwitcher.time.minutes", {
-                      values: { count: diffInMinutes },
-                  });
-        }
-
-        const diffInHours = Math.floor(diffInMinutes / 60);
-        if (diffInHours < 24) {
-            return diffInHours === 1
-                ? $_("contextSwitcher.time.hour", {
-                      values: { count: diffInHours },
-                  })
-                : $_("contextSwitcher.time.hours", {
-                      values: { count: diffInHours },
-                  });
-        }
-
-        const diffInDays = Math.floor(diffInHours / 24);
-        if (diffInDays === 1) {
-            return $_("contextSwitcher.time.yesterday");
-        }
-        if (diffInDays < 7) {
-            return $_("contextSwitcher.time.daysAgo", {
-                values: { count: diffInDays },
-            });
-        }
-
-        // Check if same year
-        if (date.getFullYear() === now.getFullYear()) {
-            return date.toLocaleDateString(undefined, {
-                month: "short",
-                day: "numeric",
-            });
-        }
-
-        return date.toLocaleDateString(undefined, {
-            month: "short",
-            year: "numeric",
-        });
-    }
-
     function focusAction(node: HTMLInputElement) {
         node.focus();
     }
@@ -288,7 +231,7 @@
             {#each displayedContexts as ctx, i}
                 {@const isSelected = i === selectedIndex}
                 <button
-                    class="w-full text-left px-4 py-2 text-sm flex items-center justify-between hover:bg-muted transition-colors {isSelected
+                    class="w-full text-left px-4 py-2 text-sm flex items-center justify-between transition-colors {isSelected
                         ? 'bg-primary/20 text-foreground'
                         : ''}"
                     onclick={(e) => attemptSelection(ctx, e.shiftKey)}
@@ -298,7 +241,7 @@
                         <span>{ctx.name}</span>
                         {#if sortBy === "lastUsed" && ctx.lastUsed}
                             <span class="text-[9px] text-muted-foreground/60">
-                                {getRelativeTime(ctx.lastUsed)}
+                                {getRelativeTime(ctx.lastUsed, $_)}
                             </span>
                         {/if}
                     </div>

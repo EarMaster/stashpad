@@ -13,7 +13,7 @@
 // See the GNU Affero General Public License for more details.
 
 import { invoke } from '@tauri-apps/api/core';
-import type { IStorageService, StashItem, AppContext, Settings } from '../types';
+import type { IStorageService, StashItem, AppContext, Settings, FilePreviewData } from '../types';
 
 export class DesktopStorageAdapter implements IStorageService {
     async saveStash(stash: StashItem): Promise<void> {
@@ -54,6 +54,16 @@ export class DesktopStorageAdapter implements IStorageService {
         return await invoke('save_asset_from_path', { path });
     }
 
+    /**
+     * Reads a file and returns preview data based on its type.
+     * Images return base64 data URI, videos return file path, text returns content.
+     * @param path - Absolute path to the file
+     * @returns Preview data including file type, content, and metadata
+     */
+    async readFileForPreview(path: string): Promise<FilePreviewData> {
+        return await invoke('read_file_for_preview', { path });
+    }
+
     async getSettings(): Promise<Settings> {
         return await invoke('get_settings');
     }
@@ -70,3 +80,4 @@ export class DesktopStorageAdapter implements IStorageService {
         await invoke('delete_completed_stashes');
     }
 }
+

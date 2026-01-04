@@ -16,10 +16,13 @@
 
 <script lang="ts">
   import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
-  import type { StashItem } from "$lib/types";
+  import type { StashItem, FilePreviewData } from "$lib/types";
   import { _ } from "$lib/i18n";
-  import { X, Paperclip } from "lucide-svelte";
+  import { X, Paperclip, Image, Video, FileText, File } from "lucide-svelte";
   import { open } from "@tauri-apps/plugin-dialog";
+  import FilePreviewModal from "./FilePreviewModal.svelte";
+  import { fade } from "svelte/transition";
+  import { convertFileSrc } from "@tauri-apps/api/core";
 
   let {
     onStash,
@@ -43,6 +46,15 @@
 
   let dragOver = $state(false);
   let isSaving = $state(false);
+
+  // File preview state
+  let previewModalOpen = $state(false);
+  let selectedPreviewFilePath = $state("");
+
+  let hoveringFileIndex = $state<number | null>(null);
+  let hoverPreviewData = $state<FilePreviewData | null>(null);
+  let isLoadingHoverPreview = $state(false);
+  let hoverTimeout = $state<ReturnType<typeof setTimeout> | null>(null);
 
   const adapter = new DesktopStorageAdapter();
 
@@ -132,6 +144,132 @@
   }
 
   /**
+   * Determine file type icon based on extension.
+   */
+  function getFileIcon(path: string) {
+    const ext = path.split(".").pop()?.toLowerCase() || "";
+    const imageExts = [
+      "png",
+      "jpg",
+      "jpeg",
+      "gif",
+      "webp",
+      "svg",
+      "bmp",
+      "ico",
+    ];
+    const videoExts = ["mp4", "webm", "ogg", "ogv", "mov", "avi", "mkv"];
+    const textExts = [
+      "txt",
+      "md",
+      "markdown",
+      "json",
+      "xml",
+      "html",
+      "htm",
+      "css",
+      "js",
+      "mjs",
+      "ts",
+      "tsx",
+      "jsx",
+      "py",
+      "rs",
+      "go",
+      "java",
+      "c",
+      "h",
+      "cpp",
+      "hpp",
+      "cc",
+      "cs",
+      "rb",
+      "php",
+      "sh",
+      "bash",
+      "zsh",
+      "ps1",
+      "yaml",
+      "yml",
+      "toml",
+      "ini",
+      "cfg",
+      "conf",
+      "log",
+      "sql",
+      "svelte",
+      "vue",
+    ];
+    if (imageExts.includes(ext)) return "image";
+    if (videoExts.includes(ext)) return "video";
+    if (textExts.includes(ext)) return "text";
+    return "file";
+  }
+
+  /**
+   * Opens the file preview modal for a specific file.
+   */
+  async function openFilePreview(filePath: string) {
+    selectedPreviewFilePath = filePath;
+    previewModalOpen = true;
+  }
+
+  /**
+   * Closes the file preview modal.
+   */
+  function closeFilePreview() {
+    previewModalOpen = false;
+    selectedPreviewFilePath = "";
+    selectedPreviewFilePath = "";
+  }
+
+  let hoverTooltipPosition = $state<"top" | "bottom">("bottom");
+
+  /**
+   * Handle mouse enter on a file badge - start hover preview.
+   */
+  function handleFileMouseEnter(
+    index: number,
+    filePath: string,
+    e: MouseEvent,
+  ) {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    hoverTooltipPosition = rect.top < 200 ? "top" : "bottom";
+
+    hoverTimeout = setTimeout(async () => {
+      hoveringFileIndex = index;
+      isLoadingHoverPreview = true;
+      try {
+        hoverPreviewData = await adapter.readFileForPreview(filePath);
+      } catch (err) {
+        console.error("Failed to load hover preview:", err);
+        hoverPreviewData = null;
+      } finally {
+        isLoadingHoverPreview = false;
+      }
+    }, 300);
+  }
+
+  /**
+   * Handle mouse leave - cancel hover preview.
+   */
+  function handleFileMouseLeave() {
+    if (hoverTimeout) {
+      clearTimeout(hoverTimeout);
+      hoverTimeout = null;
+    }
+    hoveringFileIndex = null;
+    hoverPreviewData = null;
+  }
+
+  /**
+   * Get video source URL for preview.
+   */
+  function getVideoSrc(path: string): string {
+    return convertFileSrc(path);
+  }
+
+  /**
    * Opens a file picker dialog and adds selected files to the stash.
    */
   async function handleAddFile() {
@@ -205,18 +343,111 @@
       </button>
       {#each files as file, i}
         <div
-          class="group/file bg-background px-2 py-0.5 rounded text-[10px] border border-border flex items-center gap-1 shadow-sm cursor-default shrink-0"
-          title={file}
+          class="relative group/file bg-background px-2 py-0.5 rounded text-[10px] border border-border flex items-center gap-1 shadow-sm shrink-0 cursor-pointer hover:border-primary/50 transition-colors"
+          title={$_("filePreview.clickToPreview")}
+          onmouseenter={(e) => handleFileMouseEnter(i, file, e)}
+          onmouseleave={handleFileMouseLeave}
+          onclick={() => openFilePreview(file)}
+          onkeydown={(e) => e.key === "Enter" && openFilePreview(file)}
+          role="button"
+          tabindex="0"
         >
+          <!-- File type icon -->
+          {#if getFileIcon(file) === "image"}
+            <Image size={10} class="shrink-0 text-muted-foreground" />
+          {:else if getFileIcon(file) === "video"}
+            <Video size={10} class="shrink-0 text-muted-foreground" />
+          {:else if getFileIcon(file) === "text"}
+            <FileText size={10} class="shrink-0 text-muted-foreground" />
+          {:else}
+            <File size={10} class="shrink-0 text-muted-foreground" />
+          {/if}
           <span class="truncate max-w-[100px]">{file.split(/[\\/]/).pop()}</span
           >
           <button
             class="text-muted-foreground hover:text-destructive transition-colors"
-            onclick={() => removeFile(i)}
+            onclick={(e) => {
+              e.stopPropagation();
+              removeFile(i);
+            }}
             aria-label="Remove file"
           >
             <X size={10} />
           </button>
+
+          <!-- Hover Preview Tooltip -->
+          {#if hoveringFileIndex === i}
+            <div
+              class="absolute z-50 left-1/2 -translate-x-1/2 pointer-events-none {hoverTooltipPosition ===
+              'top'
+                ? 'top-full mt-2'
+                : 'bottom-full mb-2'}"
+              transition:fade={{ duration: 100 }}
+            >
+              <div
+                class="relative bg-popover border border-border rounded-lg shadow-xl"
+              >
+                {#if isLoadingHoverPreview}
+                  <div
+                    class="flex items-center justify-center w-32 h-24 bg-muted/50 p-2"
+                  >
+                    <div class="animate-pulse text-xs text-muted-foreground">
+                      {$_("common.loading")}
+                    </div>
+                  </div>
+                {:else if hoverPreviewData}
+                  <div class="p-2">
+                    {#if hoverPreviewData.fileType === "image"}
+                      <img
+                        src={hoverPreviewData.content}
+                        alt={hoverPreviewData.fileName}
+                        class="block max-w-[180px] max-h-[150px] object-contain rounded"
+                      />
+                    {:else if hoverPreviewData.fileType === "video"}
+                      <!-- svelte-ignore a11y_media_has_caption -->
+                      <video
+                        src={getVideoSrc(hoverPreviewData.content)}
+                        class="block max-w-[180px] max-h-[150px] object-contain rounded"
+                        muted
+                        autoplay
+                        loop
+                        playsinline
+                      ></video>
+                    {:else if hoverPreviewData.fileType === "text"}
+                      <pre
+                        class="w-28 h-20 overflow-hidden bg-muted/50 p-2 text-[8px] font-mono text-foreground whitespace-pre-wrap break-words rounded">{hoverPreviewData.content.slice(
+                          0,
+                          300,
+                        )}</pre>
+                    {:else}
+                      <div
+                        class="flex items-center justify-center w-28 h-20 bg-muted/50 rounded"
+                      >
+                        <File size={20} class="text-muted-foreground" />
+                      </div>
+                    {/if}
+                  </div>
+
+                  <!-- File Name Footer -->
+                  <div class="px-2 pb-2 pt-0">
+                    <div
+                      class="text-[9px] text-muted-foreground truncate text-center"
+                      title={hoverPreviewData.fileName}
+                    >
+                      {hoverPreviewData.fileName}
+                    </div>
+                  </div>
+                {/if}
+                <!-- Arrow Pointer -->
+                <div
+                  class="absolute left-1/2 -translate-x-1/2 w-2 h-2 rotate-45 bg-popover border-border {hoverTooltipPosition ===
+                  'top'
+                    ? 'top-0 -translate-y-1/2 border-l border-t'
+                    : 'bottom-0 translate-y-1/2 border-r border-b'}"
+                ></div>
+              </div>
+            </div>
+          {/if}
         </div>
       {/each}
       {#if files.length === 0}
@@ -245,3 +476,11 @@
     </div>
   </div>
 </div>
+
+<!-- File Preview Modal -->
+<FilePreviewModal
+  bind:open={previewModalOpen}
+  {files}
+  bind:filePath={selectedPreviewFilePath}
+  onClose={closeFilePreview}
+/>

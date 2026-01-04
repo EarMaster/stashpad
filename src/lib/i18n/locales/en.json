@@ -13,13 +13,15 @@
         "delete": "Delete",
         "edit": "Edit",
         "copy": "Copy",
+        "copied": "Copied!",
         "clear": "Clear",
         "remove": "Remove",
         "add": "Add",
         "loading": "Loading…",
         "active": "Active",
         "default": "Default",
-        "unknown": "Unknown"
+        "unknown": "Unknown",
+        "close": "Close"
     },
     "header": {
         "autoContext": "Auto Context",
@@ -137,7 +139,7 @@
         "queueEmpty": "Queue is empty"
     },
     "stashCard": {
-        "emptyStash": "empty",
+        "emptyStash": "-- empty --",
         "copied": "Copied!",
         "restoreToActive": "Restore to active queue",
         "markAsCompleted": "Mark as completed",
@@ -166,5 +168,11 @@
         "title": "Discard Draft?",
         "description": "You have unsaved content in the editor. Are you sure you want to quit?",
         "discardAndExit": "Discard & Exit"
+    },
+    "filePreview": {
+        "clickToPreview": "Click to preview file",
+        "openLocation": "Open location",
+        "unsupportedType": "Preview not available for this file type",
+        "videoNotSupported": "Your browser does not support video playback"
     }
 }
