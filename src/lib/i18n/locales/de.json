@@ -57,6 +57,10 @@
                 "top": "Oben in der Liste",
                 "bottom": "Unten in der Liste",
                 "shiftModifier": "Shift halten beim Hinzufügen, um diese Einstellung temporär umzukehren"
+            },
+            "stripTagsOnCopy": {
+                "label": "Tags beim Kopieren entfernen",
+                "description": "#Hashtags beim Kopieren von Stash-Inhalten in die Zwischenablage entfernen"
             }
         },
         "appearance": {

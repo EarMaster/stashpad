@@ -47,6 +47,7 @@
       newStashId,
       onStashHandled,
       allTags = $bindable([]),
+      stripTagsOnCopy = false,
    } = $props<{
       transferMode: string;
       refreshTrigger: number;
@@ -56,6 +57,7 @@
       newStashId?: string | null;
       onStashHandled?: () => void;
       allTags?: string[];
+      stripTagsOnCopy?: boolean;
    }>();
 
    let stashes = $state<StashItem[]>([]);
@@ -670,6 +672,7 @@
                         {item}
                         mode={effectiveMode}
                         showReorderHandle={selectedTags.length === 0}
+                        {stripTagsOnCopy}
                         onMoveRequest={() => onMoveRequest(item)}
                         onToggleComplete={() => toggleComplete(item)}
                         onDelete={(skip) => deleteStash(item.id, skip)}
@@ -739,6 +742,7 @@
                         {item}
                         mode={effectiveMode}
                         showReorderHandle={false}
+                        {stripTagsOnCopy}
                         onMoveRequest={() => onMoveRequest(item)}
                         onToggleComplete={() => toggleComplete(item)}
                         onDelete={() => deleteStash(item.id)}

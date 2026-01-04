@@ -47,6 +47,7 @@
     item,
     mode,
     showReorderHandle = true,
+    stripTagsOnCopy = false,
     onMoveRequest,
     onToggleComplete,
     onDelete,
@@ -56,6 +57,7 @@
     item: StashItem;
     mode: "Drag" | "Copy";
     showReorderHandle?: boolean;
+    stripTagsOnCopy?: boolean;
     onMoveRequest: () => void;
     onToggleComplete: () => void;
     onDelete: (skipConfirm?: boolean) => void;
@@ -85,10 +87,20 @@
   });
 
   async function handleCopy() {
+    let content = item.content;
+
+    // Strip tags if setting is enabled
+    if (stripTagsOnCopy) {
+      content = content
+        .replace(/#[\w-]+/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+    }
+
     const text =
       item.files.length > 0
-        ? `${item.content}\n\n---\n# SYSTEM CONTEXT - LOCAL FILES\n${item.files.join("\n")}`
-        : item.content;
+        ? `${content}\n\n---\n# SYSTEM CONTEXT - LOCAL FILES\n${item.files.join("\n")}`
+        : content;
     await adapter.copyToClipboard(text);
     copied = true;
     setTimeout(() => (copied = false), 2000);

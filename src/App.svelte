@@ -370,6 +370,7 @@
                contextSelectorOpen = true;
             }}
             bind:allTags
+            stripTagsOnCopy={settings.stripTagsOnCopy ?? false}
          />
       </div>
    {:else if view === "Settings"}

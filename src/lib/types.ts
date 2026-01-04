@@ -56,6 +56,8 @@ export interface Settings {
     uiScale?: number;
     videoVolume?: number;
     videoMuted?: boolean;
+    /** Strip #tags when copying to clipboard */
+    stripTagsOnCopy?: boolean;
 }
 
 export interface IStorageService {

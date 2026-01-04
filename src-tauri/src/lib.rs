@@ -151,6 +151,8 @@ pub struct Settings {
     pub new_stash_position: String, // "top" or "bottom"
     #[serde(default)]
     pub theme: Option<String>, // "light", "dark", "system"
+    #[serde(default)]
+    pub strip_tags_on_copy: bool, // Strip #tags when copying to clipboard
 }
 
 fn default_new_stash_position() -> String {
@@ -168,6 +170,7 @@ impl Default for Settings {
             locale: None,
             new_stash_position: "top".into(),
             theme: None,
+            strip_tags_on_copy: false,
         }
     }
 }

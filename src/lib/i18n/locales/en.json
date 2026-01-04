@@ -57,6 +57,10 @@
                 "top": "Top of List",
                 "bottom": "Bottom of List",
                 "shiftModifier": "Hold Shift while adding to invert this setting temporarily"
+            },
+            "stripTagsOnCopy": {
+                "label": "Strip Tags on Copy",
+                "description": "Remove #hashtags when copying stash content to clipboard"
             }
         },
         "appearance": {
