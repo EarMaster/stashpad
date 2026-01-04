@@ -41,6 +41,7 @@
   import FilePreviewModal from "./FilePreviewModal.svelte";
   import { open } from "@tauri-apps/plugin-dialog";
   import { getRelativeTime } from "$lib/utils/date";
+  import marked from "$lib/utils/markdown";
 
   let {
     item,
@@ -50,6 +51,7 @@
     onToggleComplete,
     onDelete,
     onUpdateContent,
+    availableTags = [],
   } = $props<{
     item: StashItem;
     mode: "Drag" | "Copy";
@@ -58,6 +60,7 @@
     onToggleComplete: () => void;
     onDelete: (skipConfirm?: boolean) => void;
     onUpdateContent: (content: string, files: string[]) => void;
+    availableTags?: string[];
   }>();
 
   const adapter = new DesktopStorageAdapter();
@@ -321,15 +324,16 @@
             onCancel={cancelEdit}
             saveLabel={$_("common.save")}
             autoFocus={true}
+            {availableTags}
           />
         </div>
       {:else if item.content}
         <div
-          class="prose dark:prose-invert prose-xs max-w-none line-clamp-3 text-sm text-foreground/90 leading-relaxed font-sans {item.completed
+          class="prose dark:prose-invert prose-xs max-w-none text-sm text-foreground/90 leading-relaxed font-sans {item.completed
             ? 'line-through text-muted-foreground/70'
             : ''}"
         >
-          {item.content}
+          {@html marked.parse(item.content)}
         </div>
       {:else}
         <div class="text-xs text-muted-foreground/50 italic text-center">

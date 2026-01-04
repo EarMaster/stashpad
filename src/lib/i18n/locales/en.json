@@ -139,17 +139,19 @@
     "queue": {
         "stashQueue": "Stash Queue",
         "completed": "Completed",
-        "clearCompleted": "Clear Completed",
+        "backToTop": "Back to top",
+        "clearCompleted": "Clear completed",
         "deleteAllCompleted": "Delete all completed stashes",
-        "noActiveStashes": "No active stashes",
-        "queueEmpty": "Queue is empty",
-        "stashAdded": "Stash added",
-        "backToTop": "Back to Top",
-        "sortOldest": "Sort: Oldest first",
-        "sortNewest": "Sort: Newest first",
+        "queueEmpty": "Your stashpad is empty. Add something new to start!",
+        "noActiveStashes": "No active stashes.",
+        "noActiveStashesFound": "No active stashes found matching filters.",
         "restoreOrder": "Restore manual order",
-        "completeAll": "Complete all stashes",
-        "completeAllConfirm": "Mark all active stashes as completed?"
+        "completeAll": "Complete all",
+        "completeAllConfirm": "Are you sure you want to complete all active stashes in this context?",
+        "sortOldest": "Date: Oldest first",
+        "sortNewest": "Date: Newest first",
+        "stashAdded": "Stash added",
+        "filterByTags": "Filter by tags"
     },
     "stashCard": {
         "emptyStash": "-- empty --",
@@ -172,7 +174,13 @@
         "saving": "Saving…",
         "dropFiles": "Drop files to stash",
         "dragFilesHere": "Drag files here",
-        "addFile": "Add file"
+        "addFile": "Add file",
+        "bold": "Bold",
+        "italic": "Italic",
+        "heading": "Heading",
+        "list": "List",
+        "code": "Code",
+        "link": "Link"
     },
     "shortcutInput": {
         "ariaLabel": "Keyboard shortcut input. Press Enter to record a new shortcut."

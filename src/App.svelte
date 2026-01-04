@@ -35,6 +35,7 @@
    let currentContextId = $state<string>("default");
    let movingStash = $state<StashItem | null>(null);
    let newlyAddedStashId = $state<string | null>(null);
+   let allTags = $state<string[]>([]);
 
    // Draft state persistence
    let editorDraft = $state("");
@@ -353,6 +354,7 @@
                {currentContextId}
                bind:content={editorDraft}
                bind:files={editorFiles}
+               availableTags={allTags}
             />
          </div>
 
@@ -367,6 +369,7 @@
                movingStash = stash;
                contextSelectorOpen = true;
             }}
+            bind:allTags
          />
       </div>
    {:else if view === "Settings"}

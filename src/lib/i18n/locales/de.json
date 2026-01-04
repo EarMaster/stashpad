@@ -142,13 +142,16 @@
         "clearCompleted": "Erledigte löschen",
         "deleteAllCompleted": "Alle erledigten Stashes löschen",
         "noActiveStashes": "Keine aktiven Stashes",
+        "noActiveStashesFound": "Keine aktiven Stashes mit diesen Filtern gefunden.",
+        "filterByTags": "Nach Tags filtern",
         "queueEmpty": "Warteschlange ist leer",
         "backToTop": "Nach oben",
         "sortOldest": "Sortieren: Älteste zuerst",
         "sortNewest": "Sortieren: Neueste zuerst",
         "restoreOrder": "Manuelle Sortierung wiederherstellen",
         "completeAll": "Alle erledigen",
-        "completeAllConfirm": "Alle aktiven Stashes als erledigt markieren?"
+        "completeAllConfirm": "Alle aktiven Stashes als erledigt markieren?",
+        "stashAdded": "Stash hinzugefügt"
     },
     "stashCard": {
         "emptyStash": "-- leer --",
@@ -171,7 +174,13 @@
         "saving": "Speichere…",
         "dropFiles": "Dateien hier ablegen",
         "dragFilesHere": "Dateien hierher ziehen",
-        "addFile": "Datei hinzufügen"
+        "addFile": "Datei hinzufügen",
+        "bold": "Fett",
+        "italic": "Kursiv",
+        "heading": "Überschrift",
+        "list": "Liste",
+        "code": "Code",
+        "link": "Link"
     },
     "shortcutInput": {
         "ariaLabel": "Tastenkürzel-Eingabe. Drücken Sie Enter, um ein neues Tastenkürzel aufzuzeichnen."

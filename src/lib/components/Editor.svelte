@@ -18,7 +18,20 @@
   import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
   import type { StashItem, FilePreviewData } from "$lib/types";
   import { _ } from "$lib/i18n";
-  import { X, Paperclip, Image, Video, FileText, File } from "lucide-svelte";
+  import {
+    X,
+    Paperclip,
+    Image,
+    Video,
+    FileText,
+    File,
+    Bold,
+    Italic,
+    Link as LinkIcon,
+    List,
+    Code,
+    Heading,
+  } from "lucide-svelte";
   import { open } from "@tauri-apps/plugin-dialog";
   import FilePreviewModal from "./FilePreviewModal.svelte";
   import { fade } from "svelte/transition";
@@ -33,6 +46,7 @@
     onCancel,
     saveLabel,
     autoFocus = false,
+    availableTags = [],
   } = $props<{
     onStash?: (stashId?: string) => void;
     currentContextId?: string;
@@ -42,10 +56,22 @@
     onCancel?: () => void;
     saveLabel?: string;
     autoFocus?: boolean;
+    availableTags?: string[];
   }>();
 
   let dragOver = $state(false);
   let isSaving = $state(false);
+
+  // Tag Autocomplete
+  let showSuggestions = $state(false);
+  let filteredTags = $state<string[]>([]);
+  let focusedTagIndex = $state(0);
+  let suggestionPosition = $state<{ top: number; left: number }>({
+    top: 0,
+    left: 0,
+  });
+  let triggerStart = $state<number | null>(null);
+  let hoveringSuggestions = $state(false);
 
   // File preview state
   let previewModalOpen = $state(false);
@@ -60,6 +86,160 @@
 
   function focusOnMount(node: HTMLTextAreaElement) {
     if (autoFocus) node.focus();
+  }
+
+  function handleInput() {
+    checkForTagTrigger();
+  }
+
+  function checkForTagTrigger() {
+    if (!textareaRef) return;
+
+    const cursorParams = getCursorParams();
+    const textBeforeCursor = content.slice(0, cursorParams.end);
+    const wordMatch = textBeforeCursor.match(/#[\w-]*$/); // Match #word at end
+
+    if (wordMatch) {
+      const query = wordMatch[0].slice(1).toLowerCase(); // remove #
+      const matchIndex = wordMatch.index!;
+
+      filteredTags = availableTags.filter((t) =>
+        t.toLowerCase().startsWith("#" + query),
+      );
+
+      if (filteredTags.length > 0) {
+        showSuggestions = true;
+        focusedTagIndex = 0;
+        triggerStart = matchIndex;
+
+        // Calculate position (simple approx or use a library, for now simple relative to textarea)
+        // Ideally we need getBoundingClientRect of the caret.
+        // For a simple textarea, we can just show it below or we use a hidden div mirror trick.
+        // For MVP, lets just show it at bottom left of textarea or top left?
+        // Actually user requested "autocomplete on tags".
+        // Let's rely on a library or a helper if available, but I don't see one.
+        // I'll try to position it roughly or just a fixed position?
+        // Fixed at cursor is hard in textarea.
+        // Let's implement 'getCursorCoordinates' helper if possible, or just place it at bottom of editor for now?
+        // No, standard is near text.
+
+        // Simple Hack: specific simplified textArea mirroring
+        updateSuggestionPosition(cursorParams.end);
+      } else {
+        showSuggestions = false;
+      }
+    } else {
+      showSuggestions = false;
+    }
+  }
+
+  function insertTag(tag: string) {
+    if (!textareaRef || triggerStart === null) return;
+
+    const before = content.slice(0, triggerStart);
+    const after = content.slice(textareaRef.selectionEnd);
+
+    content = before + tag + " " + after;
+
+    const newCursorPos = before.length + tag.length + 1; // +1 for space (tag has #)
+
+    showSuggestions = false;
+
+    // Restore focus and cursor
+    setTimeout(() => {
+      textareaRef?.focus();
+      textareaRef?.setSelectionRange(newCursorPos, newCursorPos);
+    }, 0);
+  }
+
+  // Helper for text area caret position
+  // We can create a hidden div with same specific styles to measure
+  function updateSuggestionPosition(cursorIndex: number) {
+    if (!textareaRef) return;
+
+    const div = document.createElement("div");
+    const style = window.getComputedStyle(textareaRef);
+
+    // Copy relevant styles
+    const properties = [
+      "direction",
+      "boxSizing",
+      "width",
+      "height",
+      "overflowX",
+      "overflowY",
+      "borderTopWidth",
+      "borderRightWidth",
+      "borderBottomWidth",
+      "borderLeftWidth",
+      "borderStyle",
+      "paddingTop",
+      "paddingRight",
+      "paddingBottom",
+      "paddingLeft",
+      "fontStyle",
+      "fontVariant",
+      "fontWeight",
+      "fontStretch",
+      "fontSize",
+      "fontSizeAdjust",
+      "lineHeight",
+      "fontFamily",
+      "textAlign",
+      "textTransform",
+      "textIndent",
+      "textDecoration",
+      "letterSpacing",
+      "wordSpacing",
+      "tabSize",
+      "MozTabSize",
+      "wordBreak",
+      "overflowWrap",
+      "whiteSpace",
+    ];
+
+    properties.forEach((prop) => {
+      div.style[prop as any] = style.getPropertyValue(prop);
+    });
+
+    div.style.position = "absolute";
+    div.style.top = "0px";
+    div.style.left = "0px";
+    div.style.visibility = "hidden";
+    // div.style.whiteSpace = 'pre-wrap'; // Already copied or set above if needed, but safer to let copy handle it if computed is correct, OR force it if textarea is specific.
+    // Textarea usually has pre-wrap. Let's ensure it.
+    if (!div.style.whiteSpace) div.style.whiteSpace = "pre-wrap";
+
+    div.style.overflow = "hidden"; // Don't show scrollbars
+    div.style.height = "auto"; // Auto height to match content
+
+    div.textContent = content.slice(0, cursorIndex);
+    const span = document.createElement("span");
+    span.textContent = ".";
+    div.appendChild(span);
+
+    document.body.appendChild(div);
+
+    // Calculate position
+    // Use span.offsetHeight for exact line height of the text at that position
+    suggestionPosition = {
+      top:
+        textareaRef.offsetTop +
+        span.offsetTop -
+        textareaRef.scrollTop +
+        span.offsetHeight +
+        14,
+      left: textareaRef.offsetLeft + span.offsetLeft - textareaRef.scrollLeft,
+    };
+
+    document.body.removeChild(div);
+  }
+
+  function getCursorParams() {
+    return {
+      start: textareaRef?.selectionStart || 0,
+      end: textareaRef?.selectionEnd || 0,
+    };
   }
 
   async function handleDrop(e: DragEvent) {
@@ -132,6 +312,32 @@
   }
 
   function handleKeydown(e: KeyboardEvent) {
+    if (showSuggestions && filteredTags.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        focusedTagIndex = (focusedTagIndex + 1) % filteredTags.length;
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        focusedTagIndex =
+          (focusedTagIndex - 1 + filteredTags.length) % filteredTags.length;
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        if (filteredTags[focusedTagIndex]) {
+          insertTag(filteredTags[focusedTagIndex]);
+        }
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        showSuggestions = false;
+        return;
+      }
+    }
+
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       save(e);
     }
@@ -273,6 +479,33 @@
   /**
    * Opens a file picker dialog and adds selected files to the stash.
    */
+  let textareaRef = $state<HTMLTextAreaElement | null>(null);
+
+  function insertMarkdown(prefix: string, suffix: string = "") {
+    if (!textareaRef) return;
+    const start = textareaRef.selectionStart;
+    const end = textareaRef.selectionEnd;
+    const text = content;
+    const selection = text.substring(start, end);
+
+    const replacement = prefix + selection + suffix;
+    content = text.substring(0, start) + replacement + text.substring(end);
+
+    setTimeout(() => {
+      if (!textareaRef) return;
+      textareaRef.focus();
+      if (start === end) {
+        const newPos = start + prefix.length;
+        textareaRef.setSelectionRange(newPos, newPos);
+      } else {
+        textareaRef.setSelectionRange(
+          start + prefix.length,
+          start + prefix.length + selection.length,
+        );
+      }
+    }, 0);
+  }
+
   async function handleAddFile() {
     try {
       const selected = await open({
@@ -318,13 +551,96 @@
     </div>
   {/if}
 
+  <div class="flex items-center gap-0.5 p-2 pb-0 border-b border-border/50">
+    <button
+      class="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-all"
+      onclick={() => insertMarkdown("**", "**")}
+      title={$_("editor.bold")}
+      tabindex="-1"
+    >
+      <Bold size={14} />
+    </button>
+    <button
+      class="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-all"
+      onclick={() => insertMarkdown("_", "_")}
+      title={$_("editor.italic")}
+      tabindex="-1"
+    >
+      <Italic size={14} />
+    </button>
+    <button
+      class="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-all"
+      onclick={() => insertMarkdown("### ")}
+      title={$_("editor.heading")}
+      tabindex="-1"
+    >
+      <Heading size={14} />
+    </button>
+    <div class="w-px h-4 bg-border/50 mx-1"></div>
+    <button
+      class="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-all"
+      onclick={() => insertMarkdown("- ")}
+      title={$_("editor.list")}
+      tabindex="-1"
+    >
+      <List size={14} />
+    </button>
+    <button
+      class="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-all"
+      onclick={() => insertMarkdown("`", "`")}
+      title={$_("editor.code")}
+      tabindex="-1"
+    >
+      <Code size={14} />
+    </button>
+    <button
+      class="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-all"
+      onclick={() => insertMarkdown("[", "](url)")}
+      title={$_("editor.link")}
+      tabindex="-1"
+    >
+      <LinkIcon size={14} />
+    </button>
+  </div>
+
   <textarea
     class="flex-1 bg-transparent resize-none outline-none text-sm p-4 placeholder:text-muted-foreground/50 font-mono"
     placeholder={$_("editor.placeholder")}
     bind:value={content}
+    bind:this={textareaRef}
     onkeydown={handleKeydown}
+    oninput={handleInput}
+    onblur={() =>
+      setTimeout(() => {
+        if (!hoveringSuggestions) showSuggestions = false;
+      }, 200)}
     use:focusOnMount
   ></textarea>
+
+  {#if showSuggestions}
+    <div
+      class="absolute z-50 bg-popover border border-border rounded-md shadow-lg flex flex-col min-w-[120px] max-h-[200px] overflow-y-auto"
+      style="top: {suggestionPosition.top}px; left: {suggestionPosition.left}px;"
+      onmouseenter={() => (hoveringSuggestions = true)}
+      onmouseleave={() => (hoveringSuggestions = false)}
+      role="presentation"
+    >
+      {#each filteredTags as tag, i}
+        <button
+          class="text-xs px-2 py-1.5 text-left hover:bg-muted transition-colors {i ===
+          focusedTagIndex
+            ? 'bg-primary/10 text-primary'
+            : ''}"
+          onclick={() => {
+            insertTag(tag);
+            hoveringSuggestions = false;
+          }}
+        >
+          {tag}
+        </button>
+      {/each}
+    </div>
+  {/if}
 
   <div
     class="flex items-center justify-between p-2 border-t border-border bg-muted/30 rounded-b-xl"

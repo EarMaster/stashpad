@@ -123,19 +123,9 @@
   <div
     class="z-10 absolute left-1/2 -translate-x-1/2 hidden sm:flex items-center gap-1.5 shrink-0 select-none cursor-default py-2 pointer-events-none"
   >
-    <!-- Light Mode Logo -->
-    <img
-      src={logoIconLight}
-      alt="{$_('app.name')} Icon"
-      class="h-8 w-8 dark:hidden block"
-    />
-    <!-- Dark Mode Logo -->
-    <img
-      src={logoIcon}
-      alt="{$_('app.name')} Icon"
-      class="h-8 w-8 hidden dark:block"
-    />
-    <!-- Typo (Inverted in light mode if it's white, assuming white original) -->
+    <!-- Logo -->
+    <img src={logoIcon} alt="{$_('app.name')} Icon" class="h-8 w-8 block" />
+    <!-- Typo (Inverted in light mode) -->
     <img
       src={logoTypo}
       alt={$_("app.name")}

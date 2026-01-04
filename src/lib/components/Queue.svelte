@@ -17,6 +17,7 @@
 <script lang="ts">
    import { tick, untrack } from "svelte";
    import { dragHandleZone, TRIGGERS } from "svelte-dnd-action";
+   import { getTagHue } from "$lib/utils/markdown";
    import { flip } from "svelte/animate";
    import { fade, fly } from "svelte/transition";
    import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
@@ -34,6 +35,7 @@
       CalendarArrowDown,
       CheckCheck,
       RotateCcw,
+      Filter,
    } from "lucide-svelte";
 
    let {
@@ -44,6 +46,7 @@
       onMoveRequest,
       newStashId,
       onStashHandled,
+      allTags = $bindable([]),
    } = $props<{
       transferMode: string;
       refreshTrigger: number;
@@ -52,6 +55,7 @@
       onMoveRequest: (stash: StashItem) => void;
       newStashId?: string | null;
       onStashHandled?: () => void;
+      allTags?: string[];
    }>();
 
    let stashes = $state<StashItem[]>([]);
@@ -80,6 +84,69 @@
    let activeSort = $state<"asc" | "desc" | null>(null);
    let scrollContainer = $state<HTMLDivElement>();
 
+   // Tag Filtering
+   let selectedTags = $state<string[]>([]);
+   let showFilterMenu = $state(false);
+   let tagCounts = $state<Map<string, number>>(new Map());
+
+   // Extract unique tags from BOTH active and completed stashes (for filter options)
+   let availableTags = $derived.by(() => {
+      const tags = new Set<string>();
+      const regex = /#[\w-]+/g;
+      // Include tags from active stashes
+      activeStashes.forEach((stash) => {
+         const matches = stash.content.match(regex);
+         if (matches) {
+            matches.forEach((tag) => tags.add(tag));
+         }
+      });
+      // Include tags from completed stashes
+      completedStashes.forEach((stash) => {
+         const matches = stash.content.match(regex);
+         if (matches) {
+            matches.forEach((tag) => tags.add(tag));
+         }
+      });
+      return Array.from(tags).sort();
+   });
+
+   // Filtered Active Stashes
+   let filteredStashes = $derived.by(() => {
+      if (selectedTags.length === 0) return activeStashes;
+
+      // Using OR logic: Show stashes that contain ANY of the selected tags
+      return activeStashes.filter((stash) => {
+         return selectedTags.some((tag) => stash.content.includes(tag));
+      });
+   });
+
+   // Filtered Completed Stashes
+   let filteredCompletedStashes = $derived.by(() => {
+      if (selectedTags.length === 0) return completedStashes;
+
+      // Using OR logic: Show stashes that contain ANY of the selected tags
+      return completedStashes.filter((stash) => {
+         return selectedTags.some((tag) => stash.content.includes(tag));
+      });
+   });
+
+   $effect(() => {
+      // Clear filters if selected tags are no longer available in the current view
+      if (selectedTags.length > 0) {
+         // Check content from both active AND completed stashes
+         const allContent = [
+            ...activeStashes.map((s) => s.content),
+            ...completedStashes.map((s) => s.content),
+         ].join(" ");
+         const validTags = selectedTags.filter((tag) =>
+            allContent.includes(tag),
+         );
+         if (validTags.length !== selectedTags.length) {
+            selectedTags = validTags;
+         }
+      }
+   });
+
    const flipDurationMs = 200;
 
    const adapter = new DesktopStorageAdapter();
@@ -106,6 +173,39 @@
       adapter.saveStashes(stashes);
       showMenu = false;
    }
+
+   // Sync all tags (Current Context Only) - counts only from active stashes
+   $effect(() => {
+      const tags = new Set<string>();
+      const counts = new Map<string, number>();
+      const regex = /#[\w-]+/g;
+
+      // Filter stashes by current context
+      const contextStashes = stashes.filter(
+         (s) => (s.contextId || "default") === (currentContextId || "default"),
+      );
+
+      // Collect all tags from all context stashes (for allTags prop)
+      contextStashes.forEach((stash) => {
+         const matches = stash.content.match(regex);
+         if (matches) {
+            matches.forEach((tag) => tags.add(tag));
+         }
+      });
+
+      // Count occurrences only from ACTIVE (uncompleted) stashes
+      activeStashes.forEach((stash) => {
+         const matches = stash.content.match(regex);
+         if (matches) {
+            matches.forEach((tag) => {
+               counts.set(tag, (counts.get(tag) || 0) + 1);
+            });
+         }
+      });
+
+      allTags = Array.from(tags).sort();
+      tagCounts = counts;
+   });
 
    function restoreOrder() {
       if (backupOrder) {
@@ -354,109 +454,204 @@
       <!-- Active Section -->
       <section class="space-y-4">
          <div
-            class="flex items-center justify-between sticky top-0 py-3 z-10 -mx-4 px-4 mb-2 pointer-events-none"
+            class="flex flex-col sticky top-0 py-3 z-10 -mx-4 px-4 mb-2"
             style="background: linear-gradient(to bottom, var(--background) 0%, var(--background) 80%, transparent 100%);"
          >
-            <h2
-               class="text-[10px] font-bold text-muted-foreground uppercase tracking-wider pointer-events-auto"
-            >
-               {$_("queue.stashQueue")} ({activeStashes.filter(
-                  (s) => !s.isDndShadowItem,
-               ).length})
-            </h2>
-            <div class="flex items-center gap-2 pointer-events-auto">
-               {#if showBackToTop}
-                  <button
-                     transition:fade={{ duration: 200 }}
-                     class="flex items-center gap-1.5 px-2 py-1 rounded-full bg-background/50 hover:bg-background border border-border/40 text-[10px] font-medium text-muted-foreground hover:text-foreground transition-all shadow-sm backdrop-blur-md"
-                     onclick={scrollToTop}
-                  >
-                     <ArrowUp size={10} />
-                     {$_("queue.backToTop")}
-                  </button>
-               {/if}
-
-               <div class="relative">
-                  <button
-                     class="p-1 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-                     onclick={() => (showMenu = !showMenu)}
-                  >
-                     <MoreVertical size={14} />
-                  </button>
-
-                  {#if showMenu}
-                     <div
-                        class="fixed inset-0 z-40"
-                        onclick={() => (showMenu = false)}
-                        aria-hidden="true"
-                     ></div>
-                     <div
-                        class="absolute right-0 top-full mt-1 w-48 bg-popover border border-border rounded-md shadow-lg z-50 py-1 flex flex-col"
-                        transition:fade={{ duration: 100 }}
+            <div class="flex items-center justify-between pointer-events-none">
+               <h2
+                  class="text-[10px] font-bold text-muted-foreground uppercase tracking-wider pointer-events-auto"
+               >
+                  {$_("queue.stashQueue")} ({activeStashes.filter(
+                     (s) => !s.isDndShadowItem,
+                  ).length})
+               </h2>
+               <div class="flex items-center gap-2 pointer-events-auto">
+                  {#if showBackToTop}
+                     <button
+                        transition:fade={{ duration: 200 }}
+                        class="flex items-center gap-1.5 px-2 py-1 rounded-full bg-background/50 hover:bg-background border border-border/40 text-[10px] font-medium text-muted-foreground hover:text-foreground transition-all shadow-sm backdrop-blur-md"
+                        onclick={scrollToTop}
                      >
-                        <button
-                           class="flex items-center gap-2 px-3 py-2 text-xs text-left w-full transition-colors {activeSort ===
-                           'asc'
-                              ? 'bg-muted font-medium'
-                              : 'hover:bg-muted'}"
-                           onclick={() => sortStashes("asc")}
-                        >
-                           <CalendarArrowUp
-                              size={14}
-                              class={activeSort === "asc" ? "text-primary" : ""}
-                           />
-                           {$_("queue.sortOldest")}
-                        </button>
-                        <button
-                           class="flex items-center gap-2 px-3 py-2 text-xs text-left w-full transition-colors {activeSort ===
-                           'desc'
-                              ? 'bg-muted font-medium'
-                              : 'hover:bg-muted'}"
-                           onclick={() => sortStashes("desc")}
-                        >
-                           <CalendarArrowDown
-                              size={14}
-                              class={activeSort === "desc"
-                                 ? "text-primary"
-                                 : ""}
-                           />
-                           {$_("queue.sortNewest")}
-                        </button>
+                        <ArrowUp size={10} />
+                        {$_("queue.backToTop")}
+                     </button>
+                  {/if}
 
-                        {#if backupOrder}
+                  {#if availableTags.length > 0}
+                     <button
+                        class="p-1 rounded-md hover:bg-muted text-muted-foreground hover:text-primary transition-colors {showFilterMenu ||
+                        selectedTags.length > 0
+                           ? 'text-primary bg-primary/10'
+                           : ''}"
+                        onclick={() => (showFilterMenu = !showFilterMenu)}
+                        title={$_("queue.filterByTags")}
+                     >
+                        {#if selectedTags.length > 0}
+                           <svg
+                              xmlns="http://www.w3.org/2000/svg"
+                              width="14"
+                              height="14"
+                              viewBox="0 0 24 24"
+                              fill="currentColor"
+                              stroke="currentColor"
+                              stroke-width="2"
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                              ><polygon
+                                 points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"
+                              /></svg
+                           >
+                        {:else}
+                           <Filter size={14} />
+                        {/if}
+                     </button>
+                  {/if}
+
+                  <div class="relative">
+                     <button
+                        class="p-1 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                        onclick={() => (showMenu = !showMenu)}
+                     >
+                        <MoreVertical size={14} />
+                     </button>
+
+                     {#if showMenu}
+                        <div
+                           class="fixed inset-0 z-40"
+                           onclick={() => (showMenu = false)}
+                           aria-hidden="true"
+                        ></div>
+                        <div
+                           class="absolute right-0 top-full mt-1 w-48 bg-popover border border-border rounded-md shadow-lg z-50 py-1 flex flex-col"
+                           transition:fade={{ duration: 100 }}
+                        >
+                           <button
+                              class="flex items-center gap-2 px-3 py-2 text-xs text-left w-full transition-colors {activeSort ===
+                              'asc'
+                                 ? 'bg-muted font-medium'
+                                 : 'hover:bg-muted'}"
+                              onclick={() => sortStashes("asc")}
+                           >
+                              <CalendarArrowUp
+                                 size={14}
+                                 class={activeSort === "asc"
+                                    ? "text-primary"
+                                    : ""}
+                              />
+                              {$_("queue.sortOldest")}
+                           </button>
+                           <button
+                              class="flex items-center gap-2 px-3 py-2 text-xs text-left w-full transition-colors {activeSort ===
+                              'desc'
+                                 ? 'bg-muted font-medium'
+                                 : 'hover:bg-muted'}"
+                              onclick={() => sortStashes("desc")}
+                           >
+                              <CalendarArrowDown
+                                 size={14}
+                                 class={activeSort === "desc"
+                                    ? "text-primary"
+                                    : ""}
+                              />
+                              {$_("queue.sortNewest")}
+                           </button>
+
+                           {#if backupOrder}
+                              <button
+                                 class="flex items-center gap-2 px-3 py-2 text-xs hover:bg-muted text-left w-full transition-colors"
+                                 onclick={restoreOrder}
+                              >
+                                 <RotateCcw size={14} />
+                                 {$_("queue.restoreOrder")}
+                              </button>
+                           {/if}
+
+                           <div class="h-px bg-border my-1"></div>
                            <button
                               class="flex items-center gap-2 px-3 py-2 text-xs hover:bg-muted text-left w-full transition-colors"
-                              onclick={restoreOrder}
+                              onclick={() => {
+                                 showMenu = false;
+                                 showCompleteAllConfirm = true;
+                              }}
                            >
-                              <RotateCcw size={14} />
-                              {$_("queue.restoreOrder")}
+                              <CheckCheck size={14} />
+                              {$_("queue.completeAll")}
                            </button>
-                        {/if}
-
-                        <div class="h-px bg-border my-1"></div>
-                        <button
-                           class="flex items-center gap-2 px-3 py-2 text-xs hover:bg-muted text-left w-full transition-colors"
-                           onclick={() => {
-                              showMenu = false;
-                              showCompleteAllConfirm = true;
-                           }}
-                        >
-                           <CheckCheck size={14} />
-                           {$_("queue.completeAll")}
-                        </button>
-                     </div>
-                  {/if}
+                        </div>
+                     {/if}
+                  </div>
                </div>
             </div>
+
+            {#if showFilterMenu && availableTags.length > 0}
+               <div
+                  class="flex flex-wrap gap-1.5 mt-2 pb-2 justify-end"
+                  transition:fade={{ duration: 150 }}
+               >
+                  {#each availableTags as tag}
+                     {@const hue = getTagHue(tag)}
+                     {@const isSelected = selectedTags.includes(tag)}
+                     <button
+                        class="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full border transition-all"
+                        style="--tag-hue: {hue}; {isSelected
+                           ? `background-color: hsla(${hue}, 100%, 75%, 0.2); border-color: hsla(${hue}, 80%, 40%, 0.3); color: hsla(${hue}, 90%, 25%, 1);`
+                           : `background-color: transparent; border-color: var(--border); color: var(--muted-foreground);`}"
+                        onclick={() => {
+                           if (isSelected) {
+                              selectedTags = selectedTags.filter(
+                                 (t) => t !== tag,
+                              );
+                           } else {
+                              selectedTags = [...selectedTags, tag];
+                           }
+                        }}
+                     >
+                        <svg
+                           xmlns="http://www.w3.org/2000/svg"
+                           width="12"
+                           height="12"
+                           viewBox="0 0 24 24"
+                           fill="none"
+                           stroke="currentColor"
+                           stroke-width="2.5"
+                           stroke-linecap="round"
+                           stroke-linejoin="round"
+                           class="flex-shrink-0 opacity-70"
+                           ><line x1="4" x2="20" y1="9" y2="9" /><line
+                              x1="4"
+                              x2="20"
+                              y1="15"
+                              y2="15"
+                           /><line x1="10" x2="8" y1="3" y2="21" /><line
+                              x1="16"
+                              x2="14"
+                              y1="3"
+                              y2="21"
+                           /></svg
+                        >
+                        <span class="font-medium">{tag.slice(1)}</span>
+                        {#if tagCounts.get(tag)}
+                           <span class="text-[9px] opacity-60"
+                              >{tagCounts.get(tag)}</span
+                           >
+                        {/if}
+                     </button>
+                  {/each}
+               </div>
+            {/if}
          </div>
 
          <div
             class="flex flex-col gap-3 min-h-[50px]"
-            use:dragHandleZone={{ items: activeStashes, flipDurationMs }}
+            use:dragHandleZone={{
+               items: filteredStashes,
+               flipDurationMs,
+               dragDisabled: selectedTags.length > 0,
+            }}
             onconsider={handleDndConsider}
             onfinalize={handleDndFinalize}
          >
-            {#each activeStashes as item (item.id)}
+            {#each filteredStashes as item (item.id)}
                <div
                   class="dnd-item {draggedItemId === item.id
                      ? 'is-dragging'
@@ -474,28 +669,34 @@
                      <StashCard
                         {item}
                         mode={effectiveMode}
+                        showReorderHandle={selectedTags.length === 0}
                         onMoveRequest={() => onMoveRequest(item)}
                         onToggleComplete={() => toggleComplete(item)}
                         onDelete={(skip) => deleteStash(item.id, skip)}
                         onUpdateContent={(content, files) =>
                            updateContent(item, content, files)}
+                        availableTags={allTags}
                      />
                   {/if}
                </div>
             {/each}
 
-            {#if activeStashes.filter((s) => !s.isDndShadowItem).length === 0}
+            {#if filteredStashes.filter((s) => !s.isDndShadowItem).length === 0}
                <div
                   class="flex flex-col items-center justify-center py-12 text-muted-foreground/30 border border-dashed border-border/50 rounded-lg"
                >
-                  <span class="text-sm">{$_("queue.noActiveStashes")}</span>
+                  <span class="text-sm">
+                     {selectedTags.length > 0
+                        ? $_("queue.noActiveStashesFound")
+                        : $_("queue.noActiveStashes")}
+                  </span>
                </div>
             {/if}
          </div>
       </section>
 
       <!-- Completed Section -->
-      {#if completedStashes.length > 0}
+      {#if filteredCompletedStashes.length > 0 || (completedStashes.length > 0 && selectedTags.length === 0)}
          <section class="space-y-4">
             <div
                class="flex items-center justify-between sticky top-0 py-3 z-10 -mx-4 px-4 mb-2 pointer-events-none"
@@ -504,7 +705,9 @@
                <h2
                   class="text-[10px] font-bold text-muted-foreground/60 uppercase tracking-wider pointer-events-auto"
                >
-                  {$_("queue.completed")} ({completedStashes.length})
+                  {$_("queue.completed")} ({selectedTags.length > 0
+                     ? filteredCompletedStashes.length
+                     : completedStashes.length})
                </h2>
 
                <div class="flex items-center gap-2">
@@ -530,7 +733,7 @@
             </div>
 
             <div class="flex flex-col gap-3">
-               {#each completedStashes as item (item.id)}
+               {#each filteredCompletedStashes as item (item.id)}
                   <div role="listitem" data-stash-id={item.id}>
                      <StashCard
                         {item}

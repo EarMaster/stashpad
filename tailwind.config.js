@@ -1,3 +1,5 @@
+import typography from '@tailwindcss/typography';
+
 /** @type {import('tailwindcss').Config} */
 export default {
     content: ['./src/**/*.{html,js,svelte,ts}'],
@@ -36,8 +38,34 @@ export default {
                 border: 'var(--border)',
                 input: 'var(--input)',
                 ring: 'var(--ring)',
-            }
+            },
+            typography: {
+                DEFAULT: {
+                    css: {
+                        'code::before': {
+                            content: '""'
+                        },
+                        'code::after': {
+                            content: '""'
+                        },
+                        code: {
+                            fontWeight: '400',
+                            padding: '0.2em 0.4em',
+                            borderRadius: '0.25rem',
+                        },
+                        'pre code': {
+                            backgroundColor: 'transparent',
+                            padding: '0',
+                        },
+                        pre: {
+                            backgroundColor: 'transparent',
+                            borderRadius: '0.5rem',
+                            padding: '1rem',
+                        }
+                    },
+                },
+            },
         },
     },
-    plugins: [],
+    plugins: [typography],
 }
