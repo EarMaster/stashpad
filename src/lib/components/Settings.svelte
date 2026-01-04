@@ -72,12 +72,38 @@
         >
           {$_("settings.contextManagement.title")}
         </h2>
+
+        <!-- Auto Context Detection -->
+        <div
+          class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
+        >
+          <div class="space-y-0.5">
+            <div class="text-sm font-medium">
+              {$_("settings.general.autoContextDetection.label")}
+            </div>
+            <div class="text-xs text-muted-foreground">
+              {$_("settings.general.autoContextDetection.description")}
+            </div>
+          </div>
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input
+              type="checkbox"
+              class="sr-only peer"
+              bind:checked={settings.autoContextDetection}
+              onchange={save}
+            />
+            <div
+              class="w-11 h-6 bg-muted rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary peer-focus-visible:ring-2 peer-focus-visible:ring-primary peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-background"
+            ></div>
+          </label>
+        </div>
+
         <button
-          class="w-full flex items-center justify-between p-4 rounded-lg border border-border bg-card hover:bg-muted/50 transition-colors group"
+          class="w-full flex items-center justify-between p-3 rounded-lg border border-border bg-card hover:bg-muted/50 transition-colors group"
           onclick={onOpenContexts}
         >
           <div class="flex flex-col items-start gap-1">
-            <span class="font-medium"
+            <span class="text-sm font-medium"
               >{$_("settings.contextManagement.manageContexts")}</span
             >
             <span class="text-xs text-muted-foreground"
@@ -131,30 +157,6 @@
               </option>
             {/each}
           </select>
-        </div>
-
-        <div
-          class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
-        >
-          <div class="space-y-0.5">
-            <div class="text-sm font-medium">
-              {$_("settings.general.autoContextDetection.label")}
-            </div>
-            <div class="text-xs text-muted-foreground">
-              {$_("settings.general.autoContextDetection.description")}
-            </div>
-          </div>
-          <label class="relative inline-flex items-center cursor-pointer">
-            <input
-              type="checkbox"
-              class="sr-only peer"
-              bind:checked={settings.autoContextDetection}
-              onchange={save}
-            />
-            <div
-              class="w-11 h-6 bg-muted rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary peer-focus-visible:ring-2 peer-focus-visible:ring-primary peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-background"
-            ></div>
-          </label>
         </div>
 
         <!-- New Stash Position Selector -->

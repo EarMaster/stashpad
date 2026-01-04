@@ -78,6 +78,24 @@
    let contextSelectorOpen = $state(false);
    let isCycling = $state(false); // Track if user is cycling through contexts
    let lastUsedContexts = $state<string[]>([]); // Future use
+   let stashCounts = $state<Record<string, number>>({});
+
+   // Load stash counts when context switcher opens
+   $effect(() => {
+      if (contextSelectorOpen) {
+         adapter.loadStashes().then((stashes: StashItem[]) => {
+            const counts: Record<string, number> = { default: 0 };
+            settings.contexts.forEach((ctx) => (counts[ctx.id] = 0));
+            stashes.forEach((stash) => {
+               if (!stash.completed) {
+                  const ctxId = stash.contextId || "default";
+                  counts[ctxId] = (counts[ctxId] || 0) + 1;
+               }
+            });
+            stashCounts = counts;
+         });
+      }
+   });
 
    function handleKeydown(e: KeyboardEvent) {
       // Check for switch_context shortcut
@@ -315,6 +333,7 @@
          bind:this={contextSwitcher}
          contexts={settings.contexts}
          {currentContextId}
+         {stashCounts}
          autoContextDetection={settings.autoContextDetection}
          mode={movingStash ? "move" : "switch"}
          title={movingStash ? "Move Stash to…" : "Switch Context"}
@@ -338,7 +357,10 @@
    {#if view === "Main"}
       <Header
          bind:transferMode
-         onOpenSettings={() => (view = "Settings")}
+         onOpenSettings={() => {
+            contextSelectorOpen = false;
+            view = "Settings";
+         }}
          {settings}
          bind:currentContextId
          onOpenContextSwitcher={() => {

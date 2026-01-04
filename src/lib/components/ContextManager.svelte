@@ -5,7 +5,7 @@
 
 <script lang="ts">
     import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
-    import type { Settings } from "$lib/types";
+    import type { Settings, StashItem } from "$lib/types";
     import { _ } from "$lib/i18n";
     import ConfirmationDialog from "./ConfirmationDialog.svelte";
 
@@ -17,6 +17,7 @@
         activeContextId: undefined,
         shortcuts: {},
     });
+    let stashCounts = $state<Record<string, number>>({});
     let isLoading = $state(true);
     let contextToDelete = $state<number | null>(null);
 
@@ -26,6 +27,19 @@
         try {
             settings = await adapter.getSettings();
             if (!settings.contexts) settings.contexts = [];
+
+            // Load stashes and count per context
+            const stashes = await adapter.loadStashes();
+            const counts: Record<string, number> = { default: 0 };
+            settings.contexts.forEach((ctx) => (counts[ctx.id] = 0));
+
+            stashes.forEach((stash: StashItem) => {
+                if (!stash.completed) {
+                    const ctxId = stash.contextId || "default";
+                    counts[ctxId] = (counts[ctxId] || 0) + 1;
+                }
+            });
+            stashCounts = counts;
         } catch (e) {
             console.error("Failed to load settings", e);
         } finally {
@@ -52,6 +66,7 @@
                 id: crypto.randomUUID(),
                 name: $_("contexts.newContext"),
                 rules: [],
+                lastUsed: new Date().toISOString(),
             },
         ];
         save();
@@ -97,136 +112,146 @@
     </div>
 
     <!-- Content -->
-    <div class="flex-1 overflow-y-auto p-4 space-y-6">
-        {#if isLoading}
-            <div class="text-sm text-muted-foreground animate-pulse">
-                {$_("contexts.loadingContexts")}
-            </div>
-        {:else}
-            <div class="flex items-center justify-between">
-                <p class="text-sm text-muted-foreground">
-                    {$_("contexts.manageDescription")}
-                </p>
-                <button
-                    class="text-xs bg-primary text-primary-foreground px-3 py-1.5 rounded-md hover:bg-primary/90 transition-colors shadow-sm font-medium"
-                    onclick={addContext}>{$_("contexts.addContext")}</button
-                >
-            </div>
-
-            <div class="space-y-4">
-                {#each settings.contexts as context, i}
-                    <div
-                        class="rounded-lg border border-border bg-card p-4 space-y-3 shadow-sm"
+    <div class="flex-1 overflow-y-auto p-4 scrollbar-hide">
+        <div class="space-y-6 max-w-2xl mx-auto">
+            {#if isLoading}
+                <div class="text-sm text-muted-foreground animate-pulse">
+                    {$_("contexts.loadingContexts")}
+                </div>
+            {:else}
+                <div class="flex items-center justify-between">
+                    <p class="text-sm text-muted-foreground">
+                        {$_("contexts.manageDescription")}
+                    </p>
+                    <button
+                        class="text-xs bg-primary text-primary-foreground px-3 py-1.5 rounded-md hover:bg-primary/90 transition-colors shadow-sm font-medium"
+                        onclick={addContext}>{$_("contexts.addContext")}</button
                     >
-                        <div class="flex items-center gap-2">
-                            <input
-                                class="flex-1 bg-transparent font-medium focus:outline-none border-b border-transparent focus:border-primary/50 text-sm py-1"
-                                bind:value={context.name}
-                                onchange={save}
-                                placeholder={$_(
-                                    "contexts.contextNamePlaceholder",
-                                )}
-                            />
-                            <button
-                                class="text-muted-foreground hover:text-destructive text-xs px-2 py-1 rounded hover:bg-muted"
-                                onclick={(e) => {
-                                    if (e.shiftKey) {
-                                        removeContext(i);
-                                    } else {
-                                        contextToDelete = i;
-                                    }
-                                }}
-                                title={$_("contexts.shiftClickToSkip")}
-                                >{$_("contexts.removeContext")}</button
-                            >
-                        </div>
+                </div>
 
-                        <!-- Rules -->
+                <div class="space-y-4">
+                    {#each settings.contexts as context, i}
                         <div
-                            class="pl-2 border-l-2 border-muted space-y-2 mt-2"
+                            class="rounded-lg border border-border bg-card p-4 space-y-3 shadow-sm"
                         >
-                            <div
-                                class="text-[10px] text-muted-foreground font-medium flex justify-between uppercase tracking-wider"
-                            >
-                                <span>{$_("contexts.autoSwitchRules")}</span>
+                            <div class="flex items-center gap-2">
+                                <input
+                                    class="flex-1 bg-transparent font-medium focus:outline-none border-b border-transparent focus:border-primary/50 text-sm py-1"
+                                    bind:value={context.name}
+                                    onchange={save}
+                                    placeholder={$_(
+                                        "contexts.contextNamePlaceholder",
+                                    )}
+                                />
+                                {#if stashCounts[context.id] !== undefined}
+                                    <span
+                                        class="text-[10px] text-muted-foreground tabular-nums bg-muted px-1.5 py-0.5 rounded"
+                                    >
+                                        {stashCounts[context.id]}
+                                    </span>
+                                {/if}
                                 <button
-                                    class="text-xs text-primary hover:underline"
-                                    onclick={() => addRule(i)}
-                                    >{$_("contexts.addRule")}</button
+                                    class="text-muted-foreground hover:text-destructive text-xs px-2 py-1 rounded hover:bg-muted"
+                                    onclick={(e) => {
+                                        if (e.shiftKey) {
+                                            removeContext(i);
+                                        } else {
+                                            contextToDelete = i;
+                                        }
+                                    }}
+                                    title={$_("contexts.shiftClickToSkip")}
+                                    >{$_("contexts.removeContext")}</button
                                 >
                             </div>
 
-                            {#each context.rules as rule, j}
+                            <!-- Rules -->
+                            <div
+                                class="pl-2 border-l-2 border-muted space-y-2 mt-2"
+                            >
                                 <div
-                                    class="flex items-center gap-2 text-xs group"
+                                    class="text-[10px] text-muted-foreground font-medium flex justify-between uppercase tracking-wider"
                                 >
-                                    <select
-                                        class="bg-muted/50 rounded px-2 py-1 border border-transparent focus:border-primary/50 outline-none"
-                                        bind:value={rule.ruleType}
-                                        onchange={save}
+                                    <span>{$_("contexts.autoSwitchRules")}</span
                                     >
-                                        <option value="process"
-                                            >{$_(
-                                                "contexts.rules.process",
-                                            )}</option
-                                        >
-                                        <option value="title"
-                                            >{$_(
-                                                "contexts.rules.title",
-                                            )}</option
-                                        >
-                                    </select>
-                                    <select
-                                        class="bg-muted/50 rounded px-2 py-1 border border-transparent focus:border-primary/50 outline-none"
-                                        bind:value={rule.matchType}
-                                        onchange={save}
-                                    >
-                                        <option value="contains"
-                                            >{$_(
-                                                "contexts.rules.contains",
-                                            )}</option
-                                        >
-                                        <option value="exact"
-                                            >{$_(
-                                                "contexts.rules.exact",
-                                            )}</option
-                                        >
-                                    </select>
-                                    <input
-                                        class="flex-1 bg-muted/50 px-2 py-1 rounded border border-transparent focus:border-primary/50 outline-none"
-                                        bind:value={rule.value}
-                                        onchange={save}
-                                        placeholder={$_(
-                                            "contexts.rules.valuePlaceholder",
-                                        )}
-                                    />
                                     <button
-                                        class="text-muted-foreground hover:text-destructive px-1.5 opacity-0 group-hover:opacity-100 transition-opacity"
-                                        onclick={() => removeRule(i, j)}
-                                        >×</button
+                                        class="text-xs text-primary hover:underline"
+                                        onclick={() => addRule(i)}
+                                        >{$_("contexts.addRule")}</button
                                     >
                                 </div>
-                            {/each}
-                            {#if context.rules.length === 0}
-                                <div
-                                    class="text-[10px] text-muted-foreground/50 italic py-1"
-                                >
-                                    {$_("contexts.noRules")}
-                                </div>
-                            {/if}
-                        </div>
-                    </div>
-                {/each}
 
-                {#if settings.contexts.length === 0}
-                    <div
-                        class="text-center py-12 text-muted-foreground/50 text-sm italic border-2 border-dashed border-border/50 rounded-xl bg-muted/5"
-                    >
-                        {$_("contexts.noContexts")}
-                    </div>
-                {/if}
-            </div>
-        {/if}
+                                {#each context.rules as rule, j}
+                                    <div
+                                        class="flex items-center gap-2 text-xs group"
+                                    >
+                                        <select
+                                            class="bg-muted/50 rounded px-2 py-1 border border-transparent focus:border-primary/50 outline-none"
+                                            bind:value={rule.ruleType}
+                                            onchange={save}
+                                        >
+                                            <option value="process"
+                                                >{$_(
+                                                    "contexts.rules.process",
+                                                )}</option
+                                            >
+                                            <option value="title"
+                                                >{$_(
+                                                    "contexts.rules.title",
+                                                )}</option
+                                            >
+                                        </select>
+                                        <select
+                                            class="bg-muted/50 rounded px-2 py-1 border border-transparent focus:border-primary/50 outline-none"
+                                            bind:value={rule.matchType}
+                                            onchange={save}
+                                        >
+                                            <option value="contains"
+                                                >{$_(
+                                                    "contexts.rules.contains",
+                                                )}</option
+                                            >
+                                            <option value="exact"
+                                                >{$_(
+                                                    "contexts.rules.exact",
+                                                )}</option
+                                            >
+                                        </select>
+                                        <input
+                                            class="flex-1 bg-muted/50 px-2 py-1 rounded border border-transparent focus:border-primary/50 outline-none"
+                                            bind:value={rule.value}
+                                            onchange={save}
+                                            placeholder={$_(
+                                                "contexts.rules.valuePlaceholder",
+                                            )}
+                                        />
+                                        <button
+                                            class="text-muted-foreground hover:text-destructive px-1.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                                            onclick={() => removeRule(i, j)}
+                                            >×</button
+                                        >
+                                    </div>
+                                {/each}
+                                {#if context.rules.length === 0}
+                                    <div
+                                        class="text-[10px] text-muted-foreground/50 italic py-1"
+                                    >
+                                        {$_("contexts.noRules")}
+                                    </div>
+                                {/if}
+                            </div>
+                        </div>
+                    {/each}
+
+                    {#if settings.contexts.length === 0}
+                        <div
+                            class="text-center py-12 text-muted-foreground/50 text-sm italic border-2 border-dashed border-border/50 rounded-xl bg-muted/5"
+                        >
+                            {$_("contexts.noContexts")}
+                        </div>
+                    {/if}
+                </div>
+            {/if}
+        </div>
     </div>
 
     {#if contextToDelete !== null}

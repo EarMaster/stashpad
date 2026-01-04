@@ -130,6 +130,7 @@
         "autoContextDetection": "Automatische Kontexterkennung",
         "manageContexts": "Kontexte verwalten…",
         "holdShiftToCopy": "Umschalt halten zum Kopieren statt Verschieben",
+        "alwaysThereForYou": "Immer für dich da…",
         "time": {
             "justNow": "gerade eben",
             "minute": "vor {count} Minute",

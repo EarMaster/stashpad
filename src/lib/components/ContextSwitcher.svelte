@@ -27,6 +27,7 @@
         autoContextDetection = $bindable(false),
         mode = "switch",
         title = "",
+        stashCounts = {},
         onSelect,
         onAutoContextToggle,
         onManageContexts,
@@ -37,6 +38,7 @@
         autoContextDetection?: boolean;
         mode?: "switch" | "move";
         title?: string;
+        stashCounts?: Record<string, number>;
         onSelect: (context: Context, shiftKey: boolean) => void;
         onAutoContextToggle?: (enabled: boolean) => void;
         onManageContexts?: () => void;
@@ -44,7 +46,7 @@
     }>();
 
     let searchQuery = $state("");
-    let sortBy = $state<"lastUsed" | "alpha">("lastUsed");
+    let sortBy = $state<"lastUsed" | "alpha" | "alphaDesc">("lastUsed");
     let selectedIndex = $state(0);
 
     // Computed title based on mode
@@ -77,6 +79,8 @@
         list.sort((a, b) => {
             if (sortBy === "alpha") {
                 return a.name.localeCompare(b.name);
+            } else if (sortBy === "alphaDesc") {
+                return b.name.localeCompare(a.name);
             } else {
                 // lastUsed desc
                 const tA = a.lastUsed ? new Date(a.lastUsed).getTime() : 0;
@@ -140,9 +144,7 @@
         }
     }
 
-    function focusAction(node: HTMLInputElement) {
-        node.focus();
-    }
+    import { trapFocus } from "$lib/actions/trapFocus";
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
@@ -160,6 +162,7 @@
     <div
         class="bg-card border border-border rounded-lg shadow-xl w-[350px] overflow-hidden flex flex-col"
         role="document"
+        use:trapFocus
     >
         <div class="p-2 border-b border-border bg-muted/50 flex flex-col gap-2">
             <div
@@ -170,7 +173,6 @@
                     class="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/50"
                     placeholder={$_("contextSwitcher.searchPlaceholder")}
                     bind:value={searchQuery}
-                    use:focusAction
                     onkeydown={(e) => {
                         if (
                             [
@@ -214,12 +216,15 @@
                         <Clock size={12} />
                     </button>
                     <button
-                        class="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors {sortBy ===
-                        'alpha'
+                        class="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors {sortBy.startsWith(
+                            'alpha',
+                        )
                             ? 'text-primary'
                             : ''}"
                         title={$_("contextSwitcher.sortAlphabetically")}
-                        onclick={() => (sortBy = "alpha")}
+                        onclick={() =>
+                            (sortBy =
+                                sortBy === "alpha" ? "alphaDesc" : "alpha")}
                     >
                         <ArrowDownUp size={12} />
                     </button>
@@ -239,19 +244,30 @@
                 >
                     <div class="flex flex-col">
                         <span>{ctx.name}</span>
-                        {#if sortBy === "lastUsed" && ctx.lastUsed}
-                            <span class="text-[9px] text-muted-foreground/60">
+                        <span class="text-[9px] text-muted-foreground/60">
+                            {#if ctx.lastUsed}
                                 {getRelativeTime(ctx.lastUsed, $_)}
+                            {:else if ctx.id === "default"}
+                                {$_("contextSwitcher.alwaysThereForYou")}
+                            {/if}
+                        </span>
+                    </div>
+
+                    <div class="flex items-center gap-2">
+                        {#if ctx.id === currentContextId && mode === "switch"}
+                            <span
+                                class="text-[10px] bg-primary/20 text-primary px-1 rounded"
+                                >{$_("common.active")}</span
+                            >
+                        {/if}
+                        {#if stashCounts[ctx.id] !== undefined}
+                            <span
+                                class="text-[10px] text-muted-foreground tabular-nums"
+                            >
+                                {stashCounts[ctx.id]}
                             </span>
                         {/if}
                     </div>
-
-                    {#if ctx.id === currentContextId && mode === "switch"}
-                        <span
-                            class="text-[10px] bg-primary/20 text-primary px-1 rounded"
-                            >{$_("common.active")}</span
-                        >
-                    {/if}
                 </button>
             {/each}
             {#if displayedContexts.length === 0}

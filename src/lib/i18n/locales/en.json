@@ -130,6 +130,7 @@
         "autoContextDetection": "Auto Context Detection",
         "manageContexts": "Manage Contexts…",
         "holdShiftToCopy": "Hold Shift to Copy instead of Move",
+        "alwaysThereForYou": "Always here for you…",
         "time": {
             "justNow": "just now",
             "minute": "{count} minute ago",
