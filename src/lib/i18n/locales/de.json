@@ -21,7 +21,8 @@
         "active": "Aktiv",
         "default": "Standard",
         "unknown": "Unbekannt",
-        "close": "Schließen"
+        "close": "Schließen",
+        "minimize": "Minimieren"
     },
     "header": {
         "autoContext": "Automatischer Kontext",
@@ -137,7 +138,13 @@
         "clearCompleted": "Erledigte löschen",
         "deleteAllCompleted": "Alle erledigten Stashes löschen",
         "noActiveStashes": "Keine aktiven Stashes",
-        "queueEmpty": "Warteschlange ist leer"
+        "queueEmpty": "Warteschlange ist leer",
+        "backToTop": "Nach oben",
+        "sortOldest": "Sortieren: Älteste zuerst",
+        "sortNewest": "Sortieren: Neueste zuerst",
+        "restoreOrder": "Manuelle Sortierung wiederherstellen",
+        "completeAll": "Alle erledigen",
+        "completeAllConfirm": "Alle aktiven Stashes als erledigt markieren?"
     },
     "stashCard": {
         "emptyStash": "-- leer --",

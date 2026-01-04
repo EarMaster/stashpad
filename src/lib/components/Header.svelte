@@ -19,6 +19,7 @@
   import type { AppContext, Settings } from "$lib/types";
   import { _ } from "$lib/i18n";
   import { onMount } from "svelte";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
   import logoIcon from "../../../assets/stashpad/Icon-Darkmode.svg";
   import logoIconLight from "../../../assets/stashpad/Icon.svg";
   import logoTypo from "../../../assets/stashpad/Typo.svg";
@@ -80,11 +81,15 @@
 </script>
 
 <header
-  data-tauri-drag-region
   class="relative flex mt-1 h-12 w-full items-center justify-between border-b border-border bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/60 z-50 select-none"
 >
+  <!-- Window Drag Area -->
+  <div data-tauri-drag-region class="absolute inset-0 z-0"></div>
+
   <!-- Left side: Context Display -->
-  <div class="flex items-center gap-3 overflow-hidden pointer-events-none">
+  <div
+    class="relative z-10 flex items-center gap-3 overflow-hidden pointer-events-none"
+  >
     <div
       class="flex h-2 w-2 shrink-0 rounded-full transition-colors {settings.autoContextDetection
         ? 'bg-primary dark:bg-[var(--amber)]'
@@ -116,35 +121,51 @@
 
   <!-- Center: Brand Logo (hidden automatically when narrow) -->
   <div
-    data-tauri-drag-region
-    class="absolute left-1/2 -translate-x-1/2 hidden sm:flex items-center gap-1.5 shrink-0 select-none cursor-default py-2 pointer-events-auto"
+    class="z-10 absolute left-1/2 -translate-x-1/2 hidden sm:flex items-center gap-1.5 shrink-0 select-none cursor-default py-2 pointer-events-none"
   >
     <!-- Light Mode Logo -->
     <img
       src={logoIconLight}
       alt="{$_('app.name')} Icon"
-      class="h-8 w-8 pointer-events-none dark:hidden block"
+      class="h-8 w-8 dark:hidden block"
     />
     <!-- Dark Mode Logo -->
     <img
       src={logoIcon}
       alt="{$_('app.name')} Icon"
-      class="h-8 w-8 pointer-events-none hidden dark:block"
+      class="h-8 w-8 hidden dark:block"
     />
     <!-- Typo (Inverted in light mode if it's white, assuming white original) -->
     <img
       src={logoTypo}
       alt={$_("app.name")}
-      class="h-7 pointer-events-none invert dark:invert-0 transition-all"
+      class="h-7 invert dark:invert-0 transition-all"
     />
   </div>
 
-  <!-- Right Side: Settings -->
-  <button
-    class="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded-md transition-colors shrink-0 pointer-events-auto"
-    onclick={onOpenSettings}
-    title={$_("header.settings")}
-  >
-    ⚙️
-  </button>
+  <!-- Right Side: Window Controls -->
+  <div class="relative z-10 flex items-center gap-1 shrink-0">
+    <button
+      class="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded-md transition-colors pointer-events-auto"
+      onclick={onOpenSettings}
+      title={$_("header.settings")}
+    >
+      ⚙️
+    </button>
+    <div class="w-px h-4 bg-border mx-1"></div>
+    <button
+      class="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded-md transition-colors pointer-events-auto"
+      onclick={() => getCurrentWindow().minimize()}
+      title={$_("common.minimize")}
+    >
+      ─
+    </button>
+    <button
+      class="p-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-md transition-colors pointer-events-auto"
+      onclick={() => getCurrentWindow().close()}
+      title={$_("common.close")}
+    >
+      ✕
+    </button>
+  </div>
 </header>

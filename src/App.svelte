@@ -34,6 +34,7 @@
    let navigationSource = $state<"Settings" | "Switcher">("Settings");
    let currentContextId = $state<string>("default");
    let movingStash = $state<StashItem | null>(null);
+   let newlyAddedStashId = $state<string | null>(null);
 
    // Draft state persistence
    let editorDraft = $state("");
@@ -259,7 +260,8 @@
       loadSettings();
    });
 
-   function handleStash() {
+   function handleStash(id?: string) {
+      if (id) newlyAddedStashId = id;
       refreshTrigger++;
    }
 
@@ -352,6 +354,8 @@
             {refreshTrigger}
             {currentContextId}
             contexts={settings.contexts}
+            newStashId={newlyAddedStashId}
+            onStashHandled={() => (newlyAddedStashId = null)}
             onMoveRequest={(stash) => {
                movingStash = stash;
                contextSelectorOpen = true;

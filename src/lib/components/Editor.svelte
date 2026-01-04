@@ -34,7 +34,7 @@
     saveLabel,
     autoFocus = false,
   } = $props<{
-    onStash?: () => void;
+    onStash?: (stashId?: string) => void;
     currentContextId?: string;
     content?: string;
     files?: string[];
@@ -122,7 +122,7 @@
         await adapter.saveStash(stash, { invertPosition });
         content = "";
         files = [];
-        onStash?.();
+        onStash?.(stash.id);
       }
     } catch (e) {
       console.error(e);

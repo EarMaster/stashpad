@@ -17,6 +17,10 @@
       ]
     },
     "fs:allow-read",
-    "shell:default"
+    "shell:default",
+    "window-state:default",
+    "core:window:allow-minimize",
+    "core:window:allow-close",
+    "core:window:allow-destroy"
   ]
 }

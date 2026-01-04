@@ -21,7 +21,8 @@
         "active": "Active",
         "default": "Default",
         "unknown": "Unknown",
-        "close": "Close"
+        "close": "Close",
+        "minimize": "Minimize"
     },
     "header": {
         "autoContext": "Auto Context",
@@ -137,7 +138,14 @@
         "clearCompleted": "Clear Completed",
         "deleteAllCompleted": "Delete all completed stashes",
         "noActiveStashes": "No active stashes",
-        "queueEmpty": "Queue is empty"
+        "queueEmpty": "Queue is empty",
+        "stashAdded": "Stash added",
+        "backToTop": "Back to Top",
+        "sortOldest": "Sort: Oldest first",
+        "sortNewest": "Sort: Newest first",
+        "restoreOrder": "Restore manual order",
+        "completeAll": "Complete all stashes",
+        "completeAllConfirm": "Mark all active stashes as completed?"
     },
     "stashCard": {
         "emptyStash": "-- empty --",

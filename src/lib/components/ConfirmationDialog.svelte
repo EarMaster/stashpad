@@ -62,7 +62,7 @@
     }
 </script>
 
-<Dialog.Root bind:open>
+<Dialog.Root bind:open onOpenChange={(v) => (open = v)}>
     <Dialog.Portal>
         <Dialog.Overlay
             transition={fade}

@@ -151,7 +151,18 @@
         if (e.key === "Escape") {
             e.preventDefault();
             onClose();
-        } else if (e.key === "ArrowLeft") {
+        }
+    }
+
+    function handleWindowKeydown(e: KeyboardEvent) {
+        if (!open) return;
+        const target = e.target as HTMLElement;
+        // Don't navigate if the user is interacting with an input or if the event was already handled
+        if (e.defaultPrevented || target?.matches?.("input, textarea, video")) {
+            return;
+        }
+
+        if (e.key === "ArrowLeft") {
             navigate(-1);
         } else if (e.key === "ArrowRight") {
             navigate(1);
@@ -195,6 +206,8 @@
         }
     });
 </script>
+
+<svelte:window onkeydown={handleWindowKeydown} />
 
 {#if open}
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
