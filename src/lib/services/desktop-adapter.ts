@@ -16,8 +16,10 @@ import { invoke } from '@tauri-apps/api/core';
 import type { IStorageService, StashItem, AppContext, Settings, FilePreviewData } from '../types';
 
 export class DesktopStorageAdapter implements IStorageService {
-    async saveStash(stash: StashItem): Promise<void> {
-        await invoke('save_stash', { stash });
+    async saveStash(stash: StashItem, options?: { invertPosition?: boolean }): Promise<void> {
+        const invertPosition = options?.invertPosition ?? false;
+        // Wrap in 'options' object to match Rust SaveOptions struct
+        await invoke('save_stash', { options: { stash, invertPosition } });
     }
 
     async saveStashes(stashesList: StashItem[]): Promise<void> {

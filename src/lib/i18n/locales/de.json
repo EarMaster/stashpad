@@ -54,7 +54,8 @@
                 "label": "Position neuer Einträge",
                 "description": "Wo neue und gerade erledigte Einträge in der Liste platziert werden",
                 "top": "Oben in der Liste",
-                "bottom": "Unten in der Liste"
+                "bottom": "Unten in der Liste",
+                "shiftModifier": "Shift halten beim Hinzufügen, um diese Einstellung temporär umzukehren"
             }
         },
         "appearance": {

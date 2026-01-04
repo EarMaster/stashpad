@@ -100,8 +100,9 @@
     dragOver = false;
   }
 
-  async function save() {
+  async function save(e?: Event) {
     if (!content.trim() && files.length === 0) return;
+    const invertPosition = (e as KeyboardEvent | MouseEvent)?.shiftKey ?? false;
     isSaving = true;
     try {
       if (onSave) {
@@ -118,7 +119,7 @@
           createdAt: new Date().toISOString(),
           contextId: currentContextId,
         };
-        await adapter.saveStash(stash);
+        await adapter.saveStash(stash, { invertPosition });
         content = "";
         files = [];
         onStash?.();
@@ -132,7 +133,7 @@
 
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-      save();
+      save(e);
     }
     if (e.key === "Escape" && onCancel) {
       onCancel();

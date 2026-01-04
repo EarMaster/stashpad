@@ -54,7 +54,8 @@
                 "label": "New Stash Position",
                 "description": "Where to place new stashes and newly completed items",
                 "top": "Top of List",
-                "bottom": "Bottom of List"
+                "bottom": "Bottom of List",
+                "shiftModifier": "Hold Shift while adding to invert this setting temporarily"
             }
         },
         "appearance": {

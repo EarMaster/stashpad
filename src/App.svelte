@@ -160,11 +160,11 @@
    }
 
    // Component instance binding - don't use $state for bind:this
-   let contextSwitcher: {
+   let contextSwitcher = $state<{
       next: () => void;
       prev: () => void;
       confirm: () => void;
-   } | null = null;
+   } | null>(null);
 
    function selectNextContext() {
       contextSwitcher?.next();

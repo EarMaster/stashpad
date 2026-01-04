@@ -168,6 +168,9 @@
             <div class="text-xs text-muted-foreground">
               {$_("settings.general.newStashPosition.description")}
             </div>
+            <div class="text-[10px] text-muted-foreground/80 mt-1 italic">
+              {$_("settings.general.newStashPosition.shiftModifier")}
+            </div>
           </div>
           <div class="flex bg-muted p-1 rounded-lg border border-border">
             {#each ["top", "bottom"] as pos}

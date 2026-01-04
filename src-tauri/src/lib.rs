@@ -40,6 +40,14 @@ pub struct StashItem {
     pub completed: bool,
 }
 
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveOptions {
+    pub stash: StashItem,
+    #[serde(default)]
+    pub invert_position: bool,
+}
+
 #[derive(serde::Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct AppContext {
@@ -338,11 +346,24 @@ fn get_previous_app_info(state: State<Arc<Mutex<TrackerState>>>) -> AppContext {
 }
 
 #[tauri::command]
-fn save_stash(state: State<Arc<StashState>>, settings_state: State<Arc<SettingsState>>, stash: StashItem) {
-    println!("Saving stash: {:?}", stash);
+fn save_stash(
+    state: State<Arc<StashState>>, 
+    settings_state: State<Arc<SettingsState>>, 
+    options: SaveOptions
+) {
+    let stash = options.stash;
+    let invert = options.invert_position;
+    
     let mut stashes = state.stashes.lock().unwrap();
     let settings = settings_state.settings.lock().unwrap();
     let position = settings.new_stash_position.clone();
+
+    let effective_position = if invert {
+        if position == "bottom" { "top" } else { "bottom" }
+    } else {
+        position.as_str()
+    };
+
 
     // Upsert logic: if id exists, replace; else push
     if let Some(index) = stashes.iter().position(|s| s.id == stash.id) {
@@ -352,7 +373,7 @@ fn save_stash(state: State<Arc<StashState>>, settings_state: State<Arc<SettingsS
         if status_changed {
             // Remove and re-insert at top/bottom according to setting
             stashes.remove(index);
-            if position == "bottom" {
+            if effective_position == "bottom" {
                 stashes.push(stash);
             } else {
                 stashes.insert(0, stash);
@@ -363,7 +384,7 @@ fn save_stash(state: State<Arc<StashState>>, settings_state: State<Arc<SettingsS
         }
     } else {
         // New item
-        if position == "bottom" {
+        if effective_position == "bottom" {
             stashes.push(stash);
         } else {
             stashes.insert(0, stash);

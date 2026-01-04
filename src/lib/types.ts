@@ -57,7 +57,7 @@ export interface Settings {
 }
 
 export interface IStorageService {
-    saveStash(stash: StashItem): Promise<void>;
+    saveStash(stash: StashItem, options?: { invertPosition?: boolean }): Promise<void>;
     saveStashes(stashes: StashItem[]): Promise<void>;
     loadStashes(): Promise<StashItem[]>;
     saveAsset(file: File): Promise<string>;
