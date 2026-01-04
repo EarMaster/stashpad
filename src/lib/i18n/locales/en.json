@@ -172,9 +172,9 @@
         "placeholder": "Type your stash here… (Cmd+Enter to save)",
         "addStash": "Stash",
         "saving": "Saving…",
-        "dropFiles": "Drop files to stash",
-        "dragFilesHere": "Drag files here",
-        "addFile": "Add file",
+        "dropFiles": "Drop attachment(s) to stash",
+        "dragFilesHere": "or drag attachments here…",
+        "addFile": "Add attachments",
         "bold": "Bold",
         "italic": "Italic",
         "heading": "Heading",
@@ -191,9 +191,9 @@
         "discardAndExit": "Discard & Exit"
     },
     "filePreview": {
-        "clickToPreview": "Click to preview file",
+        "clickToPreview": "Click to preview attachment",
         "openLocation": "Open location",
-        "unsupportedType": "Preview not available for this file type",
+        "unsupportedType": "Preview not available for this attachment type",
         "videoNotSupported": "Your browser does not support video playback"
     }
 }

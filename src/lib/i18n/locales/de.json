@@ -172,9 +172,9 @@
         "placeholder": "Stash hier eingeben… (Cmd+Enter zum Speichern)",
         "addStash": "Stashen",
         "saving": "Speichere…",
-        "dropFiles": "Dateien hier ablegen",
-        "dragFilesHere": "Dateien hierher ziehen",
-        "addFile": "Datei hinzufügen",
+        "dropFiles": "Anhänge hier ablegen",
+        "dragFilesHere": "oder hierher ziehen…",
+        "addFile": "Anhänge hinzufügen",
         "bold": "Fett",
         "italic": "Kursiv",
         "heading": "Überschrift",
@@ -191,9 +191,9 @@
         "discardAndExit": "Verwerfen & Beenden"
     },
     "filePreview": {
-        "clickToPreview": "Klicken für Dateivorschau",
+        "clickToPreview": "Klicken für Anhang-Vorschau",
         "openLocation": "Speicherort öffnen",
-        "unsupportedType": "Vorschau für diesen Dateityp nicht verfügbar",
+        "unsupportedType": "Vorschau für diesen Anhang-Typ nicht verfügbar",
         "videoNotSupported": "Ihr Browser unterstützt keine Videowiedergabe"
     }
 }
