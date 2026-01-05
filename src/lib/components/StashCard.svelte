@@ -152,7 +152,11 @@
         const newFiles = [...item.files];
         for (const path of paths) {
           try {
-            const savedPath = await adapter.saveAssetFromPath(path);
+            const savedPath = await adapter.saveAssetFromPath(
+              path,
+              item.contextId,
+              item.id,
+            );
             newFiles.push(savedPath);
           } catch (err) {
             console.error("Failed to save asset from path", err);
@@ -179,7 +183,7 @@
       for (let i = 0; i < e.dataTransfer.files.length; i++) {
         const file = e.dataTransfer.files[i];
         try {
-          const path = await adapter.saveAsset(file);
+          const path = await adapter.saveAsset(file, item.contextId, item.id);
           newFiles.push(path);
         } catch (err) {
           console.error("Failed to save asset", err);
@@ -341,6 +345,8 @@
           role="presentation"
         >
           <Editor
+            currentContextId={item.contextId}
+            existingStashId={item.id}
             content={editContent}
             files={editFiles}
             onSave={saveEdit}

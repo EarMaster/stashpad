@@ -71,12 +71,28 @@ export interface IStorageService {
     saveStash(stash: StashItem, options?: { invertPosition?: boolean }): Promise<void>;
     saveStashes(stashes: StashItem[]): Promise<void>;
     loadStashes(): Promise<StashItem[]>;
-    saveAsset(file: File): Promise<string>;
+    /**
+     * Save an asset file to the cache directory.
+     * Files are stored in a hierarchical structure: cache/<contextId>/<stashId>/<filename>
+     * @param file - The file to save
+     * @param contextId - The context ID for folder organization
+     * @param stashId - The stash ID for folder organization
+     * @returns The absolute path to the saved file
+     */
+    saveAsset(file: File, contextId?: string, stashId?: string): Promise<string>;
     getPreviousAppInfo(): Promise<AppContext>;
     getSmartTransferTarget(): Promise<'GUI' | 'CLI'>;
     copyToClipboard(text: string): Promise<void>;
     startDrag(text: string, files: string[]): Promise<void>;
-    saveAssetFromPath(path: string): Promise<string>;
+    /**
+     * Import an asset from an external file path into the cache directory.
+     * Files are stored in a hierarchical structure: cache/<contextId>/<stashId>/<filename>
+     * @param path - The source file path
+     * @param contextId - The context ID for folder organization
+     * @param stashId - The stash ID for folder organization
+     * @returns The absolute path to the saved file
+     */
+    saveAssetFromPath(path: string, contextId?: string, stashId?: string): Promise<string>;
     readFileForPreview(path: string): Promise<FilePreviewData>;
     getSettings(): Promise<Settings>;
     saveSettings(settings: Settings): Promise<void>;

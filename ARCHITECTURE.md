@@ -31,7 +31,10 @@
 
 ### Storage Strategy
 * **Metadata:** Local JSON file (`~/.stashpad/db.json`).
-* **Assets:** Local file system (`~/.stashpad/cache/<project-id>/`).
+* **Assets:** Local file system with hierarchical organization:
+  * `~/.stashpad/cache/<context-id>/<stash-id>/<filename>` - Assets are stored in context/stash subdirectories
+  * This structure prevents file name collisions and enables proper cleanup when stashes or contexts are deleted
+  * Files attached to a stash are stored under that stash's directory for isolation
 * **Database:** Start with simple JSON serialization. Prepare interfaces for SQLite migration if needed later.
 
 ---

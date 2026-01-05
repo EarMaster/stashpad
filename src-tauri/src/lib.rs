@@ -505,18 +505,55 @@ fn trigger_auto_cleanup(state: State<Arc<StashState>>, settings_state: State<Arc
     persist_stashes_to_disk(&stashes);
 }
  
+/// Saves an asset file to the cache directory.
+/// 
+/// Files are organized in a hierarchical folder structure:
+/// - If both context_id and stash_id are provided: `cache/<context_id>/<stash_id>/<filename>`
+/// - If only context_id is provided: `cache/<context_id>/<filename>`
+/// - Otherwise: `cache/<filename>` (backwards compatibility)
+/// 
+/// This structure prevents file name collisions and allows for proper cleanup
+/// when stashes or contexts are deleted.
 #[tauri::command]
-fn save_asset(name: String, data: Vec<u8>) -> Result<String, String> {
-    println!("Saving asset: {} ({} bytes)", name, data.len());
+fn save_asset(
+    name: String, 
+    data: Vec<u8>, 
+    context_id: Option<String>, 
+    stash_id: Option<String>
+) -> Result<String, String> {
+    println!(
+        "Saving asset: {} ({} bytes) context: {:?} stash: {:?}", 
+        name, data.len(), context_id, stash_id
+    );
 
-    let cache_dir = get_app_dir().join("cache");
-    // Basic sanitization
+    // Build the target directory based on provided IDs
+    let mut target_dir = get_app_dir().join("cache");
+    
+    if let Some(ctx_id) = &context_id {
+        // Sanitize context ID to prevent path traversal
+        let safe_ctx = ctx_id.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_");
+        target_dir = target_dir.join(&safe_ctx);
+        
+        if let Some(s_id) = &stash_id {
+            // Sanitize stash ID to prevent path traversal
+            let safe_stash = s_id.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_");
+            target_dir = target_dir.join(&safe_stash);
+        }
+    }
+    
+    // Create the directory structure if it doesn't exist
+    if !target_dir.exists() {
+        fs::create_dir_all(&target_dir)
+            .map_err(|e| format!("Failed to create directory: {}", e))?;
+    }
+
+    // Basic sanitization of filename
     let safe_name = std::path::Path::new(&name)
         .file_name()
         .unwrap_or_else(|| std::ffi::OsStr::new("unknown_file"))
         .to_string_lossy();
 
-    let file_path = cache_dir.join(safe_name.as_ref());
+    let file_path = target_dir.join(safe_name.as_ref());
 
     match fs::write(&file_path, data) {
         Ok(_) => Ok(file_path.to_string_lossy().into_owned()),
@@ -524,24 +561,56 @@ fn save_asset(name: String, data: Vec<u8>) -> Result<String, String> {
     }
 }
 
+/// Imports an asset from an external file path into the cache directory.
+/// 
+/// Files are organized in a hierarchical folder structure:
+/// - If both context_id and stash_id are provided: `cache/<context_id>/<stash_id>/<filename>`
+/// - If only context_id is provided: `cache/<context_id>/<filename>`
+/// - Otherwise: `cache/<filename>` (backwards compatibility)
 #[tauri::command]
-fn save_asset_from_path(path: String) -> Result<String, String> {
-    println!("Importing asset from path: {}", path);
-    let path = std::path::Path::new(&path);
-    if !path.exists() {
+fn save_asset_from_path(
+    path: String, 
+    context_id: Option<String>, 
+    stash_id: Option<String>
+) -> Result<String, String> {
+    println!(
+        "Importing asset from path: {} context: {:?} stash: {:?}", 
+        path, context_id, stash_id
+    );
+    let source_path = std::path::Path::new(&path);
+    if !source_path.exists() {
         return Err("File does not exist".into());
     }
 
-    let cache_dir = get_app_dir().join("cache");
-    let file_name = path
+    // Build the target directory based on provided IDs
+    let mut target_dir = get_app_dir().join("cache");
+    
+    if let Some(ctx_id) = &context_id {
+        // Sanitize context ID to prevent path traversal
+        let safe_ctx = ctx_id.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_");
+        target_dir = target_dir.join(&safe_ctx);
+        
+        if let Some(s_id) = &stash_id {
+            // Sanitize stash ID to prevent path traversal
+            let safe_stash = s_id.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_");
+            target_dir = target_dir.join(&safe_stash);
+        }
+    }
+    
+    // Create the directory structure if it doesn't exist
+    if !target_dir.exists() {
+        fs::create_dir_all(&target_dir)
+            .map_err(|e| format!("Failed to create directory: {}", e))?;
+    }
+
+    let file_name = source_path
         .file_name()
         .unwrap_or_else(|| std::ffi::OsStr::new("unknown_file"))
         .to_string_lossy();
     
-    // Create unique name if collision
-    let dest_path = cache_dir.join(file_name.as_ref());
+    let dest_path = target_dir.join(file_name.as_ref());
 
-    match fs::copy(path, &dest_path) {
+    match fs::copy(source_path, &dest_path) {
         Ok(_) => Ok(dest_path.to_string_lossy().into_owned()),
         Err(e) => Err(format!("Failed to copy file: {}", e)),
     }

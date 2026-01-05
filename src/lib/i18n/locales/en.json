@@ -136,6 +136,9 @@
         "autoSwitchRules": "Auto-Switch Rules",
         "noRules": "No rules defined. This context will only be active if selected manually.",
         "noContexts": "No custom contexts defined. Stashes will go to \"Default\".",
+        "export": "Export",
+        "exportContext": "Export all stashes as Markdown file",
+        "exportTitle": "Export Context as Markdown",
         "rules": {
             "process": "Process Name",
             "title": "Window Title",

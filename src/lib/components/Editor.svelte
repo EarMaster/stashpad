@@ -43,6 +43,7 @@
   let {
     onStash,
     currentContextId,
+    existingStashId,
     content = $bindable(""),
     files = $bindable([]),
     onSave,
@@ -54,6 +55,8 @@
   } = $props<{
     onStash?: (stashId?: string) => void;
     currentContextId?: string;
+    /** When editing an existing stash, pass its ID for proper file storage */
+    existingStashId?: string;
     content?: string;
     files?: string[];
     onSave?: (content: string, files: string[]) => Promise<void> | void;
@@ -64,6 +67,11 @@
     /** Number of lines before pasted text becomes an attachment. 0 = ask user */
     pasteAsAttachmentThreshold?: number;
   }>();
+
+  // Generate or use existing stash ID for file storage organization
+  // This ensures files are stored in the correct folder structure before the stash is saved
+  // Using an immediately-invoked function to generate a stable ID for the Editor's lifecycle
+  const stashId = (() => existingStashId ?? crypto.randomUUID())();
 
   let dragOver = $state(false);
   let isSaving = $state(false);
@@ -188,7 +196,7 @@
       for (let i = 0; i < e.dataTransfer.files.length; i++) {
         const file = e.dataTransfer.files[i];
         try {
-          const path = await adapter.saveAsset(file);
+          const path = await adapter.saveAsset(file, currentContextId, stashId);
           files = [...files, path];
         } catch (err) {
           console.error("Failed to save asset", err);
@@ -233,7 +241,7 @@
       for (let i = 0; i < clipboardData.files.length; i++) {
         const file = clipboardData.files[i];
         try {
-          const path = await adapter.saveAsset(file);
+          const path = await adapter.saveAsset(file, currentContextId, stashId);
           files = [...files, path];
         } catch (err) {
           console.error("Failed to save pasted file:", err);
@@ -298,7 +306,7 @@
     const file = new File([blob], filename, { type: mimeType });
 
     try {
-      const path = await adapter.saveAsset(file);
+      const path = await adapter.saveAsset(file, currentContextId, stashId);
       files = [...files, path];
     } catch (err) {
       console.error("Failed to save text as attachment:", err);
@@ -356,7 +364,7 @@
           return;
         }
         const stash: StashItem = {
-          id: crypto.randomUUID(),
+          id: stashId, // Use pre-generated ID for consistency with file storage
           content,
           files: [...files], // copy
           createdAt: new Date().toISOString(),
@@ -580,7 +588,11 @@
         const paths = Array.isArray(selected) ? selected : [selected];
         for (const path of paths) {
           try {
-            const savedPath = await adapter.saveAssetFromPath(path);
+            const savedPath = await adapter.saveAssetFromPath(
+              path,
+              currentContextId,
+              stashId,
+            );
             files = [...files, savedPath];
           } catch (err) {
             console.error("Failed to save asset from path", err);

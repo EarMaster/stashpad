@@ -30,10 +30,19 @@ export class DesktopStorageAdapter implements IStorageService {
         return await invoke('load_stashes');
     }
 
-    async saveAsset(file: File): Promise<string> {
+    /**
+     * Save an asset file to the cache directory.
+     * Files are organized hierarchically: cache/<contextId>/<stashId>/<filename>
+     */
+    async saveAsset(file: File, contextId?: string, stashId?: string): Promise<string> {
         const buffer = await file.arrayBuffer();
         const bytes = new Uint8Array(buffer);
-        return await invoke('save_asset', { name: file.name, data: bytes });
+        return await invoke('save_asset', {
+            name: file.name,
+            data: bytes,
+            contextId: contextId ?? null,
+            stashId: stashId ?? null
+        });
     }
 
     async getPreviousAppInfo(): Promise<AppContext> {
@@ -52,8 +61,16 @@ export class DesktopStorageAdapter implements IStorageService {
         await invoke('start_drag', { text, files });
     }
 
-    async saveAssetFromPath(path: string): Promise<string> {
-        return await invoke('save_asset_from_path', { path });
+    /**
+     * Import an asset from an external file path into the cache directory.
+     * Files are organized hierarchically: cache/<contextId>/<stashId>/<filename>
+     */
+    async saveAssetFromPath(path: string, contextId?: string, stashId?: string): Promise<string> {
+        return await invoke('save_asset_from_path', {
+            path,
+            contextId: contextId ?? null,
+            stashId: stashId ?? null
+        });
     }
 
     /**

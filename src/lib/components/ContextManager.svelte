@@ -5,9 +5,12 @@
 
 <script lang="ts">
     import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
-    import type { Settings, StashItem } from "$lib/types";
+    import type { Settings, StashItem, Context } from "$lib/types";
     import { _ } from "$lib/i18n";
     import ConfirmationDialog from "./ConfirmationDialog.svelte";
+    import { save } from "@tauri-apps/plugin-dialog";
+    import { writeTextFile } from "@tauri-apps/plugin-fs";
+    import { Download } from "lucide-svelte";
 
     let { onBack } = $props<{ onBack: () => void }>();
 
@@ -18,8 +21,10 @@
         shortcuts: {},
     });
     let stashCounts = $state<Record<string, number>>({});
+    let allStashes = $state<StashItem[]>([]);
     let isLoading = $state(true);
     let contextToDelete = $state<number | null>(null);
+    let isExporting = $state(false);
 
     const adapter = new DesktopStorageAdapter();
 
@@ -30,6 +35,7 @@
 
             // Load stashes and count per context
             const stashes = await adapter.loadStashes();
+            allStashes = stashes;
             const counts: Record<string, number> = { default: 0 };
             settings.contexts.forEach((ctx) => (counts[ctx.id] = 0));
 
@@ -47,7 +53,7 @@
         }
     }
 
-    async function save() {
+    async function saveSettings() {
         try {
             await adapter.saveSettings(settings);
         } catch (e) {
@@ -69,12 +75,12 @@
                 lastUsed: new Date().toISOString(),
             },
         ];
-        save();
+        saveSettings();
     }
 
     function removeContext(index: number) {
         settings.contexts.splice(index, 1);
-        save();
+        saveSettings();
     }
 
     function addRule(contextIndex: number) {
@@ -86,12 +92,109 @@
                 value: "",
             },
         ];
-        save();
+        saveSettings();
     }
 
     function removeRule(contextIndex: number, ruleIndex: number) {
         settings.contexts[contextIndex].rules.splice(ruleIndex, 1);
-        save();
+        saveSettings();
+    }
+
+    /**
+     * Export all stashes from a context as a single markdown file.
+     */
+    async function exportContext(context: Context) {
+        isExporting = true;
+        try {
+            // Filter stashes for this context
+            const contextStashes = allStashes.filter(
+                (s) => (s.contextId || "default") === context.id,
+            );
+
+            if (contextStashes.length === 0) {
+                // Nothing to export - could show a message but for now just return
+                return;
+            }
+
+            // Build markdown content
+            const lines: string[] = [];
+            lines.push(`# ${context.name}`);
+            lines.push("");
+            lines.push(
+                `Exported from Stashpad on ${new Date().toLocaleDateString()}`,
+            );
+            lines.push("");
+            lines.push(`Total stashes: ${contextStashes.length}`);
+            lines.push("");
+            lines.push("---");
+            lines.push("");
+
+            // Sort by created date (newest first)
+            const sorted = [...contextStashes].sort(
+                (a, b) =>
+                    new Date(b.createdAt).getTime() -
+                    new Date(a.createdAt).getTime(),
+            );
+
+            for (const stash of sorted) {
+                // Add stash header with date and status
+                const date = new Date(stash.createdAt).toLocaleString();
+                const status = stash.completed ? "✓ Completed" : "Active";
+                lines.push(`## [${status}] ${date}`);
+                lines.push("");
+
+                // Add content
+                if (stash.content.trim()) {
+                    lines.push(stash.content);
+                    lines.push("");
+                }
+
+                // Add attachments
+                if (stash.files && stash.files.length > 0) {
+                    lines.push("**Attachments:**");
+                    for (const file of stash.files) {
+                        const fileName = file.split(/[\\/]/).pop() || file;
+                        lines.push(`- ${fileName}`);
+                    }
+                    lines.push("");
+                }
+
+                lines.push("---");
+                lines.push("");
+            }
+
+            const markdownContent = lines.join("\n");
+
+            // Generate safe filename
+            const safeName = context.name
+                .replace(/[^a-zA-Z0-9_-]/g, "_")
+                .toLowerCase();
+            const timestamp = new Date().toISOString().slice(0, 10);
+            const defaultFileName = `${safeName}_${timestamp}.md`;
+
+            // Open save dialog
+            const filePath = await save({
+                title: $_("contexts.exportTitle"),
+                defaultPath: defaultFileName,
+                filters: [
+                    {
+                        name: "Markdown",
+                        extensions: ["md"],
+                    },
+                ],
+            });
+
+            console.log("Export to:", filePath);
+
+            if (filePath) {
+                // Write the file
+                await writeTextFile(filePath, markdownContent);
+            }
+        } catch (e) {
+            console.error("Failed to export context", e);
+        } finally {
+            isExporting = false;
+        }
     }
 </script>
 
@@ -138,7 +241,7 @@
                                 <input
                                     class="flex-1 bg-transparent font-medium focus:outline-none border-b border-transparent focus:border-primary/50 text-sm py-1"
                                     bind:value={context.name}
-                                    onchange={save}
+                                    onchange={saveSettings}
                                     placeholder={$_(
                                         "contexts.contextNamePlaceholder",
                                     )}
@@ -150,6 +253,16 @@
                                         {stashCounts[context.id]}
                                     </span>
                                 {/if}
+                                <button
+                                    class="text-muted-foreground hover:text-primary text-xs px-2 py-1 rounded hover:bg-muted flex items-center gap-1 transition-colors"
+                                    onclick={() => exportContext(context)}
+                                    disabled={isExporting ||
+                                        (stashCounts[context.id] ?? 0) === 0}
+                                    title={$_("contexts.exportContext")}
+                                >
+                                    <Download size={12} />
+                                    {$_("contexts.export")}
+                                </button>
                                 <button
                                     class="text-muted-foreground hover:text-destructive text-xs px-2 py-1 rounded hover:bg-muted"
                                     onclick={(e) => {
@@ -187,7 +300,7 @@
                                         <select
                                             class="bg-muted/50 rounded px-2 py-1 border border-transparent focus:border-primary/50 outline-none"
                                             bind:value={rule.ruleType}
-                                            onchange={save}
+                                            onchange={saveSettings}
                                         >
                                             <option value="process"
                                                 >{$_(
@@ -203,7 +316,7 @@
                                         <select
                                             class="bg-muted/50 rounded px-2 py-1 border border-transparent focus:border-primary/50 outline-none"
                                             bind:value={rule.matchType}
-                                            onchange={save}
+                                            onchange={saveSettings}
                                         >
                                             <option value="contains"
                                                 >{$_(
@@ -219,7 +332,7 @@
                                         <input
                                             class="flex-1 bg-muted/50 px-2 py-1 rounded border border-transparent focus:border-primary/50 outline-none"
                                             bind:value={rule.value}
-                                            onchange={save}
+                                            onchange={saveSettings}
                                             placeholder={$_(
                                                 "contexts.rules.valuePlaceholder",
                                             )}

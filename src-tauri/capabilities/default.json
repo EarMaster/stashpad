@@ -9,14 +9,17 @@
     "core:default",
     "core:window:allow-start-dragging",
     "dialog:default",
+    "dialog:allow-save",
     "fs:default",
+    "fs:allow-read",
+    "fs:allow-write",
+    "fs:allow-write-text-file",
     {
       "identifier": "fs:scope",
       "allow": [
         "$HOME/.stashpad/**/*"
       ]
     },
-    "fs:allow-read",
     "shell:default",
     "window-state:default",
     "core:window:allow-minimize",
