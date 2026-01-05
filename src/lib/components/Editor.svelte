@@ -33,6 +33,7 @@
     Heading,
   } from "lucide-svelte";
   import { open } from "@tauri-apps/plugin-dialog";
+  import { getCaretCoordinates } from "$lib/utils/caret";
   import FilePreviewModal from "./FilePreviewModal.svelte";
   import { fade } from "svelte/transition";
   import { convertFileSrc } from "@tauri-apps/api/core";
@@ -112,18 +113,6 @@
         focusedTagIndex = 0;
         triggerStart = matchIndex;
 
-        // Calculate position (simple approx or use a library, for now simple relative to textarea)
-        // Ideally we need getBoundingClientRect of the caret.
-        // For a simple textarea, we can just show it below or we use a hidden div mirror trick.
-        // For MVP, lets just show it at bottom left of textarea or top left?
-        // Actually user requested "autocomplete on tags".
-        // Let's rely on a library or a helper if available, but I don't see one.
-        // I'll try to position it roughly or just a fixed position?
-        // Fixed at cursor is hard in textarea.
-        // Let's implement 'getCursorCoordinates' helper if possible, or just place it at bottom of editor for now?
-        // No, standard is near text.
-
-        // Simple Hack: specific simplified textArea mirroring
         updateSuggestionPosition(cursorParams.end);
       } else {
         showSuggestions = false;
@@ -153,86 +142,25 @@
   }
 
   // Helper for text area caret position
-  // We can create a hidden div with same specific styles to measure
   function updateSuggestionPosition(cursorIndex: number) {
     if (!textareaRef) return;
 
-    const div = document.createElement("div");
-    const style = window.getComputedStyle(textareaRef);
+    try {
+      const coords = getCaretCoordinates(textareaRef, cursorIndex, {
+        appendTo: textareaRef.parentElement || undefined,
+      });
 
-    // Copy relevant styles
-    const properties = [
-      "direction",
-      "boxSizing",
-      "width",
-      "height",
-      "overflowX",
-      "overflowY",
-      "borderTopWidth",
-      "borderRightWidth",
-      "borderBottomWidth",
-      "borderLeftWidth",
-      "borderStyle",
-      "paddingTop",
-      "paddingRight",
-      "paddingBottom",
-      "paddingLeft",
-      "fontStyle",
-      "fontVariant",
-      "fontWeight",
-      "fontStretch",
-      "fontSize",
-      "fontSizeAdjust",
-      "lineHeight",
-      "fontFamily",
-      "textAlign",
-      "textTransform",
-      "textIndent",
-      "textDecoration",
-      "letterSpacing",
-      "wordSpacing",
-      "tabSize",
-      "MozTabSize",
-      "wordBreak",
-      "overflowWrap",
-      "whiteSpace",
-    ];
-
-    properties.forEach((prop) => {
-      div.style[prop as any] = style.getPropertyValue(prop);
-    });
-
-    div.style.position = "absolute";
-    div.style.top = "0px";
-    div.style.left = "0px";
-    div.style.visibility = "hidden";
-    // div.style.whiteSpace = 'pre-wrap'; // Already copied or set above if needed, but safer to let copy handle it if computed is correct, OR force it if textarea is specific.
-    // Textarea usually has pre-wrap. Let's ensure it.
-    if (!div.style.whiteSpace) div.style.whiteSpace = "pre-wrap";
-
-    div.style.overflow = "hidden"; // Don't show scrollbars
-    div.style.height = "auto"; // Auto height to match content
-
-    div.textContent = content.slice(0, cursorIndex);
-    const span = document.createElement("span");
-    span.textContent = ".";
-    div.appendChild(span);
-
-    document.body.appendChild(div);
-
-    // Calculate position
-    // Use span.offsetHeight for exact line height of the text at that position
-    suggestionPosition = {
-      top:
-        textareaRef.offsetTop +
-        span.offsetTop -
-        textareaRef.scrollTop +
-        span.offsetHeight +
-        14,
-      left: textareaRef.offsetLeft + span.offsetLeft - textareaRef.scrollLeft,
-    };
-
-    document.body.removeChild(div);
+      suggestionPosition = {
+        top:
+          textareaRef.offsetTop +
+          coords.top -
+          textareaRef.scrollTop +
+          (coords.lineHeight + coords.height) / 2,
+        left: textareaRef.offsetLeft + coords.left - textareaRef.scrollLeft,
+      };
+    } catch (e) {
+      console.error("Failed to calculate caret coordinates", e);
+    }
   }
 
   function getCursorParams() {

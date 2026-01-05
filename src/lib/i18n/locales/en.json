@@ -60,7 +60,8 @@
             },
             "stripTagsOnCopy": {
                 "label": "Strip Tags on Copy",
-                "description": "Remove #hashtags when copying stash content to clipboard"
+                "description": "Remove #hashtags when copying stash content to clipboard",
+                "shiftModifier": "Hold Shift while copying to invert this setting temporarily"
             }
         },
         "appearance": {

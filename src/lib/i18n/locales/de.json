@@ -60,7 +60,8 @@
             },
             "stripTagsOnCopy": {
                 "label": "Tags beim Kopieren entfernen",
-                "description": "#Hashtags beim Kopieren von Stash-Inhalten in die Zwischenablage entfernen"
+                "description": "#Hashtags beim Kopieren von Stash-Inhalten in die Zwischenablage entfernen",
+                "shiftModifier": "Shift halten beim Kopieren, um diese Einstellung temporär umzukehren"
             }
         },
         "appearance": {

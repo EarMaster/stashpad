@@ -42,6 +42,7 @@
   import { open } from "@tauri-apps/plugin-dialog";
   import { getRelativeTime } from "$lib/utils/date";
   import marked from "$lib/utils/markdown";
+  import ActionButton from "./ActionButton.svelte";
 
   let {
     item,
@@ -86,11 +87,13 @@
     }
   });
 
-  async function handleCopy() {
+  async function handleCopy(invert = false) {
     let content = item.content;
 
-    // Strip tags if setting is enabled
-    if (stripTagsOnCopy) {
+    // Strip tags if setting is enabled (and not inverted) or disabled (and inverted)
+    const shouldStrip = stripTagsOnCopy ? !invert : invert;
+
+    if (shouldStrip) {
       content = content
         .replace(/#[\w-]+/g, "")
         .replace(/\s+/g, " ")
@@ -224,9 +227,10 @@
     const selection = window.getSelection();
     if (selection && selection.toString().length > 0) return;
 
+    const shiftKey = e.shiftKey;
     if (clickTimeout) clearTimeout(clickTimeout);
     clickTimeout = setTimeout(() => {
-      handleCopy();
+      handleCopy(shiftKey);
       clickTimeout = undefined;
     }, 250);
   }
@@ -248,7 +252,7 @@
     : ''} {dragOver ? 'border-primary border-2' : ''}"
   transition:fly={{ y: 20, duration: 300 }}
   onclick={handleCardClick}
-  onkeydown={(e) => e.key === "Enter" && handleCopy()}
+  onkeydown={(e) => e.key === "Enter" && handleCopy(e.shiftKey)}
   ondblclick={handleDoubleClick}
   ondrop={handleFileDrop}
   ondragover={handleFileDragOver}
@@ -278,10 +282,11 @@
       role="presentation"
     >
       <!-- Complete Toggle -->
-      <button
-        class="h-7 w-7 flex items-center justify-center rounded-md transition-all {item.completed
-          ? 'text-green-500 bg-green-500/10 hover:bg-green-500/20 shadow-inner'
-          : 'text-muted-foreground bg-muted hover:bg-primary hover:text-primary-foreground'}"
+      <ActionButton
+        variant="complete"
+        class={item.completed
+          ? "text-green-500 bg-green-500/10 hover:bg-green-500/20 shadow-inner"
+          : "text-muted-foreground bg-muted hover:bg-primary hover:text-primary-foreground"}
         onclick={(e) => {
           e.stopPropagation();
           onToggleComplete();
@@ -298,15 +303,14 @@
         {:else}
           <Circle size={16} />
         {/if}
-      </button>
+      </ActionButton>
 
       <!-- Drag Handle (Internal - for AI Context) -->
-      <div
-        class="h-7 w-7 flex shrink-0 cursor-grab items-center justify-center rounded-md bg-muted text-muted-foreground transition-colors hover:bg-primary hover:text-primary-foreground active:cursor-grabbing"
-        role="button"
-        tabindex="0"
+      <ActionButton
+        variant="drag"
+        class="bg-muted text-muted-foreground transition-colors hover:bg-primary hover:text-primary-foreground"
         draggable={mode === "Drag" && !isEditing}
-        ondragstart={(e) => {
+        ondragstart={(e: DragEvent) => {
           handleDragStart(e);
         }}
         onclick={(e) => e.stopPropagation()}
@@ -318,7 +322,7 @@
         {:else}
           <span class="text-sm">✋</span>
         {/if}
-      </div>
+      </ActionButton>
     </div>
 
     <div class="flex-1 min-w-0">
@@ -375,11 +379,11 @@
       <div
         class="mt-2 text-[10px] text-muted-foreground/50 flex items-center justify-between"
       >
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-0.5">
           <!-- Add File (always visible) -->
           {#if !item.completed}
-            <button
-              class="p-1 rounded hover:bg-muted text-muted-foreground/50 hover:text-foreground transition-all"
+            <ActionButton
+              variant="instant"
               onclick={(e) => {
                 e.stopPropagation();
                 handleAddFile();
@@ -387,8 +391,19 @@
               title={$_("editor.addFile")}
             >
               <Paperclip size={12} />
-            </button>
+            </ActionButton>
           {/if}
+          <!-- Copy (Instant Action) -->
+          <ActionButton
+            variant="instant"
+            onclick={(e) => {
+              e.stopPropagation();
+              handleCopy(e.shiftKey);
+            }}
+            title={$_("stashCard.copyToClipboard")}
+          >
+            <Copy size={12} />
+          </ActionButton>
           <span>{getRelativeTime(item.createdAt, $_)}</span>
           {#if copied}
             <span
@@ -405,46 +420,38 @@
             onkeydown={(e) => e.stopPropagation()}
             role="presentation"
           >
-            <!-- Copy -->
-            <button
-              class="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-all"
-              onclick={(e) => {
-                e.stopPropagation();
-                handleCopy();
-              }}
-              title={$_("stashCard.copyToClipboard")}
-            >
-              <Copy size={13} />
-            </button>
-
             <!-- Edit -->
-            <button
-              class="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-all"
-              onclick={(e) => {
-                e.stopPropagation();
-                isEditing = true;
-              }}
-              title={$_("stashCard.editContent")}
-              disabled={item.completed}
-            >
-              <Edit3 size={13} />
-            </button>
+            {#if !item.completed}
+              <ActionButton
+                variant="additional"
+                onclick={(e) => {
+                  e.stopPropagation();
+                  isEditing = true;
+                }}
+                title={$_("stashCard.editContent")}
+              >
+                <Edit3 size={13} />
+              </ActionButton>
+            {/if}
 
             <!-- Move/Context -->
-            <button
-              class="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-all flex items-center gap-1"
-              onclick={(e) => {
-                e.stopPropagation();
-                onMoveRequest();
-              }}
-              title={$_("stashCard.moveToContext")}
-            >
-              <ArrowBigRightDash size={13} />
-            </button>
+            {#if !item.completed}
+              <ActionButton
+                variant="additional"
+                onclick={(e) => {
+                  e.stopPropagation();
+                  onMoveRequest();
+                }}
+                title={$_("stashCard.moveToContext")}
+              >
+                <ArrowBigRightDash size={13} />
+              </ActionButton>
+            {/if}
 
             <!-- Delete -->
-            <button
-              class="p-1.5 rounded hover:bg-red-500/10 text-muted-foreground hover:text-red-500 transition-all"
+            <ActionButton
+              variant="additional"
+              danger
               onclick={(e) => {
                 e.stopPropagation();
                 onDelete(e.shiftKey);
@@ -452,7 +459,7 @@
               title={$_("stashCard.shiftClickDelete")}
             >
               <Trash2 size={13} />
-            </button>
+            </ActionButton>
           </div>
 
           <!-- Reorder Handle -->

@@ -1,0 +1,62 @@
+<script lang="ts">
+    import type { Snippet } from "svelte";
+    import { twMerge } from "tailwind-merge";
+
+    let {
+        variant = "additional",
+        danger = false,
+        class: className = "",
+        onclick,
+        title,
+        disabled = false,
+        children,
+        ...rest
+    } = $props<{
+        variant?: "instant" | "additional" | "main" | "complete" | "drag";
+        danger?: boolean;
+        class?: string;
+        onclick?: (e: MouseEvent) => void;
+        title?: string;
+        disabled?: boolean;
+        children: Snippet;
+        [key: string]: any;
+    }>();
+
+    const baseClass =
+        "rounded transition-all flex items-center justify-center cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed";
+
+    const variants = {
+        // Always visible, subtle (e.g., Add File, Copy)
+        instant:
+            "p-1 hover:bg-muted text-muted-foreground/50 hover:text-foreground",
+
+        // Standard actions (e.g., Edit, Move)
+        additional:
+            "p-1.5 hover:bg-muted text-muted-foreground hover:text-foreground",
+
+        // Prominent actions (e.g., Save/Stash)
+        main: "px-3 py-1.5 bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm font-medium text-xs",
+
+        // Toggle actions (e.g. Complete)
+        complete: "h-7 w-7 p-0 rounded-md",
+
+        // Drag handles
+        drag: "h-7 w-7 p-0 rounded-md cursor-grab active:cursor-grabbing shrink-0",
+    };
+</script>
+
+<button
+    class={twMerge(
+        baseClass,
+        variants[variant],
+        danger && "hover:bg-red-500/10 hover:text-red-500",
+        className,
+    )}
+    {onclick}
+    {title}
+    {disabled}
+    type="button"
+    {...rest}
+>
+    {@render children()}
+</button>
