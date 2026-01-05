@@ -25,6 +25,7 @@
     type SupportedLocale,
   } from "$lib/i18n";
   import ShortcutInput from "./ShortcutInput.svelte";
+  import { fade } from "svelte/transition";
 
   let {
     settings = $bindable(),
@@ -55,7 +56,10 @@
   >
     <button
       class="p-2 hover:bg-muted rounded-md text-muted-foreground hover:text-foreground transition-colors"
-      onclick={onBack}
+      onclick={() => {
+        adapter.triggerAutoCleanup();
+        onBack();
+      }}
       title={$_("settings.backToStash")}
     >
       ←
@@ -228,6 +232,88 @@
             ></div>
           </label>
         </div>
+
+        <!-- Auto Clear Completed -->
+        <div
+          class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
+        >
+          <div class="space-y-0.5">
+            <div class="text-sm font-medium">
+              {$_("settings.clearCompleted.label")}
+            </div>
+            <div class="text-xs text-muted-foreground">
+              {$_("settings.clearCompleted.description")}
+            </div>
+          </div>
+          <div class="flex bg-muted p-1 rounded-lg border border-border">
+            {#each ["never", "on-close", "after-n-days"] as strategy}
+              <label
+                class="flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-semibold cursor-pointer transition-all focus-within:ring-2 focus-within:ring-primary focus-within:ring-offset-2 focus-within:ring-offset-background {(settings.clearCompletedStrategy ??
+                  'never') === strategy
+                  ? 'bg-primary text-primary-foreground shadow-sm ring-1 ring-primary/20'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-accent'}"
+              >
+                <input
+                  type="radio"
+                  name="clearCompletedStrategy"
+                  value={strategy}
+                  class="sr-only"
+                  checked={(settings.clearCompletedStrategy ?? "never") ===
+                    strategy}
+                  onchange={(e) => {
+                    settings.clearCompletedStrategy = e.currentTarget
+                      .value as any;
+                    save();
+                  }}
+                />
+                {#if strategy === "on-close"}
+                  {$_("settings.clearCompleted.onClose")}
+                {:else if strategy === "after-n-days"}
+                  {$_("settings.clearCompleted.afterNDays").replace(
+                    "{days}",
+                    (settings.clearCompletedDays ?? 7).toString(),
+                  )}
+                {:else}
+                  {$_("settings.clearCompleted.never")}
+                {/if}
+              </label>
+            {/each}
+          </div>
+        </div>
+
+        <!-- Clear Completed Days (Conditional) -->
+        {#if settings.clearCompletedStrategy === "after-n-days"}
+          <div
+            class="flex items-center justify-between p-3 rounded-lg border border-border bg-card ml-8"
+            transition:fade={{ duration: 150 }}
+          >
+            <div class="space-y-0.5">
+              <div class="text-sm font-medium">
+                {$_("settings.clearCompletedDays.label")}
+              </div>
+              <div class="text-xs text-muted-foreground">
+                {$_("settings.clearCompletedDays.description")}
+              </div>
+            </div>
+            <div class="flex items-center gap-3">
+              <input
+                type="number"
+                min="1"
+                max="365"
+                class="w-20 rounded-md border border-border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors"
+                value={settings.clearCompletedDays ?? 7}
+                oninput={(e) => {
+                  const val = parseInt(e.currentTarget.value);
+                  if (!isNaN(val)) {
+                    settings.clearCompletedDays = val;
+                    save();
+                  }
+                }}
+              />
+              <span class="text-xs text-muted-foreground">Days</span>
+            </div>
+          </div>
+        {/if}
       </section>
 
       <!-- Appearance Section -->

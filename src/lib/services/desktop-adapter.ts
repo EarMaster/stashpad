@@ -78,8 +78,12 @@ export class DesktopStorageAdapter implements IStorageService {
         await invoke('delete_stash', { id });
     }
 
-    async deleteCompletedStashes(): Promise<void> {
-        await invoke('delete_completed_stashes');
+    async deleteCompletedStashes(contextId?: string): Promise<void> {
+        await invoke('delete_completed_stashes', { contextId });
+    }
+
+    async triggerAutoCleanup(): Promise<void> {
+        await invoke('trigger_auto_cleanup');
     }
 }
 

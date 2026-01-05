@@ -94,10 +94,7 @@
     const shouldStrip = stripTagsOnCopy ? !invert : invert;
 
     if (shouldStrip) {
-      content = content
-        .replace(/#[\w-]+/g, "")
-        .replace(/\s+/g, " ")
-        .trim();
+      content = content.replace(/#[\w-]+/g, "").trim();
     }
 
     const text =

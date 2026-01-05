@@ -385,7 +385,7 @@
    }
 
    async function clearCompleted() {
-      await adapter.deleteCompletedStashes();
+      await adapter.deleteCompletedStashes(currentContextId);
       load();
    }
 

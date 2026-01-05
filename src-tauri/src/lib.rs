@@ -38,6 +38,8 @@ pub struct StashItem {
     pub context_id: Option<String>,
     #[serde(default)]
     pub completed: bool,
+    #[serde(default)]
+    pub completed_at: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -153,6 +155,18 @@ pub struct Settings {
     pub theme: Option<String>, // "light", "dark", "system"
     #[serde(default)]
     pub strip_tags_on_copy: bool, // Strip #tags when copying to clipboard
+    #[serde(default = "default_clear_completed_strategy")]
+    pub clear_completed_strategy: String,
+    #[serde(default = "default_clear_completed_days")]
+    pub clear_completed_days: u32,
+}
+
+fn default_clear_completed_strategy() -> String {
+    "never".to_string()
+}
+
+fn default_clear_completed_days() -> u32 {
+    7
 }
 
 fn default_new_stash_position() -> String {
@@ -171,6 +185,8 @@ impl Default for Settings {
             new_stash_position: "top".into(),
             theme: None,
             strip_tags_on_copy: false,
+            clear_completed_strategy: default_clear_completed_strategy(),
+            clear_completed_days: default_clear_completed_days(),
         }
     }
 }
@@ -372,25 +388,44 @@ fn save_stash(
     if let Some(index) = stashes.iter().position(|s| s.id == stash.id) {
         let old_item = &stashes[index];
         let status_changed = old_item.completed != stash.completed;
+        
+        let mut new_stash = stash.clone();
+        if status_changed {
+             if new_stash.completed {
+                 new_stash.completed_at = Some(chrono::Utc::now().to_rfc3339());
+             } else {
+                 new_stash.completed_at = None;
+             }
+        } else if new_stash.completed && new_stash.completed_at.is_none() {
+             // Enforce completed_at if missing
+             if let Some(old_completed_at) = &old_item.completed_at {
+                 new_stash.completed_at = Some(old_completed_at.clone());
+             }
+        }
 
         if status_changed {
             // Remove and re-insert at top/bottom according to setting
             stashes.remove(index);
             if effective_position == "bottom" {
-                stashes.push(stash);
+                stashes.push(new_stash);
             } else {
-                stashes.insert(0, stash);
+                stashes.insert(0, new_stash);
             }
         } else {
             // Update in place to preserve manual order
-            stashes[index] = stash;
+            stashes[index] = new_stash;
         }
     } else {
         // New item
+        let mut new_stash = stash.clone();
+        if new_stash.completed && new_stash.completed_at.is_none() {
+            new_stash.completed_at = Some(chrono::Utc::now().to_rfc3339());
+        }
+
         if effective_position == "bottom" {
-            stashes.push(stash);
+            stashes.push(new_stash);
         } else {
-            stashes.insert(0, stash);
+            stashes.insert(0, new_stash);
         }
     }
 
@@ -410,10 +445,39 @@ fn delete_stash(state: State<Arc<StashState>>, id: String) {
 }
 
 #[tauri::command]
-fn delete_completed_stashes(state: State<Arc<StashState>>) {
+fn delete_completed_stashes(state: State<Arc<StashState>>, context_id: Option<String>) {
     let mut stashes = state.stashes.lock().unwrap();
-    stashes.retain(|s| !s.completed);
+    // Only delete stashes that match the context_id (or all if context_id is None - though manual action is usually context-aware)
+    // Actually, manual "Clear Completed" is per-context.
+    // If context_id is None, it implies clearing ALL (internal usage maybe). 
+    stashes.retain(|s| !(s.completed && (context_id.is_none() || s.context_id == context_id)));
     persist_stashes_to_disk(&stashes);
+}
+
+fn perform_startup_cleanup(stashes: &mut Vec<StashItem>, settings: &Settings) {
+    if settings.clear_completed_strategy == "on-close" {
+         println!("Startup Cleanup: Clearing all completed stashes (on-close strategy)");
+         stashes.retain(|s| !s.completed);
+    } else if settings.clear_completed_strategy == "after-n-days" {
+         let days = settings.clear_completed_days as i64;
+         let now = chrono::Utc::now();
+         println!("Startup Cleanup: Clearing completed stashes older than {} days", days);
+         stashes.retain(|s| {
+             if !s.completed { return true; }
+             // Fallback to created_at if completed_at is missing (legacy data)
+             let time_str = s.completed_at.as_ref().or(Some(&s.created_at));
+             
+             if let Some(ts_str) = time_str {
+                 if let Ok(ts) = chrono::DateTime::parse_from_rfc3339(ts_str) {
+                      let age = now.signed_duration_since(ts);
+                      if age.num_days() >= days {
+                          return false; // delete
+                      }
+                 }
+             }
+             true // keep
+         });
+    }
 }
 
 #[tauri::command]
@@ -422,6 +486,17 @@ fn save_stashes(state: State<Arc<StashState>>, stashes_list: Vec<StashItem>) {
     *stashes = stashes_list;
     persist_stashes_to_disk(&stashes);
 }
+ 
+#[tauri::command]
+fn trigger_auto_cleanup(state: State<Arc<StashState>>, settings_state: State<Arc<SettingsState>>) {
+    let mut stashes = state.stashes.lock().unwrap();
+    let settings = settings_state.settings.lock().unwrap();
+    
+    // Reuse the logic
+    perform_startup_cleanup(&mut stashes, &settings);
+    persist_stashes_to_disk(&stashes);
+}
+ 
 #[tauri::command]
 fn save_asset(name: String, data: Vec<u8>) -> Result<String, String> {
     println!("Saving asset: {} ({} bytes)", name, data.len());
@@ -715,6 +790,15 @@ pub fn run() {
         settings: Mutex::new(load_settings_from_disk()),
     });
     
+    // Perform startup cleanup
+    {
+        let mut stashes_lock = stash_state.stashes.lock().unwrap();
+        let settings_lock = settings_state.settings.lock().unwrap();
+        perform_startup_cleanup(&mut stashes_lock, &settings_lock);
+        // Persist the cleaned up stashes
+        persist_stashes_to_disk(&stashes_lock);
+    }
+    
     let tracker_state_clone = tracker_state.clone();
     let settings_state_clone = settings_state.clone();
     
@@ -867,6 +951,7 @@ pub fn run() {
             load_stashes,
             delete_stash,
             delete_completed_stashes,
+            trigger_auto_cleanup,
             save_asset,
             save_asset_from_path,
             read_file_for_preview,

@@ -101,6 +101,17 @@
             "clickToSet": "Click to set…",
             "pressShortcut": "Press shortcut…",
             "clearShortcut": "Clear shortcut"
+        },
+        "clearCompleted": {
+            "label": "Auto Clear Completed",
+            "description": "Automatically remove completed stashes",
+            "never": "Never",
+            "onClose": "On Restart",
+            "afterNDays": "After {days} days"
+        },
+        "clearCompletedDays": {
+            "label": "Days to Keep",
+            "description": "Days to keep completed stashes before deleting"
         }
     },
     "contexts": {

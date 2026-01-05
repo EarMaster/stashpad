@@ -19,6 +19,7 @@ export interface StashItem {
     createdAt: string;
     contextId?: string;
     completed?: boolean;
+    completedAt?: string; // ISO Date string
     isDndShadowItem?: boolean; // Added by svelte-dnd-action during drag operations
 }
 
@@ -58,6 +59,10 @@ export interface Settings {
     videoMuted?: boolean;
     /** Strip #tags when copying to clipboard */
     stripTagsOnCopy?: boolean;
+    /** Strategy for automatically clearing completed stashes */
+    clearCompletedStrategy?: 'never' | 'on-close' | 'after-n-days';
+    /** Number of days to keep completed stashes (if strategy is after-n-days) */
+    clearCompletedDays?: number;
 }
 
 export interface IStorageService {
@@ -74,7 +79,8 @@ export interface IStorageService {
     getSettings(): Promise<Settings>;
     saveSettings(settings: Settings): Promise<void>;
     deleteStash(id: string): Promise<void>;
-    deleteCompletedStashes(): Promise<void>;
+    deleteCompletedStashes(contextId?: string): Promise<void>;
+    triggerAutoCleanup(): Promise<void>;
 }
 
 /**
