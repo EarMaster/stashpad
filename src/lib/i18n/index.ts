@@ -25,29 +25,50 @@
 
 import { register, init, getLocaleFromNavigator, locale } from "svelte-i18n";
 
-// Define available locales
-export const SUPPORTED_LOCALES = ["en", "de"] as const;
-export type SupportedLocale = (typeof SUPPORTED_LOCALES)[number];
-
 // Default/fallback locale
-export const DEFAULT_LOCALE: SupportedLocale = "en";
+export const DEFAULT_LOCALE = "en";
+
+// Dynamically load all locale files at build time to get metadata
+const localeModules = import.meta.glob("./locales/*.json", { eager: true });
+
+const supportedLocales: string[] = [];
+const displayNames: Record<string, string> = {};
+const loadedContent: Record<string, any> = {};
+
+for (const path in localeModules) {
+    const content = (localeModules[path] as any).default || localeModules[path];
+    if (content._meta) {
+        const codes = content._meta.codes || (content._meta.code ? [content._meta.code] : []);
+        codes.forEach((code: string) => {
+            supportedLocales.push(code);
+            displayNames[code] = content._meta.name;
+            loadedContent[code] = content;
+        });
+    }
+}
+
+// Define available locales
+export const SUPPORTED_LOCALES = supportedLocales;
+export type SupportedLocale = string;
+
+// Validate that the fallback locale exists
+if (!SUPPORTED_LOCALES.includes(DEFAULT_LOCALE)) {
+    throw new Error(`Fatal Error: Default locale "${DEFAULT_LOCALE}" is missing. The application cannot start without the fallback language.`);
+}
 
 /**
  * Display names for each supported locale.
  * These are shown in their native language for easy identification.
  */
-export const LOCALE_DISPLAY_NAMES: Record<SupportedLocale, string> = {
-    en: "English",
-    de: "Deutsch",
-};
+export const LOCALE_DISPLAY_NAMES = displayNames;
 
 /**
- * Register all available locales with lazy loading.
- * Files are only loaded when the locale is actually used.
+ * Register all available locales.
  */
 function registerLocales(): void {
-    register("en", () => import("./locales/en.json"));
-    register("de", () => import("./locales/de.json"));
+    SUPPORTED_LOCALES.forEach(locale => {
+        register(locale, () => Promise.resolve(loadedContent[locale]));
+    });
 }
 
 /**
@@ -61,12 +82,17 @@ export function getAutoDetectedLocale(): SupportedLocale {
         return DEFAULT_LOCALE;
     }
 
+    // First try exact match (e.g. en-US)
+    if (SUPPORTED_LOCALES.includes(browserLocale)) {
+        return browserLocale;
+    }
+
     // Extract the primary language code (e.g., "en-US" -> "en")
     const primaryLanguage = browserLocale.split("-")[0].toLowerCase();
 
     // Check if the primary language is supported
-    if (SUPPORTED_LOCALES.includes(primaryLanguage as SupportedLocale)) {
-        return primaryLanguage as SupportedLocale;
+    if (SUPPORTED_LOCALES.includes(primaryLanguage)) {
+        return primaryLanguage;
     }
 
     return DEFAULT_LOCALE;
@@ -90,9 +116,9 @@ export async function setupI18n(
     if (!preferredLocale || preferredLocale === "auto") {
         initialLocale = getAutoDetectedLocale();
     } else if (
-        SUPPORTED_LOCALES.includes(preferredLocale as SupportedLocale)
+        SUPPORTED_LOCALES.includes(preferredLocale)
     ) {
-        initialLocale = preferredLocale as SupportedLocale;
+        initialLocale = preferredLocale;
     } else {
         initialLocale = getAutoDetectedLocale();
     }
@@ -113,7 +139,7 @@ export async function setupI18n(
 export function setLocale(newLocale: "auto" | SupportedLocale): void {
     if (newLocale === "auto") {
         locale.set(getAutoDetectedLocale());
-    } else if (SUPPORTED_LOCALES.includes(newLocale as SupportedLocale)) {
+    } else if (SUPPORTED_LOCALES.includes(newLocale)) {
         locale.set(newLocale);
     } else {
         locale.set(getAutoDetectedLocale());
@@ -142,7 +168,7 @@ export function getCurrentLocale(): SupportedLocale | null {
 export function isSupportedLocale(
     localeStr: string,
 ): localeStr is SupportedLocale {
-    return SUPPORTED_LOCALES.includes(localeStr as SupportedLocale);
+    return SUPPORTED_LOCALES.includes(localeStr);
 }
 
 // Re-export commonly used items from svelte-i18n

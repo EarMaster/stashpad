@@ -1,4 +1,10 @@
 {
+    "_meta": {
+        "codes": [
+            "de"
+        ],
+        "name": "Deutsch"
+    },
     "app": {
         "name": "Stashpad",
         "version": "v0.1.0",
