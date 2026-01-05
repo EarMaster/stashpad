@@ -383,6 +383,8 @@
                bind:content={editorDraft}
                bind:files={editorFiles}
                availableTags={allTags}
+               pasteAsAttachmentThreshold={settings.pasteAsAttachmentThreshold ??
+                  8}
             />
          </div>
 

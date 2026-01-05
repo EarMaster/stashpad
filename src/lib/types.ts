@@ -63,6 +63,8 @@ export interface Settings {
     clearCompletedStrategy?: 'never' | 'on-close' | 'after-n-days';
     /** Number of days to keep completed stashes (if strategy is after-n-days) */
     clearCompletedDays?: number;
+    /** Number of lines of pasted text before it becomes an attachment. 0 = ask user, default 8 */
+    pasteAsAttachmentThreshold?: number;
 }
 
 export interface IStorageService {

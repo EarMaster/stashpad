@@ -68,6 +68,12 @@
                 "label": "Tags beim Kopieren entfernen",
                 "description": "#Hashtags beim Kopieren von Stash-Inhalten in die Zwischenablage entfernen",
                 "shiftModifier": "Shift halten beim Kopieren, um diese Einstellung temporär umzukehren"
+            },
+            "pasteAsAttachment": {
+                "label": "Als Anhang einfügen",
+                "description": "Anzahl Zeilen, ab der eingefügter Text als Anhang gespeichert wird",
+                "zeroNote": "Auf 0 setzen, um immer nachzufragen",
+                "unit": "Zeilen"
             }
         },
         "appearance": {
@@ -193,7 +199,13 @@
         "heading": "Überschrift",
         "list": "Liste",
         "code": "Code",
-        "link": "Link"
+        "link": "Link",
+        "pasteChoice": {
+            "title": "Wie möchten Sie einfügen?",
+            "description": "Der eingefügte Inhalt kann als Text hinzugefügt oder als Dateianhang gespeichert werden.",
+            "inline": "Als Text einfügen",
+            "attachment": "Als Anhang speichern"
+        }
     },
     "shortcutInput": {
         "ariaLabel": "Tastenkürzel-Eingabe. Drücken Sie Enter, um ein neues Tastenkürzel aufzuzeichnen."

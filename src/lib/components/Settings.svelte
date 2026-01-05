@@ -240,6 +240,42 @@
           </label>
         </div>
 
+        <!-- Paste as Attachment Threshold -->
+        <div
+          class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
+        >
+          <div class="space-y-0.5">
+            <div class="text-sm font-medium">
+              {$_("settings.general.pasteAsAttachment.label")}
+            </div>
+            <div class="text-xs text-muted-foreground">
+              {$_("settings.general.pasteAsAttachment.description")}
+            </div>
+            <div class="text-[10px] text-muted-foreground/80 mt-1 italic">
+              {$_("settings.general.pasteAsAttachment.zeroNote")}
+            </div>
+          </div>
+          <div class="flex items-center gap-3">
+            <input
+              type="number"
+              min="0"
+              max="1000"
+              class="w-20 rounded-md border border-border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors"
+              value={settings.pasteAsAttachmentThreshold ?? 8}
+              oninput={(e) => {
+                const val = parseInt(e.currentTarget.value);
+                if (!isNaN(val) && val >= 0) {
+                  settings.pasteAsAttachmentThreshold = val;
+                  save();
+                }
+              }}
+            />
+            <span class="text-xs text-muted-foreground"
+              >{$_("settings.general.pasteAsAttachment.unit")}</span
+            >
+          </div>
+        </div>
+
         <!-- Auto Clear Completed -->
         <div
           class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"

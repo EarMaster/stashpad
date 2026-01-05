@@ -159,6 +159,9 @@ pub struct Settings {
     pub clear_completed_strategy: String,
     #[serde(default = "default_clear_completed_days")]
     pub clear_completed_days: u32,
+    /// Number of lines of pasted text before it becomes an attachment. 0 = ask user, default 8
+    #[serde(default = "default_paste_as_attachment_threshold")]
+    pub paste_as_attachment_threshold: u32,
 }
 
 fn default_clear_completed_strategy() -> String {
@@ -167,6 +170,10 @@ fn default_clear_completed_strategy() -> String {
 
 fn default_clear_completed_days() -> u32 {
     7
+}
+
+fn default_paste_as_attachment_threshold() -> u32 {
+    8
 }
 
 fn default_new_stash_position() -> String {
@@ -187,6 +194,7 @@ impl Default for Settings {
             strip_tags_on_copy: false,
             clear_completed_strategy: default_clear_completed_strategy(),
             clear_completed_days: default_clear_completed_days(),
+            paste_as_attachment_threshold: default_paste_as_attachment_threshold(),
         }
     }
 }

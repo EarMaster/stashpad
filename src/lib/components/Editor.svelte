@@ -24,7 +24,7 @@
     Image,
     Video,
     FileText,
-    File,
+    File as FileIcon,
     Bold,
     Italic,
     Link as LinkIcon,
@@ -35,6 +35,7 @@
   import { open } from "@tauri-apps/plugin-dialog";
   import { getCaretCoordinates } from "$lib/utils/caret";
   import FilePreviewModal from "./FilePreviewModal.svelte";
+  import ConfirmationDialog from "./ConfirmationDialog.svelte";
   import { fade } from "svelte/transition";
   import { convertFileSrc } from "@tauri-apps/api/core";
 
@@ -48,6 +49,7 @@
     saveLabel,
     autoFocus = false,
     availableTags = [],
+    pasteAsAttachmentThreshold = 8,
   } = $props<{
     onStash?: (stashId?: string) => void;
     currentContextId?: string;
@@ -58,6 +60,8 @@
     saveLabel?: string;
     autoFocus?: boolean;
     availableTags?: string[];
+    /** Number of lines before pasted text becomes an attachment. 0 = ask user */
+    pasteAsAttachmentThreshold?: number;
   }>();
 
   let dragOver = $state(false);
@@ -82,6 +86,10 @@
   let hoverPreviewData = $state<FilePreviewData | null>(null);
   let isLoadingHoverPreview = $state(false);
   let hoverTimeout = $state<ReturnType<typeof setTimeout> | null>(null);
+
+  // Paste dialog state (when threshold is 0)
+  let pasteChoiceDialogOpen = $state(false);
+  let pendingPasteText = $state<string | null>(null);
 
   const adapter = new DesktopStorageAdapter();
 
@@ -206,6 +214,116 @@
     const related = e.relatedTarget as Node;
     if (target.contains(related)) return;
     dragOver = false;
+  }
+
+  /**
+   * Handle paste events to detect files or large text.
+   * Files are added as attachments.
+   * Large text (exceeding threshold) is converted to a text file attachment.
+   * When threshold is 0, a dialog asks the user what to do.
+   */
+  async function handlePaste(e: ClipboardEvent) {
+    const clipboardData = e.clipboardData;
+    if (!clipboardData) return;
+
+    // Check for files first
+    if (clipboardData.files && clipboardData.files.length > 0) {
+      e.preventDefault();
+      for (let i = 0; i < clipboardData.files.length; i++) {
+        const file = clipboardData.files[i];
+        try {
+          const path = await adapter.saveAsset(file);
+          files = [...files, path];
+        } catch (err) {
+          console.error("Failed to save pasted file:", err);
+        }
+      }
+      return;
+    }
+
+    // Check for text
+    const pastedText = clipboardData.getData("text/plain");
+    if (!pastedText) return;
+
+    const lineCount = pastedText.split("\n").length;
+
+    // If threshold is 0, ask user what to do
+    if (pasteAsAttachmentThreshold === 0) {
+      e.preventDefault();
+      pendingPasteText = pastedText;
+      pasteChoiceDialogOpen = true;
+      return;
+    }
+
+    // If text exceeds threshold, convert to attachment
+    if (lineCount > pasteAsAttachmentThreshold) {
+      e.preventDefault();
+      await saveTextAsAttachment(pastedText);
+      return;
+    }
+
+    // Otherwise, let the default paste behavior happen (text is pasted normally)
+  }
+
+  /**
+   * Save text as a text file attachment.
+   * Creates a .txt file from the text content.
+   */
+  async function saveTextAsAttachment(text: string) {
+    // Generate a filename based on first line or timestamp
+    const firstLine = text.split("\n")[0].slice(0, 30).trim();
+    const safeName = firstLine.replace(/[^a-zA-Z0-9_-]/g, "_") || "pasted_text";
+    const timestamp = Date.now();
+    const filename = `${safeName}_${timestamp}.txt`;
+
+    // Create a File object from the text
+    const blob = new Blob([text], { type: "text/plain" });
+    const file = new File([blob], filename, { type: "text/plain" });
+
+    try {
+      const path = await adapter.saveAsset(file);
+      files = [...files, path];
+    } catch (err) {
+      console.error("Failed to save text as attachment:", err);
+    }
+  }
+
+  /**
+   * Handle paste confirmation (save as attachment).
+   */
+  function handlePasteConfirm() {
+    if (pendingPasteText) {
+      saveTextAsAttachment(pendingPasteText);
+    }
+    pendingPasteText = null;
+    pasteChoiceDialogOpen = false;
+  }
+
+  /**
+   * Handle paste cancel (paste as inline text).
+   */
+  function handlePasteCancel() {
+    if (pendingPasteText) {
+      // Insert text at cursor position
+      if (textareaRef) {
+        const start = textareaRef.selectionStart;
+        const end = textareaRef.selectionEnd;
+        const before = content.slice(0, start);
+        const after = content.slice(end);
+        content = before + pendingPasteText + after;
+
+        // Move cursor to end of inserted text
+        const newPos = start + pendingPasteText.length;
+        setTimeout(() => {
+          textareaRef?.focus();
+          textareaRef?.setSelectionRange(newPos, newPos);
+        }, 0);
+      } else {
+        content += pendingPasteText;
+      }
+    }
+    pendingPasteText = null;
+    pasteChoiceDialogOpen = false;
   }
 
   async function save(e?: Event) {
@@ -538,6 +656,7 @@
     bind:this={textareaRef}
     onkeydown={handleKeydown}
     oninput={handleInput}
+    onpaste={handlePaste}
     onblur={() =>
       setTimeout(() => {
         if (!hoveringSuggestions) showSuggestions = false;
@@ -605,7 +724,7 @@
           {:else if getFileIcon(file) === "text"}
             <FileText size={10} class="shrink-0 text-muted-foreground" />
           {:else}
-            <File size={10} class="shrink-0 text-muted-foreground" />
+            <FileIcon size={10} class="shrink-0 text-muted-foreground" />
           {/if}
           <span class="truncate max-w-[100px]">{file.split(/[\\/]/).pop()}</span
           >
@@ -668,7 +787,7 @@
                       <div
                         class="flex items-center justify-center w-28 h-20 bg-muted/50 rounded"
                       >
-                        <File size={20} class="text-muted-foreground" />
+                        <FileIcon size={20} class="text-muted-foreground" />
                       </div>
                     {/if}
                   </div>
@@ -728,4 +847,15 @@
   {files}
   bind:filePath={selectedPreviewFilePath}
   onClose={closeFilePreview}
+/>
+
+<!-- Paste Choice Dialog (when threshold is 0) -->
+<ConfirmationDialog
+  bind:open={pasteChoiceDialogOpen}
+  title={$_("editor.pasteChoice.title")}
+  description={$_("editor.pasteChoice.description")}
+  confirmText={$_("editor.pasteChoice.attachment")}
+  cancelText={$_("editor.pasteChoice.inline")}
+  onConfirm={handlePasteConfirm}
+  onCancel={handlePasteCancel}
 />
