@@ -113,22 +113,40 @@
     });
 
     /**
-     * Get syntax-highlighted HTML for the text content.
+     * Syntax-highlighted HTML content (loaded asynchronously).
      */
-    let highlightedContent = $derived(() => {
-        if (!previewData || previewData.fileType !== "text") return "";
+    let highlightedContent = $state("");
+    let highlightLoading = $state(false);
 
-        // For markdown files, render as HTML
-        if (isMarkdown()) {
-            return markedInstance.parse(previewData.content) as string;
+    /**
+     * Load syntax-highlighted content when preview data or language changes.
+     */
+    $effect(() => {
+        if (!previewData || previewData.fileType !== "text") {
+            highlightedContent = "";
+            return;
         }
 
-        // For code files, apply syntax highlighting with current language
-        const result = highlightCode(
-            previewData.content,
-            currentLanguage() ?? undefined,
-        );
-        return result.html;
+        // For markdown files, render synchronously as HTML
+        if (isMarkdown()) {
+            highlightedContent = markedInstance.parse(
+                previewData.content,
+            ) as string;
+            return;
+        }
+
+        // For code files, load syntax highlighting asynchronously
+        highlightLoading = true;
+        highlightCode(previewData.content, currentLanguage() ?? undefined)
+            .then((result) => {
+                highlightedContent = result.html;
+                highlightLoading = false;
+            })
+            .catch(() => {
+                // Fallback to plain text if highlighting fails
+                highlightedContent = previewData?.content ?? "";
+                highlightLoading = false;
+            });
     });
 
     /**
@@ -430,17 +448,27 @@
                                 <div
                                     class="w-full h-full max-h-[calc(90vh-12rem)] overflow-auto bg-muted/50 rounded-lg p-6 prose prose-sm dark:prose-invert max-w-none border border-border"
                                 >
-                                    {@html highlightedContent()}
+                                    {@html highlightedContent}
                                 </div>
                             {:else}
                                 <!-- Syntax Highlighted Code -->
                                 <div
-                                    class="w-full h-full max-h-[calc(90vh-12rem)] overflow-auto bg-muted/50 rounded-lg border border-border"
+                                    class="w-full h-full max-h-[calc(90vh-12rem)] overflow-auto bg-muted/50 rounded-lg border border-border relative"
                                 >
+                                    {#if highlightLoading}
+                                        <div
+                                            class="absolute inset-0 flex items-center justify-center bg-muted/30"
+                                        >
+                                            <span
+                                                class="animate-pulse text-xs text-muted-foreground"
+                                                >{$_("common.loading")}</span
+                                            >
+                                        </div>
+                                    {/if}
                                     <pre
                                         class="p-4 text-xs font-mono text-foreground whitespace-pre min-w-max"><code
                                             class="hljs block"
-                                            >{@html highlightedContent()}</code
+                                            >{@html highlightedContent}</code
                                         ></pre>
                                 </div>
                             {/if}

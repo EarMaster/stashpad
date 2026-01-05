@@ -259,30 +259,55 @@
       return [{ id: "default", name: "Default" }, ...settings.contexts];
    }
 
+   /**
+    * Apply loaded settings to state after validation.
+    * Extracted to reuse between initial load and async load.
+    */
+   function applySettings(loaded: Settings) {
+      // Ensure defaults if missing
+      if (!loaded.shortcuts) {
+         loaded.shortcuts = {};
+      }
+      settings = loaded;
+
+      const loadedId = loaded.activeContextId;
+      // Validate context exists (or is default)
+      const exists =
+         loadedId === "default" ||
+         loaded.contexts.some((c) => c.id === loadedId);
+
+      if (loadedId && exists) {
+         currentContextId = loadedId;
+      }
+   }
+
    async function loadSettings() {
       try {
-         settings = await adapter.getSettings();
-         // Ensure defaults if missing
-         if (!settings.shortcuts) {
-            settings.shortcuts = {};
-         }
-
-         const loadedId = settings.activeContextId;
-         // Validate context exists (or is default)
-         const exists =
-            loadedId === "default" ||
-            settings.contexts.some((c) => c.id === loadedId);
-
-         if (loadedId && exists) {
-            currentContextId = loadedId;
-         }
+         const loaded = await adapter.getSettings();
+         applySettings(loaded);
       } catch (e) {
          console.error(e);
       }
    }
 
+   // Use pre-loaded settings from main.ts if available (avoids duplicate Tauri call)
+   let settingsInitialized = false;
    $effect(() => {
-      loadSettings();
+      if (settingsInitialized) return;
+      settingsInitialized = true;
+
+      const initial = (window as Window & { __initialSettings__?: Settings })
+         .__initialSettings__;
+      if (initial) {
+         // Use pre-loaded settings immediately
+         applySettings(initial);
+         // Clear from window to free memory
+         delete (window as Window & { __initialSettings__?: Settings })
+            .__initialSettings__;
+      } else {
+         // Fallback: load settings from backend if not pre-loaded
+         loadSettings();
+      }
    });
 
    function handleStash(id?: string) {

@@ -339,23 +339,27 @@
       }
    }
 
-   // Resolve mode loop
+   // Resolve mode - only poll when in Auto mode
    $effect(() => {
-      resolveMode();
-      const interval = setInterval(resolveMode, 500);
-      return () => clearInterval(interval);
+      // Immediately resolve the mode based on current transferMode
+      if (transferMode === "Auto") {
+         // Only poll when in Auto mode - reduced frequency to lower CPU usage
+         resolveMode();
+         const interval = setInterval(resolveMode, 1000);
+         return () => clearInterval(interval);
+      } else {
+         // For manual modes, set immediately without polling
+         effectiveMode = transferMode as "Drag" | "Copy";
+      }
    });
 
    async function resolveMode() {
-      if (transferMode === "Auto") {
-         try {
-            const target = await adapter.getSmartTransferTarget();
-            effectiveMode = target === "GUI" ? "Drag" : "Copy";
-         } catch (e) {
-            effectiveMode = "Drag";
-         }
-      } else {
-         effectiveMode = transferMode as "Drag" | "Copy";
+      // Only called when transferMode is "Auto"
+      try {
+         const target = await adapter.getSmartTransferTarget();
+         effectiveMode = target === "GUI" ? "Drag" : "Copy";
+      } catch (e) {
+         effectiveMode = "Drag";
       }
    }
 

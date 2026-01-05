@@ -18,32 +18,69 @@ import App from "./App.svelte";
 import { setupI18n, type SupportedLocale } from "$lib/i18n";
 import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
 
+// Extend window interface for initial data passing
+declare global {
+  interface Window {
+    __app__?: unknown;
+    __initialSettings__?: Settings;
+  }
+}
+
+import type { Settings } from "$lib/types";
+
 /**
- * Loads the saved locale preference from settings.
- * Returns 'auto' if no preference is saved or if loading fails.
+ * Loads all initial data needed for app startup in parallel.
+ * Returns settings and locale preference together.
  */
-async function getSavedLocalePreference(): Promise<"auto" | SupportedLocale> {
+async function loadInitialData(): Promise<{ settings: Settings | null; locale: "auto" | SupportedLocale }> {
   try {
     const adapter = new DesktopStorageAdapter();
     const settings = await adapter.getSettings();
-    return (settings.locale ?? "auto") as "auto" | SupportedLocale;
+    return {
+      settings,
+      locale: (settings.locale ?? "auto") as "auto" | SupportedLocale
+    };
   } catch (error) {
     // If settings can't be loaded (e.g., first run), use automatic detection
-    console.warn("Could not load locale preference, using automatic:", error);
-    return "auto";
+    console.warn("Could not load initial settings, using defaults:", error);
+    return { settings: null, locale: "auto" };
+  }
+}
+
+/**
+ * Hides the splash screen with a smooth fade-out animation.
+ * Called after the app is fully mounted and ready.
+ */
+function hideSplash(): void {
+  const splash = document.getElementById("splash");
+  const appContainer = document.getElementById("app");
+
+  if (splash) {
+    splash.classList.add("fade-out");
+    // Remove from DOM after animation completes
+    setTimeout(() => splash.remove(), 400);
+  }
+
+  if (appContainer) {
+    appContainer.classList.add("ready");
   }
 }
 
 /**
  * Initialize the application.
- * Loads locale preference, sets up i18n, then mounts the Svelte app.
+ * Loads settings and i18n in parallel, then mounts the Svelte app.
  */
 async function initApp(): Promise<void> {
-  // Load saved locale preference
-  const savedLocale = await getSavedLocalePreference();
+  // Load initial data (settings includes locale preference)
+  const { settings, locale } = await loadInitialData();
+
+  // Store settings on window to avoid duplicate load in App.svelte
+  if (settings) {
+    window.__initialSettings__ = settings;
+  }
 
   // Initialize i18n with the saved preference (or auto-detect if not set)
-  await setupI18n(savedLocale);
+  await setupI18n(locale);
 
   // Mount the Svelte app
   const app = mount(App, {
@@ -51,7 +88,12 @@ async function initApp(): Promise<void> {
   });
 
   // Export for potential HMR usage
-  (window as Window & { __app__?: typeof app }).__app__ = app;
+  window.__app__ = app;
+
+  // Hide splash screen after a brief moment to ensure smooth transition
+  requestAnimationFrame(() => {
+    hideSplash();
+  });
 }
 
 // Start the application

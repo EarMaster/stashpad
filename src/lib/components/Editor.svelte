@@ -272,7 +272,7 @@
    */
   async function saveTextAsAttachment(text: string) {
     // Detect language from content to determine file extension
-    const detection = detectLanguage(text);
+    const detection = await detectLanguage(text);
     const extension = detection.extension;
 
     // Generate a filename based on first line or timestamp

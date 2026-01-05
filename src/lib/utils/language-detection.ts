@@ -12,7 +12,27 @@
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 // See the GNU Affero General Public License for more details.
 
-import hljs from "highlight.js";
+// Lazy-load highlight.js to improve startup performance
+// The library is only loaded when syntax highlighting is actually needed
+let hljsInstance: typeof import("highlight.js").default | null = null;
+let hljsLoadPromise: Promise<typeof import("highlight.js").default> | null = null;
+
+/**
+ * Lazily load and cache the highlight.js library.
+ * This defers the ~4.8MB bundle until code highlighting is actually needed.
+ */
+async function getHljs(): Promise<typeof import("highlight.js").default> {
+    if (hljsInstance) return hljsInstance;
+
+    if (!hljsLoadPromise) {
+        hljsLoadPromise = import("highlight.js").then(module => {
+            hljsInstance = module.default;
+            return hljsInstance;
+        });
+    }
+
+    return hljsLoadPromise;
+}
 
 /**
  * Result of language detection analysis.
@@ -131,7 +151,9 @@ export const SUPPORTED_LANGUAGES: string[] = Object.keys(LANGUAGE_TO_EXTENSION).
  * @param code - The source code to analyze
  * @returns Detection result with language, extension, and highlighted HTML
  */
-export function detectLanguage(code: string): LanguageDetectionResult {
+export async function detectLanguage(code: string): Promise<LanguageDetectionResult> {
+    const hljs = await getHljs();
+
     // Use a subset of common languages for faster and more accurate detection
     const result = hljs.highlightAuto(code, [
         "javascript", "typescript", "python", "java", "csharp", "cpp", "c",
@@ -177,10 +199,12 @@ export function getExtensionForLanguage(language: string): string {
  * @param language - Optional language hint (e.g., from file extension)
  * @returns Object with highlighted HTML and detected/used language
  */
-export function highlightCode(
+export async function highlightCode(
     code: string,
     language?: string
-): { html: string; language: string | null } {
+): Promise<{ html: string; language: string | null }> {
+    const hljs = await getHljs();
+
     if (language && hljs.getLanguage(language)) {
         // Use the specified language
         const result = hljs.highlight(code, { language });
@@ -188,7 +212,7 @@ export function highlightCode(
     }
 
     // Auto-detect
-    const detection = detectLanguage(code);
+    const detection = await detectLanguage(code);
     return { html: detection.highlightedHtml, language: detection.language };
 }
 

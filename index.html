@@ -1,12 +1,147 @@
 <!doctype html>
 <html lang="en" class="dark">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Stashpad</title>
-  </head>
-  <body>
-    <div id="app"></div>
-    <script type="module" src="/src/main.ts"></script>
-  </body>
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Stashpad</title>
+  <style>
+    /* Splash screen styles - inline for instant display */
+    #splash {
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, #18181b 0%, #09090b 100%);
+      transition: opacity 0.4s ease-out, visibility 0.4s ease-out;
+    }
+
+    #splash.fade-out {
+      opacity: 0;
+      visibility: hidden;
+    }
+
+    #splash-logo {
+      width: 64px;
+      height: 64px;
+      border-radius: 16px;
+      animation: pulse 1.5s ease-in-out infinite, float 2s ease-in-out infinite;
+      filter: drop-shadow(0 0 20px rgba(168, 85, 247, 0.3));
+    }
+
+    #splash-text {
+      margin-top: 16px;
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 18px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      color: #a1a1aa;
+      opacity: 0;
+      animation: fadeIn 0.5s ease-out 0.2s forwards;
+    }
+
+    #splash-loader {
+      margin-top: 24px;
+      display: flex;
+      gap: 6px;
+    }
+
+    #splash-loader span {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #a855f7;
+      animation: bounce 1.2s ease-in-out infinite;
+    }
+
+    #splash-loader span:nth-child(2) {
+      animation-delay: 0.1s;
+    }
+
+    #splash-loader span:nth-child(3) {
+      animation-delay: 0.2s;
+    }
+
+    @keyframes pulse {
+
+      0%,
+      100% {
+        transform: scale(1);
+      }
+
+      50% {
+        transform: scale(1.05);
+      }
+    }
+
+    @keyframes float {
+
+      0%,
+      100% {
+        transform: translateY(0);
+      }
+
+      50% {
+        transform: translateY(-4px);
+      }
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(8px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @keyframes bounce {
+
+      0%,
+      80%,
+      100% {
+        transform: scale(0.6);
+        opacity: 0.4;
+      }
+
+      40% {
+        transform: scale(1);
+        opacity: 1;
+      }
+    }
+
+    /* Prevent FOUC */
+    #app {
+      opacity: 0;
+    }
+
+    #app.ready {
+      opacity: 1;
+      transition: opacity 0.3s ease-in;
+    }
+  </style>
+</head>
+
+<body>
+  <!-- Splash Screen - shows immediately -->
+  <div id="splash">
+    <img id="splash-logo" src="/assets/stashpad/tauri/icons/Square71x71Logo.png" alt="Stashpad" />
+    <div id="splash-text">Stashpad</div>
+    <div id="splash-loader">
+      <span></span>
+      <span></span>
+      <span></span>
+    </div>
+  </div>
+
+  <div id="app"></div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+
 </html>
