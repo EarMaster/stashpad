@@ -81,7 +81,8 @@
             },
             "visualEffects": {
                 "label": "Visuelle Effekte",
-                "description": "Transparenz und Unschärfe aktivieren (Glas-Effekt)"
+                "description": "Transparenz und Unschärfe aktivieren",
+                "windows10Note": "⚠ Standardmäßig unter Windows 10 deaktiviert, um Ruckler beim Verschieben zu vermeiden. ⚠"
             },
             "uiScale": {
                 "label": "Größe der Benutzeroberfläche",

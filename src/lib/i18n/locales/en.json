@@ -81,7 +81,8 @@
             },
             "visualEffects": {
                 "label": "Visual Effects",
-                "description": "Enable translucency and blur (Glass effect)"
+                "description": "Enable translucency and blur",
+                "windows10Note": "⚠ Disabled by default on Windows 10 to prevent window drag lag. ⚠"
             },
             "uiScale": {
                 "label": "UI Scale",

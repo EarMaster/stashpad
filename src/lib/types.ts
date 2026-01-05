@@ -81,6 +81,7 @@ export interface IStorageService {
     deleteStash(id: string): Promise<void>;
     deleteCompletedStashes(contextId?: string): Promise<void>;
     triggerAutoCleanup(): Promise<void>;
+    isWindows10(): Promise<boolean>;
 }
 
 /**

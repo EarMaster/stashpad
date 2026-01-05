@@ -770,6 +770,43 @@ fn show_in_folder(path: String) {
     }
 }
 
+#[tauri::command]
+fn is_windows_10() -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        use std::process::Command;
+        use std::os::windows::process::CommandExt;
+        
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        let output = Command::new("cmd")
+            .args(["/c", "ver"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
+
+        if let Ok(o) = output {
+            let s = String::from_utf8_lossy(&o.stdout);
+            // Format: Microsoft Windows [Version 10.0.xxxxx.xxx]
+            // We look for "Version 10.0." and then the build number
+            if let Some(ver_idx) = s.find("Version 10.0.") {
+                let start = ver_idx + "Version 10.0.".len();
+                let rest = &s[start..];
+                // rest starts with build number, e.g. "19045.3693]"
+                // find the next dot or closing bracket
+                let end = rest.find('.').or_else(|| rest.find(']')).unwrap_or(rest.len());
+                if let Ok(build) = rest[..end].parse::<u32>() {
+                     // Windows 11 starts at build 22000
+                     return build < 22000;
+                }
+            }
+        }
+        false
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        false
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // 0. init devtools
@@ -959,7 +996,8 @@ pub fn run() {
             copy_to_clipboard,
             start_drag,
             get_settings,
-            save_settings
+            save_settings,
+            is_windows_10
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

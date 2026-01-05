@@ -26,6 +26,7 @@
   } from "$lib/i18n";
   import ShortcutInput from "./ShortcutInput.svelte";
   import { fade } from "svelte/transition";
+  import { onMount } from "svelte";
 
   let {
     settings = $bindable(),
@@ -46,6 +47,12 @@
       console.error("Failed to save settings", e);
     }
   }
+
+  let isWin10 = $state(false);
+
+  onMount(async () => {
+    isWin10 = await adapter.isWindows10();
+  });
   // Force rebuild
 </script>
 
@@ -401,14 +408,21 @@
             <div class="text-xs text-muted-foreground">
               {$_("settings.appearance.visualEffects.description")}
             </div>
+            {#if isWin10}
+              <div class="text-[10px] text-muted-foreground/80 mt-1 italic">
+                {$_("settings.appearance.visualEffects.windows10Note")}
+              </div>
+            {/if}
           </div>
           <label class="relative inline-flex items-center cursor-pointer">
             <input
               type="checkbox"
               class="sr-only peer"
               checked={settings.visualEffectsEnabled ??
-                !window.matchMedia("(prefers-reduced-transparency: reduce)")
-                  .matches}
+                (isWin10
+                  ? false
+                  : !window.matchMedia("(prefers-reduced-transparency: reduce)")
+                      .matches)}
               onchange={(e) => {
                 settings.visualEffectsEnabled = e.currentTarget.checked;
                 save();

@@ -85,5 +85,9 @@ export class DesktopStorageAdapter implements IStorageService {
     async triggerAutoCleanup(): Promise<void> {
         await invoke('trigger_auto_cleanup');
     }
+
+    async isWindows10(): Promise<boolean> {
+        return await invoke('is_windows_10');
+    }
 }
 

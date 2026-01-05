@@ -40,11 +40,14 @@
    // Draft state persistence
    let editorDraft = $state("");
    let editorFiles = $state<string[]>([]);
+
    let showExitConfirmation = $state(false);
+   let isWin10 = $state(false);
 
    const appWindow = getCurrentWindow();
 
    onMount(() => {
+      adapter.isWindows10().then((v) => (isWin10 = v));
       const unlisten = appWindow.onCloseRequested(async (event) => {
          if (editorDraft.trim() || editorFiles.length > 0) {
             event.preventDefault();
@@ -71,7 +74,10 @@
 
    let isGlass = $derived(
       settings.visualEffectsEnabled ??
-         !window.matchMedia("(prefers-reduced-transparency: reduce)").matches,
+         (isWin10
+            ? false
+            : !window.matchMedia("(prefers-reduced-transparency: reduce)")
+                 .matches),
    );
 
    // Context Switching Logic
