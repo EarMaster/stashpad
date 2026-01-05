@@ -17,6 +17,7 @@
 <script lang="ts">
   import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
   import type { StashItem, FilePreviewData } from "$lib/types";
+  import { detectLanguage } from "$lib/utils/language-detection";
   import { _ } from "$lib/i18n";
   import {
     X,
@@ -267,18 +268,34 @@
 
   /**
    * Save text as a text file attachment.
-   * Creates a .txt file from the text content.
+   * Detects the programming language from content and uses the appropriate file extension.
    */
   async function saveTextAsAttachment(text: string) {
+    // Detect language from content to determine file extension
+    const detection = detectLanguage(text);
+    const extension = detection.extension;
+
     // Generate a filename based on first line or timestamp
     const firstLine = text.split("\n")[0].slice(0, 30).trim();
-    const safeName = firstLine.replace(/[^a-zA-Z0-9_-]/g, "_") || "pasted_text";
+    const safeName = firstLine.replace(/[^a-zA-Z0-9_-]/g, "_") || "pasted_code";
     const timestamp = Date.now();
-    const filename = `${safeName}_${timestamp}.txt`;
+    const filename = `${safeName}_${timestamp}.${extension}`;
+
+    // Determine MIME type based on extension
+    const mimeTypes: Record<string, string> = {
+      js: "application/javascript",
+      ts: "application/typescript",
+      json: "application/json",
+      html: "text/html",
+      css: "text/css",
+      xml: "application/xml",
+      md: "text/markdown",
+    };
+    const mimeType = mimeTypes[extension] ?? "text/plain";
 
     // Create a File object from the text
-    const blob = new Blob([text], { type: "text/plain" });
-    const file = new File([blob], filename, { type: "text/plain" });
+    const blob = new Blob([text], { type: mimeType });
+    const file = new File([blob], filename, { type: mimeType });
 
     try {
       const path = await adapter.saveAsset(file);

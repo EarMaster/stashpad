@@ -107,10 +107,15 @@
   }
 }
 
+/* Light Mode Highlight.js - transparent background */
+.hljs {
+  background: transparent;
+}
+
 /* Dark Mode Hightlight.js Theme (Atom One Dark manual override) */
 .dark .hljs {
   color: #abb2bf;
-  background: #282c34;
+  background: transparent;
 }
 
 .dark .hljs-comment,

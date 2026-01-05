@@ -219,6 +219,7 @@
         "clickToPreview": "Klicken für Anhang-Vorschau",
         "openLocation": "Speicherort öffnen",
         "unsupportedType": "Vorschau für diesen Anhang-Typ nicht verfügbar",
-        "videoNotSupported": "Ihr Browser unterstützt keine Videowiedergabe"
+        "videoNotSupported": "Ihr Browser unterstützt keine Videowiedergabe",
+        "selectLanguage": "Sprache für Syntaxhervorhebung auswählen"
     }
 }

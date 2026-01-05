@@ -230,6 +230,7 @@
         "clickToPreview": "Click to preview attachment",
         "openLocation": "Open location",
         "unsupportedType": "Preview not available for this attachment type",
-        "videoNotSupported": "Your browser does not support video playback"
+        "videoNotSupported": "Your browser does not support video playback",
+        "selectLanguage": "Select language for syntax highlighting"
     }
 }

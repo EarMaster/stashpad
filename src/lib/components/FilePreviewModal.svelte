@@ -24,10 +24,18 @@
         FileText,
         ChevronLeft,
         ChevronRight,
+        ChevronDown,
+        Code,
     } from "lucide-svelte";
     import type { FilePreviewData } from "$lib/types";
     import { convertFileSrc, invoke } from "@tauri-apps/api/core";
     import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
+    import {
+        highlightCode,
+        getLanguageForExtension,
+        SUPPORTED_LANGUAGES,
+    } from "$lib/utils/language-detection";
+    import markedInstance from "$lib/utils/markdown";
 
     let {
         open = $bindable(false),
@@ -77,6 +85,60 @@
     let hasNext = $derived(
         currentIndex >= 0 && currentIndex < files.length - 1,
     );
+
+    /**
+     * User-selected language override. Null means auto-detect.
+     */
+    let selectedLanguage = $state<string | null>(null);
+
+    /**
+     * Check if the current file is a markdown file based on extension or selection.
+     */
+    let isMarkdown = $derived(() => {
+        if (selectedLanguage === "markdown") return true;
+        if (selectedLanguage && selectedLanguage !== "markdown") return false;
+        if (!previewData) return false;
+        const ext = previewData.fileName.split(".").pop()?.toLowerCase() ?? "";
+        return ext === "md" || ext === "markdown";
+    });
+
+    /**
+     * Get the current language (either user-selected or auto-detected).
+     */
+    let currentLanguage = $derived(() => {
+        if (selectedLanguage) return selectedLanguage;
+        if (!previewData || previewData.fileType !== "text") return null;
+        const ext = previewData.fileName.split(".").pop()?.toLowerCase() ?? "";
+        return getLanguageForExtension(ext);
+    });
+
+    /**
+     * Get syntax-highlighted HTML for the text content.
+     */
+    let highlightedContent = $derived(() => {
+        if (!previewData || previewData.fileType !== "text") return "";
+
+        // For markdown files, render as HTML
+        if (isMarkdown()) {
+            return markedInstance.parse(previewData.content) as string;
+        }
+
+        // For code files, apply syntax highlighting with current language
+        const result = highlightCode(
+            previewData.content,
+            currentLanguage() ?? undefined,
+        );
+        return result.html;
+    });
+
+    /**
+     * Reset selected language when file changes.
+     */
+    $effect(() => {
+        if (filePath) {
+            selectedLanguage = null;
+        }
+    });
 
     function navigate(direction: number) {
         if (!files || files.length <= 1 || currentIndex === -1) return;
@@ -266,10 +328,17 @@
                     >
                         <div class="flex items-center gap-3 min-w-0 flex-1">
                             {#if previewData.fileType === "text"}
-                                <FileText
-                                    size={18}
-                                    class="shrink-0 text-muted-foreground"
-                                />
+                                {#if isMarkdown()}
+                                    <FileText
+                                        size={18}
+                                        class="shrink-0 text-muted-foreground"
+                                    />
+                                {:else}
+                                    <Code
+                                        size={18}
+                                        class="shrink-0 text-muted-foreground"
+                                    />
+                                {/if}
                             {/if}
                             <h2
                                 id="preview-title"
@@ -278,11 +347,33 @@
                             >
                                 {previewData.fileName}
                             </h2>
-                            <span
-                                class="text-xs text-muted-foreground shrink-0"
-                            >
-                                {previewData.mimeType}
-                            </span>
+                            {#if previewData.fileType === "text" && !isMarkdown()}
+                                <!-- Language Selector Dropdown -->
+                                <div class="relative shrink-0">
+                                    <select
+                                        class="appearance-none bg-muted/50 border border-border rounded px-2 py-0.5 pr-6 text-xs text-muted-foreground hover:text-foreground hover:bg-muted cursor-pointer transition-colors focus:outline-none focus:ring-1 focus:ring-primary"
+                                        bind:value={selectedLanguage}
+                                        title={$_("filePreview.selectLanguage")}
+                                    >
+                                        <option value={null}>
+                                            {currentLanguage() ?? "auto"}
+                                        </option>
+                                        {#each SUPPORTED_LANGUAGES as lang}
+                                            <option value={lang}>{lang}</option>
+                                        {/each}
+                                    </select>
+                                    <ChevronDown
+                                        size={12}
+                                        class="absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none text-muted-foreground"
+                                    />
+                                </div>
+                            {:else}
+                                <span
+                                    class="text-xs text-muted-foreground shrink-0"
+                                >
+                                    {previewData.mimeType}
+                                </span>
+                            {/if}
                         </div>
 
                         <div class="flex items-center gap-2">
@@ -298,7 +389,7 @@
 
                     <!-- Preview Content -->
                     <div
-                        class="flex-1 overflow-auto p-4 flex items-center justify-center min-h-[200px] bg-background/50 relative"
+                        class="flex-1 overflow-hidden p-4 flex items-center justify-center min-h-[200px] bg-background/50 relative"
                     >
                         {#if loading}
                             <div
@@ -333,9 +424,26 @@
                                 {$_("filePreview.videoNotSupported")}
                             </video>
                         {:else if previewData.fileType === "text"}
-                            <!-- ... -->
-                            <pre
-                                class="w-full h-full max-h-[calc(90vh-12rem)] overflow-auto bg-muted/50 rounded-lg p-4 text-xs font-mono text-foreground whitespace-pre-wrap break-words border border-border">{previewData.content}</pre>
+                            <!-- Text/Code Preview with Syntax Highlighting -->
+                            {#if isMarkdown()}
+                                <!-- Rendered Markdown -->
+                                <div
+                                    class="w-full h-full max-h-[calc(90vh-12rem)] overflow-auto bg-muted/50 rounded-lg p-6 prose prose-sm dark:prose-invert max-w-none border border-border"
+                                >
+                                    {@html highlightedContent()}
+                                </div>
+                            {:else}
+                                <!-- Syntax Highlighted Code -->
+                                <div
+                                    class="w-full h-full max-h-[calc(90vh-12rem)] overflow-auto bg-muted/50 rounded-lg border border-border"
+                                >
+                                    <pre
+                                        class="p-4 text-xs font-mono text-foreground whitespace-pre min-w-max"><code
+                                            class="hljs block"
+                                            >{@html highlightedContent()}</code
+                                        ></pre>
+                                </div>
+                            {/if}
                         {:else}
                             <!-- Unsupported File Type -->
                             <div
@@ -389,5 +497,22 @@
     dialog::backdrop {
         background: rgba(0, 0, 0, 0.8);
         backdrop-filter: blur(4px);
+    }
+
+    /* Language selector dropdown - ensure proper dark mode styling */
+    select {
+        color-scheme: dark;
+    }
+
+    select option {
+        background-color: #27272a;
+        color: #d8d8d9;
+        padding: 0.5rem;
+    }
+
+    select option:hover,
+    select option:focus,
+    select option:checked {
+        background-color: #3f3f46;
     }
 </style>
