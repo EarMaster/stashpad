@@ -45,6 +45,11 @@
   import { getRelativeTime } from "$lib/utils/date";
   import marked from "$lib/utils/markdown";
   import ActionButton from "./ActionButton.svelte";
+  import {
+    isStashDragging,
+    startStashDrag,
+    endStashDrag,
+  } from "$lib/stores/drag-state";
 
   let {
     item,
@@ -116,12 +121,25 @@
     setTimeout(() => (copied = false), 2000);
   }
 
-  function handleDragStart(e: DragEvent) {
+  /**
+   * Handles the start of a drag operation.
+   * Sets global drag state to prevent stash-to-stash drops.
+   */
+  async function handleDragStart(e: DragEvent) {
     if (mode === "Copy") return;
     if (isEditing) return;
 
     e.preventDefault();
-    adapter.startDrag(item.content, item.files);
+
+    // Set global drag state to disable drop zones on stashes
+    startStashDrag();
+
+    try {
+      await adapter.startDrag(item.content, item.files);
+    } finally {
+      // Always reset drag state when drag operation completes
+      endStashDrag();
+    }
   }
 
   function saveEdit(content: string, files: string[]) {
@@ -172,12 +190,17 @@
 
   /**
    * Handles file drop onto the stash card.
+   * Ignores drops when a stash drag is in progress to prevent stash-to-stash attachment.
    */
   async function handleFileDrop(e: DragEvent) {
     e.preventDefault();
     e.stopPropagation();
     dragOver = false;
+
+    // Ignore drops during stash drags
+    if ($isStashDragging) return;
     if (item.completed) return;
+
     if (e.dataTransfer?.files) {
       const newFiles = [...item.files];
       for (let i = 0; i < e.dataTransfer.files.length; i++) {
@@ -198,6 +221,8 @@
   function handleFileDragOver(e: DragEvent) {
     e.preventDefault();
     e.stopPropagation();
+    // Don't show drop zone during stash drags
+    if ($isStashDragging) return;
     if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
     if (!item.completed) dragOver = true;
   }
@@ -205,6 +230,8 @@
   function handleFileDragEnter(e: DragEvent) {
     e.preventDefault();
     e.stopPropagation();
+    // Don't show drop zone during stash drags
+    if ($isStashDragging) return;
     if (!item.completed) dragOver = true;
   }
 

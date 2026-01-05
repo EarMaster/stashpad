@@ -39,6 +39,7 @@
   import ConfirmationDialog from "./ConfirmationDialog.svelte";
   import { fade } from "svelte/transition";
   import { convertFileSrc } from "@tauri-apps/api/core";
+  import { isStashDragging } from "$lib/stores/drag-state";
 
   let {
     onStash,
@@ -187,12 +188,19 @@
     };
   }
 
+  /**
+   * Handle drop events for file attachments.
+   * Ignores drops when a stash drag is in progress to prevent stash-to-editor attachment.
+   */
   async function handleDrop(e: DragEvent) {
     e.preventDefault();
     e.stopPropagation();
     dragOver = false;
+
+    // Ignore drops during stash drags
+    if ($isStashDragging) return;
+
     if (e.dataTransfer?.files) {
-      // In a real scenario, this iterates over FileList
       for (let i = 0; i < e.dataTransfer.files.length; i++) {
         const file = e.dataTransfer.files[i];
         try {
@@ -208,12 +216,16 @@
   function handleDragEnter(e: DragEvent) {
     e.preventDefault();
     e.stopPropagation();
+    // Don't show drop zone during stash drags
+    if ($isStashDragging) return;
     dragOver = true;
   }
 
   function handleDragOver(e: DragEvent) {
     e.preventDefault();
     e.stopPropagation();
+    // Don't show drop zone during stash drags
+    if ($isStashDragging) return;
     if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
     dragOver = true;
   }
