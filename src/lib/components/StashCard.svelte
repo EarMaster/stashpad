@@ -34,6 +34,8 @@
     Move,
     MoveRightIcon,
     ArrowBigRightDash,
+    ArrowUpToLine,
+    ArrowDownToLine,
     Paperclip,
   } from "lucide-svelte";
   import Editor from "./Editor.svelte";
@@ -49,7 +51,11 @@
     mode,
     showReorderHandle = true,
     stripTagsOnCopy = false,
+    isFirst = false,
+    isLast = false,
     onMoveRequest,
+    onMoveToTop,
+    onMoveToBottom,
     onToggleComplete,
     onDelete,
     onUpdateContent,
@@ -59,7 +65,11 @@
     mode: "Drag" | "Copy";
     showReorderHandle?: boolean;
     stripTagsOnCopy?: boolean;
+    isFirst?: boolean;
+    isLast?: boolean;
     onMoveRequest: () => void;
+    onMoveToTop: () => void;
+    onMoveToBottom: () => void;
     onToggleComplete: () => void;
     onDelete: (skipConfirm?: boolean) => void;
     onUpdateContent: (content: string, files: string[]) => void;
@@ -417,6 +427,34 @@
             onkeydown={(e) => e.stopPropagation()}
             role="presentation"
           >
+            <!-- Move to Top -->
+            {#if !item.completed && !isFirst}
+              <ActionButton
+                variant="additional"
+                onclick={(e) => {
+                  e.stopPropagation();
+                  onMoveToTop();
+                }}
+                title={$_("stashCard.moveToTop")}
+              >
+                <ArrowUpToLine size={13} />
+              </ActionButton>
+            {/if}
+
+            <!-- Move to Bottom -->
+            {#if !item.completed && !isLast}
+              <ActionButton
+                variant="additional"
+                onclick={(e) => {
+                  e.stopPropagation();
+                  onMoveToBottom();
+                }}
+                title={$_("stashCard.moveToBottom")}
+              >
+                <ArrowDownToLine size={13} />
+              </ActionButton>
+            {/if}
+
             <!-- Edit -->
             {#if !item.completed}
               <ActionButton

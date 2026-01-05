@@ -384,6 +384,58 @@
       load();
    }
 
+   /**
+    * Move a stash to the top of the active list.
+    */
+   async function moveToTop(item: StashItem) {
+      const index = activeStashes.findIndex((s) => s.id === item.id);
+      if (index <= 0) return; // Already at top or not found
+
+      // Remove from current position and add to beginning
+      const newActive = activeStashes.filter((s) => s.id !== item.id);
+      newActive.unshift(item);
+      activeStashes = newActive;
+
+      // Clear any sort/backup since user manually reordered
+      backupOrder = null;
+      activeSort = null;
+
+      // Rebuild full stashes array and save
+      const otherStashes = stashes.filter(
+         (s) =>
+            s.completed ||
+            (s.contextId || "default") !== (currentContextId || "default"),
+      );
+      stashes = [...activeStashes, ...otherStashes];
+      await adapter.saveStashes(stashes);
+   }
+
+   /**
+    * Move a stash to the bottom of the active list.
+    */
+   async function moveToBottom(item: StashItem) {
+      const index = activeStashes.findIndex((s) => s.id === item.id);
+      if (index < 0 || index === activeStashes.length - 1) return; // Already at bottom or not found
+
+      // Remove from current position and add to end
+      const newActive = activeStashes.filter((s) => s.id !== item.id);
+      newActive.push(item);
+      activeStashes = newActive;
+
+      // Clear any sort/backup since user manually reordered
+      backupOrder = null;
+      activeSort = null;
+
+      // Rebuild full stashes array and save
+      const otherStashes = stashes.filter(
+         (s) =>
+            s.completed ||
+            (s.contextId || "default") !== (currentContextId || "default"),
+      );
+      stashes = [...activeStashes, ...otherStashes];
+      await adapter.saveStashes(stashes);
+   }
+
    async function clearCompleted() {
       await adapter.deleteCompletedStashes(currentContextId);
       load();
@@ -653,7 +705,7 @@
             onconsider={handleDndConsider}
             onfinalize={handleDndFinalize}
          >
-            {#each filteredStashes as item (item.id)}
+            {#each filteredStashes as item, index (item.id)}
                <div
                   class="dnd-item {draggedItemId === item.id
                      ? 'is-dragging'
@@ -673,7 +725,14 @@
                         mode={effectiveMode}
                         showReorderHandle={selectedTags.length === 0}
                         {stripTagsOnCopy}
+                        isFirst={index === 0}
+                        isLast={index ===
+                           filteredStashes.filter((s) => !s.isDndShadowItem)
+                              .length -
+                              1}
                         onMoveRequest={() => onMoveRequest(item)}
+                        onMoveToTop={() => moveToTop(item)}
+                        onMoveToBottom={() => moveToBottom(item)}
                         onToggleComplete={() => toggleComplete(item)}
                         onDelete={(skip) => deleteStash(item.id, skip)}
                         onUpdateContent={(content, files) =>
@@ -744,6 +803,8 @@
                         showReorderHandle={false}
                         {stripTagsOnCopy}
                         onMoveRequest={() => onMoveRequest(item)}
+                        onMoveToTop={() => {}}
+                        onMoveToBottom={() => {}}
                         onToggleComplete={() => toggleComplete(item)}
                         onDelete={() => deleteStash(item.id)}
                         onUpdateContent={(content, files) =>
