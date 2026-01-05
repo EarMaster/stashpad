@@ -18,9 +18,15 @@ const markedInstance = new Marked(
             {
                 name: 'mention',
                 level: 'inline',
-                start(src) { return src.match(/@[\w-]+/)?.index; },
+                start(src) {
+                    const match = src.match(/(?:^|\s)(@\S+)/);
+                    if (match && match.index !== undefined) {
+                        return match.index + (match[0].match(/^\s/) ? 1 : 0);
+                    }
+                    return undefined;
+                },
                 tokenizer(src, tokens) {
-                    const rule = /^@[\w-]+/;
+                    const rule = /^@\S+/;
                     const match = rule.exec(src);
                     if (match) {
                         return {
@@ -37,9 +43,16 @@ const markedInstance = new Marked(
             {
                 name: 'command',
                 level: 'inline',
-                start(src) { return src.match(/\/[\w-]+/)?.index; },
+                start(src) {
+                    const match = src.match(/(?:^|\s)(\/\S+)/);
+                    if (match && match.index !== undefined) {
+                        // Adjust index if matched with leading whitespace
+                        return match.index + (match[0].match(/^\s/) ? 1 : 0);
+                    }
+                    return undefined;
+                },
                 tokenizer(src, tokens) {
-                    const rule = /^\/[\w-]+/;
+                    const rule = /^\/\S+/;
                     const match = rule.exec(src);
                     if (match) {
                         return {
