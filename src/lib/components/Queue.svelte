@@ -21,7 +21,7 @@
    import { flip } from "svelte/animate";
    import { fade, fly } from "svelte/transition";
    import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
-   import type { StashItem } from "$lib/types";
+   import type { StashItem, Context } from "$lib/types";
    import { _ } from "$lib/i18n";
    import StashCard from "./StashCard.svelte";
    import ConfirmationDialog from "./ConfirmationDialog.svelte";
@@ -47,12 +47,12 @@
       newStashId,
       onStashHandled,
       allTags = $bindable([]),
-      stripTagsOnCopy = false,
+      stripTagsOnCopy = true,
    } = $props<{
       transferMode: string;
       refreshTrigger: number;
       currentContextId: string;
-      contexts: any[]; // Use any if exact type not imported yet, or import Context
+      contexts: Context[];
       onMoveRequest: (stash: StashItem) => void;
       newStashId?: string | null;
       onStashHandled?: () => void;

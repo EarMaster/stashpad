@@ -21,22 +21,18 @@
   import { fade, fly } from "svelte/transition";
   import { dragHandle } from "svelte-dnd-action";
   import {
-    CheckCircle2,
     Circle,
     Edit3,
     Trash2,
-    ExternalLink,
     Check,
-    X,
     Copy,
     GripVertical,
     RotateCcw,
-    Move,
-    MoveRightIcon,
     ArrowBigRightDash,
     ArrowUpToLine,
     ArrowDownToLine,
     Paperclip,
+    FolderOutput,
   } from "lucide-svelte";
   import Editor from "./Editor.svelte";
   import FilePreviewTooltip from "./FilePreviewTooltip.svelte";
@@ -45,17 +41,12 @@
   import { getRelativeTime } from "$lib/utils/date";
   import marked from "$lib/utils/markdown";
   import ActionButton from "./ActionButton.svelte";
-  import {
-    isStashDragging,
-    startStashDrag,
-    endStashDrag,
-  } from "$lib/stores/drag-state";
 
   let {
     item,
     mode,
     showReorderHandle = true,
-    stripTagsOnCopy = false,
+    stripTagsOnCopy = true,
     isFirst = false,
     isLast = false,
     onMoveRequest,
@@ -121,27 +112,6 @@
     setTimeout(() => (copied = false), 2000);
   }
 
-  /**
-   * Handles the start of a drag operation.
-   * Sets global drag state to prevent stash-to-stash drops.
-   */
-  async function handleDragStart(e: DragEvent) {
-    if (mode === "Copy") return;
-    if (isEditing) return;
-
-    e.preventDefault();
-
-    // Set global drag state to disable drop zones on stashes
-    startStashDrag();
-
-    try {
-      await adapter.startDrag(item.content, item.files);
-    } finally {
-      // Always reset drag state when drag operation completes
-      endStashDrag();
-    }
-  }
-
   function saveEdit(content: string, files: string[]) {
     if (
       content.trim() !== item.content ||
@@ -190,15 +160,13 @@
 
   /**
    * Handles file drop onto the stash card.
-   * Ignores drops when a stash drag is in progress to prevent stash-to-stash attachment.
+   * External files can be dropped to add as attachments.
    */
   async function handleFileDrop(e: DragEvent) {
     e.preventDefault();
     e.stopPropagation();
     dragOver = false;
 
-    // Ignore drops during stash drags
-    if ($isStashDragging) return;
     if (item.completed) return;
 
     if (e.dataTransfer?.files) {
@@ -221,8 +189,6 @@
   function handleFileDragOver(e: DragEvent) {
     e.preventDefault();
     e.stopPropagation();
-    // Don't show drop zone during stash drags
-    if ($isStashDragging) return;
     if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
     if (!item.completed) dragOver = true;
   }
@@ -230,8 +196,6 @@
   function handleFileDragEnter(e: DragEvent) {
     e.preventDefault();
     e.stopPropagation();
-    // Don't show drop zone during stash drags
-    if ($isStashDragging) return;
     if (!item.completed) dragOver = true;
   }
 
@@ -342,25 +306,6 @@
           <Circle size={16} />
         {/if}
       </ActionButton>
-
-      <!-- Drag Handle (Internal - for AI Context) -->
-      <ActionButton
-        variant="drag"
-        class="bg-muted text-muted-foreground transition-colors hover:bg-primary hover:text-primary-foreground"
-        draggable={mode === "Drag" && !isEditing}
-        ondragstart={(e: DragEvent) => {
-          handleDragStart(e);
-        }}
-        onclick={(e) => e.stopPropagation()}
-        onkeydown={(e) => e.stopPropagation()}
-        title={$_("stashCard.dragToAIContext")}
-      >
-        {#if copied}
-          <Check size={14} />
-        {:else}
-          <span class="text-sm">✋</span>
-        {/if}
-      </ActionButton>
     </div>
 
     <div class="flex-1 min-w-0">
@@ -399,20 +344,37 @@
 
       {#if !isEditing && item.files.length > 0}
         <div
-          class="mt-2 flex flex-wrap gap-1.5 {item.completed
+          class="mt-2 flex gap-1.5 items-start leading-none {item.completed
             ? 'opacity-50'
             : ''}"
           onclick={(e) => e.stopPropagation()}
           onkeydown={(e) => e.stopPropagation()}
           role="presentation"
         >
-          {#each item.files as file}
-            <FilePreviewTooltip
-              filePath={file}
-              fileName={file.split(/[\\/]/).pop() || "file"}
-              onclick={() => openFilePreview(file)}
-            />
-          {/each}
+          <!-- Drag All Attachments Button -->
+          <div class="inline-block">
+            <button
+              class="inline-flex items-center gap-1 rounded-full border border-border bg-secondary/50 px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-secondary hover:text-foreground hover:border-primary/50 transition-all cursor-grab active:cursor-grabbing"
+              draggable="true"
+              ondragstart={async (e) => {
+                e.preventDefault();
+                await adapter.startDrag("", item.files);
+              }}
+              title={$_("stashCard.dragAllAttachments")}
+            >
+              <FolderOutput size={10} class="shrink-0" />
+              <span class="truncate">{item.files.length}</span>
+            </button>
+          </div>
+          <div class="inline-block flex flex-wrap items-center">
+            {#each item.files as file}
+              <FilePreviewTooltip
+                filePath={file}
+                fileName={file.split(/[\\/]/).pop() || "file"}
+                onclick={() => openFilePreview(file)}
+              />
+            {/each}
+          </div>
         </div>
       {/if}
 

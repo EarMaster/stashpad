@@ -55,6 +55,7 @@
     "clsx": "^2.1.1",
     "fuzzysort": "^3.1.0",
     "highlight.js": "^11.11.1",
+    "jszip": "^3.10.1",
     "lucide-svelte": "^0.556.0",
     "marked": "^17.0.1",
     "marked-highlight": "^2.2.3",

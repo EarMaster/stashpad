@@ -24,6 +24,7 @@
     let {
         contexts,
         currentContextId,
+        defaultContextLastUsed = undefined,
         autoContextDetection = $bindable(false),
         mode = "switch",
         title = "",
@@ -35,6 +36,7 @@
     } = $props<{
         contexts: Context[];
         currentContextId: string;
+        defaultContextLastUsed?: string;
         autoContextDetection?: boolean;
         mode?: "switch" | "move";
         title?: string;
@@ -64,7 +66,7 @@
                 id: "default",
                 name: $_("common.default"),
                 rules: [] as any[],
-                lastUsed: undefined,
+                lastUsed: defaultContextLastUsed,
             },
             ...contexts,
         ];

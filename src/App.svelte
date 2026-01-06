@@ -17,7 +17,7 @@
 <script lang="ts">
    import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
    import { _ } from "$lib/i18n";
-   import type { Settings, StashItem } from "$lib/types";
+   import type { Settings, StashItem, Context } from "$lib/types";
    import Header from "$lib/components/Header.svelte";
    import Editor from "$lib/components/Editor.svelte";
    import Queue from "$lib/components/Queue.svelte";
@@ -54,8 +54,23 @@
             showExitConfirmation = true;
          }
       });
+
+      // Periodic cleanup for "after-n-days" strategy (every 5 minutes)
+      const cleanupInterval = setInterval(
+         () => {
+            if (settings.clearCompletedStrategy === "after-n-days") {
+               adapter.triggerAutoCleanup().then(() => {
+                  // Refresh the queue to reflect any deleted stashes
+                  refreshTrigger++;
+               });
+            }
+         },
+         5 * 60 * 1000,
+      ); // 5 minutes
+
       return () => {
          unlisten.then((f) => f());
+         clearInterval(cleanupInterval);
       };
    });
 
@@ -63,12 +78,14 @@
    let settings = $state<Settings>({
       autoContextDetection: true,
       visualEffectsEnabled: undefined,
-      contexts: [],
       activeContextId: "default",
       shortcuts: {
          switch_context: "CommandOrControl+P",
       },
    });
+
+   // Centralized contexts state
+   let contexts = $state<Context[]>([]);
 
    const adapter = new DesktopStorageAdapter();
 
@@ -91,7 +108,7 @@
       if (contextSelectorOpen) {
          adapter.loadStashes().then((stashes: StashItem[]) => {
             const counts: Record<string, number> = { default: 0 };
-            settings.contexts.forEach((ctx) => (counts[ctx.id] = 0));
+            contexts.forEach((ctx) => (counts[ctx.id] = 0));
             stashes.forEach((stash) => {
                if (!stash.completed) {
                   const ctxId = stash.contextId || "default";
@@ -210,9 +227,15 @@
          currentContextId = ctxId;
 
          // Update lastUsed timestamp
-         const ctx = settings.contexts.find((c) => c.id === ctxId);
-         if (ctx) {
-            ctx.lastUsed = new Date().toISOString();
+         if (ctxId === "default") {
+            settings.defaultContextLastUsed = new Date().toISOString();
+         } else {
+            const ctx = contexts.find((c) => c.id === ctxId);
+            if (ctx) {
+               ctx.lastUsed = new Date().toISOString();
+               // Save context update
+               adapter.saveContext(ctx);
+            }
          }
 
          adapter.saveSettings(settings);
@@ -256,7 +279,7 @@
    }
 
    function getAvailableContexts() {
-      return [{ id: "default", name: "Default" }, ...settings.contexts];
+      return [{ id: "default", name: "Default" }, ...contexts];
    }
 
    /**
@@ -273,16 +296,25 @@
       const loadedId = loaded.activeContextId;
       // Validate context exists (or is default)
       const exists =
-         loadedId === "default" ||
-         loaded.contexts.some((c) => c.id === loadedId);
+         loadedId === "default" || contexts.some((c) => c.id === loadedId);
 
       if (loadedId && exists) {
          currentContextId = loadedId;
       }
    }
 
+   async function loadContexts() {
+      try {
+         contexts = await adapter.getContexts();
+      } catch (e) {
+         console.error("Failed to load contexts", e);
+      }
+   }
+
    async function loadSettings() {
       try {
+         // Load contexts first so we can validate activeContextId
+         await loadContexts();
          const loaded = await adapter.getSettings();
          applySettings(loaded);
       } catch (e) {
@@ -298,16 +330,19 @@
 
       const initial = (window as Window & { __initialSettings__?: Settings })
          .__initialSettings__;
-      if (initial) {
-         // Use pre-loaded settings immediately
-         applySettings(initial);
-         // Clear from window to free memory
-         delete (window as Window & { __initialSettings__?: Settings })
-            .__initialSettings__;
-      } else {
-         // Fallback: load settings from backend if not pre-loaded
-         loadSettings();
-      }
+
+      loadContexts().then(() => {
+         if (initial) {
+            // Use pre-loaded settings immediately
+            applySettings(initial);
+            // Clear from window to free memory
+            delete (window as Window & { __initialSettings__?: Settings })
+               .__initialSettings__;
+         } else {
+            // Fallback: load settings from backend if not pre-loaded
+            loadSettings();
+         }
+      });
    });
 
    function handleStash(id?: string) {
@@ -362,9 +397,10 @@
    {#if contextSelectorOpen}
       <ContextSwitcher
          bind:this={contextSwitcher}
-         contexts={settings.contexts}
+         {contexts}
          {currentContextId}
          {stashCounts}
+         defaultContextLastUsed={settings.defaultContextLastUsed}
          autoContextDetection={settings.autoContextDetection}
          mode={movingStash ? "move" : "switch"}
          title={movingStash ? "Move Stash to…" : "Switch Context"}
@@ -393,6 +429,7 @@
             view = "Settings";
          }}
          {settings}
+         {contexts}
          bind:currentContextId
          onOpenContextSwitcher={() => {
             contextSelectorOpen = true;
@@ -417,7 +454,7 @@
             {transferMode}
             {refreshTrigger}
             {currentContextId}
-            contexts={settings.contexts}
+            {contexts}
             newStashId={newlyAddedStashId}
             onStashHandled={() => (newlyAddedStashId = null)}
             onMoveRequest={(stash) => {
@@ -425,7 +462,7 @@
                contextSelectorOpen = true;
             }}
             bind:allTags
-            stripTagsOnCopy={settings.stripTagsOnCopy ?? false}
+            stripTagsOnCopy={settings.stripTagsOnCopy ?? true}
          />
       </div>
    {:else if view === "Settings"}

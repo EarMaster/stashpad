@@ -39,7 +39,6 @@
   import ConfirmationDialog from "./ConfirmationDialog.svelte";
   import { fade } from "svelte/transition";
   import { convertFileSrc } from "@tauri-apps/api/core";
-  import { isStashDragging } from "$lib/stores/drag-state";
 
   let {
     onStash,
@@ -71,8 +70,8 @@
 
   // Generate or use existing stash ID for file storage organization
   // This ensures files are stored in the correct folder structure before the stash is saved
-  // Using an immediately-invoked function to generate a stable ID for the Editor's lifecycle
-  const stashId = (() => existingStashId ?? crypto.randomUUID())();
+  // Using $state so we can regenerate the ID after saving a new stash
+  let stashId = $state(existingStashId ?? crypto.randomUUID());
 
   let dragOver = $state(false);
   let isSaving = $state(false);
@@ -197,9 +196,6 @@
     e.stopPropagation();
     dragOver = false;
 
-    // Ignore drops during stash drags
-    if ($isStashDragging) return;
-
     if (e.dataTransfer?.files) {
       for (let i = 0; i < e.dataTransfer.files.length; i++) {
         const file = e.dataTransfer.files[i];
@@ -216,16 +212,12 @@
   function handleDragEnter(e: DragEvent) {
     e.preventDefault();
     e.stopPropagation();
-    // Don't show drop zone during stash drags
-    if ($isStashDragging) return;
     dragOver = true;
   }
 
   function handleDragOver(e: DragEvent) {
     e.preventDefault();
     e.stopPropagation();
-    // Don't show drop zone during stash drags
-    if ($isStashDragging) return;
     if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
     dragOver = true;
   }
@@ -385,6 +377,8 @@
         await adapter.saveStash(stash, { invertPosition });
         content = "";
         files = [];
+        // Generate a new ID for the next stash to avoid overwriting the one we just saved
+        stashId = crypto.randomUUID();
         onStash?.(stash.id);
       }
     } catch (e) {
@@ -429,8 +423,16 @@
     }
   }
 
-  function removeFile(index: number) {
+  async function removeFile(index: number) {
+    const filePath = files[index];
     files = files.filter((_, i) => i !== index);
+
+    // Delete the file from the cache directory
+    try {
+      await adapter.deleteAsset(filePath);
+    } catch (err) {
+      console.error("Failed to delete asset from cache:", err);
+    }
   }
 
   /**

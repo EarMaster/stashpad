@@ -13,7 +13,7 @@
 // See the GNU Affero General Public License for more details.
 
 import { invoke } from '@tauri-apps/api/core';
-import type { IStorageService, StashItem, AppContext, Settings, FilePreviewData } from '../types';
+import type { IStorageService, StashItem, AppContext, Settings, FilePreviewData, Context } from '../types';
 
 export class DesktopStorageAdapter implements IStorageService {
     async saveStash(stash: StashItem, options?: { invertPosition?: boolean }): Promise<void> {
@@ -74,6 +74,14 @@ export class DesktopStorageAdapter implements IStorageService {
     }
 
     /**
+     * Delete an asset file from the cache directory.
+     * @param path - Absolute path to the file to delete
+     */
+    async deleteAsset(path: string): Promise<void> {
+        await invoke('delete_asset', { path });
+    }
+
+    /**
      * Reads a file and returns preview data based on its type.
      * Images return base64 data URI, videos return file path, text returns content.
      * @param path - Absolute path to the file
@@ -105,6 +113,22 @@ export class DesktopStorageAdapter implements IStorageService {
 
     async isWindows10(): Promise<boolean> {
         return await invoke('is_windows_10');
+    }
+
+    async getContexts(): Promise<Context[]> {
+        return await invoke('get_contexts');
+    }
+
+    async saveContexts(contexts: Context[]): Promise<void> {
+        await invoke('save_contexts', { contexts });
+    }
+
+    async saveContext(context: Context): Promise<void> {
+        return await invoke('save_context', { context });
+    }
+
+    async deleteContext(id: string): Promise<void> {
+        return await invoke('delete_context', { id });
     }
 }
 

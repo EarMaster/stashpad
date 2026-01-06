@@ -36,3 +36,4 @@ window-vibrancy = "0.5"
 tauri-plugin-window-state = "2.4.1"
 tauri-plugin-fs = "2.4.4"
 tauri-plugin-shell = "2.3.3"
+rusqlite = { version = "0.32", features = ["bundled"] }

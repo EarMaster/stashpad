@@ -16,7 +16,7 @@
 
 <script lang="ts">
   import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
-  import type { AppContext, Settings } from "$lib/types";
+  import type { AppContext, Settings, Context } from "$lib/types";
   import { _ } from "$lib/i18n";
   import { onMount } from "svelte";
   import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -34,12 +34,14 @@
     transferMode = $bindable("Drag"),
     onOpenSettings,
     settings,
+    contexts,
     currentContextId = $bindable(),
     onOpenContextSwitcher,
   } = $props<{
     transferMode: string;
     onOpenSettings: () => void;
     settings: Settings;
+    contexts: Context[];
     currentContextId: string;
     onOpenContextSwitcher: () => void;
   }>();
@@ -74,9 +76,7 @@
 
   function getContextName(id: string) {
     if (id === "default") return $_("common.default");
-    return (
-      settings.contexts.find((c) => c.id === id)?.name || $_("common.unknown")
-    );
+    return contexts.find((c) => c.id === id)?.name || $_("common.unknown");
   }
 </script>
 

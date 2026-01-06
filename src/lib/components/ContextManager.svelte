@@ -8,36 +8,37 @@
     import type { Settings, StashItem, Context } from "$lib/types";
     import { _ } from "$lib/i18n";
     import ConfirmationDialog from "./ConfirmationDialog.svelte";
-    import { save } from "@tauri-apps/plugin-dialog";
-    import { writeTextFile } from "@tauri-apps/plugin-fs";
-    import { Download } from "lucide-svelte";
+    import ExportDialog from "./ExportDialog.svelte";
+    import ImportDialog from "./ImportDialog.svelte";
+    import { Download, Upload } from "lucide-svelte";
 
     let { onBack } = $props<{ onBack: () => void }>();
 
-    let settings = $state<Settings>({
-        autoContextDetection: true,
-        contexts: [],
-        activeContextId: undefined,
-        shortcuts: {},
-    });
+    let contexts = $state<Context[]>([]);
     let stashCounts = $state<Record<string, number>>({});
     let allStashes = $state<StashItem[]>([]);
     let isLoading = $state(true);
     let contextToDelete = $state<number | null>(null);
-    let isExporting = $state(false);
+
+    // Export dialog state
+    let exportDialogOpen = $state(false);
+    let exportContext = $state<Context | null>(null);
+
+    // Import dialog state
+    let importDialogOpen = $state(false);
+    let importContext = $state<Context | null>(null);
 
     const adapter = new DesktopStorageAdapter();
 
     async function load() {
         try {
-            settings = await adapter.getSettings();
-            if (!settings.contexts) settings.contexts = [];
+            contexts = await adapter.getContexts();
 
             // Load stashes and count per context
             const stashes = await adapter.loadStashes();
             allStashes = stashes;
             const counts: Record<string, number> = { default: 0 };
-            settings.contexts.forEach((ctx) => (counts[ctx.id] = 0));
+            contexts.forEach((ctx) => (counts[ctx.id] = 0));
 
             stashes.forEach((stash: StashItem) => {
                 if (!stash.completed) {
@@ -47,17 +48,17 @@
             });
             stashCounts = counts;
         } catch (e) {
-            console.error("Failed to load settings", e);
+            console.error("Failed to load contexts", e);
         } finally {
             isLoading = false;
         }
     }
 
-    async function saveSettings() {
+    async function saveContexts() {
         try {
-            await adapter.saveSettings(settings);
+            await adapter.saveContexts(contexts);
         } catch (e) {
-            console.error("Failed to save settings", e);
+            console.error("Failed to save contexts", e);
         }
     }
 
@@ -66,8 +67,8 @@
     });
 
     function addContext() {
-        settings.contexts = [
-            ...settings.contexts,
+        contexts = [
+            ...contexts,
             {
                 id: crypto.randomUUID(),
                 name: $_("contexts.newContext"),
@@ -75,126 +76,54 @@
                 lastUsed: new Date().toISOString(),
             },
         ];
-        saveSettings();
+        saveContexts();
     }
 
     function removeContext(index: number) {
-        settings.contexts.splice(index, 1);
-        saveSettings();
+        contexts.splice(index, 1);
+        saveContexts();
     }
 
     function addRule(contextIndex: number) {
-        settings.contexts[contextIndex].rules = [
-            ...settings.contexts[contextIndex].rules,
+        contexts[contextIndex].rules = [
+            ...contexts[contextIndex].rules,
             {
                 ruleType: "process",
                 matchType: "contains",
                 value: "",
             },
         ];
-        saveSettings();
+        saveContexts();
     }
 
     function removeRule(contextIndex: number, ruleIndex: number) {
-        settings.contexts[contextIndex].rules.splice(ruleIndex, 1);
-        saveSettings();
+        contexts[contextIndex].rules.splice(ruleIndex, 1);
+        saveContexts();
     }
 
     /**
-     * Export all stashes from a context as a single markdown file.
+     * Open export dialog for a context.
      */
-    async function exportContext(context: Context) {
-        isExporting = true;
-        try {
-            // Filter stashes for this context
-            const contextStashes = allStashes.filter(
-                (s) => (s.contextId || "default") === context.id,
-            );
+    function openExportDialog(context: Context) {
+        exportContext = context;
+        exportDialogOpen = true;
+    }
 
-            if (contextStashes.length === 0) {
-                // Nothing to export - could show a message but for now just return
-                return;
-            }
+    /**
+     * Get stashes for a specific context.
+     */
+    function getContextStashes(context: Context): StashItem[] {
+        return allStashes.filter(
+            (s) => (s.contextId || "default") === context.id,
+        );
+    }
 
-            // Build markdown content
-            const lines: string[] = [];
-            lines.push(`# ${context.name}`);
-            lines.push("");
-            lines.push(
-                `Exported from Stashpad on ${new Date().toLocaleDateString()}`,
-            );
-            lines.push("");
-            lines.push(`Total stashes: ${contextStashes.length}`);
-            lines.push("");
-            lines.push("---");
-            lines.push("");
-
-            // Sort by created date (newest first)
-            const sorted = [...contextStashes].sort(
-                (a, b) =>
-                    new Date(b.createdAt).getTime() -
-                    new Date(a.createdAt).getTime(),
-            );
-
-            for (const stash of sorted) {
-                // Add stash header with date and status
-                const date = new Date(stash.createdAt).toLocaleString();
-                const status = stash.completed ? "✓ Completed" : "Active";
-                lines.push(`## [${status}] ${date}`);
-                lines.push("");
-
-                // Add content
-                if (stash.content.trim()) {
-                    lines.push(stash.content);
-                    lines.push("");
-                }
-
-                // Add attachments
-                if (stash.files && stash.files.length > 0) {
-                    lines.push("**Attachments:**");
-                    for (const file of stash.files) {
-                        const fileName = file.split(/[\\/]/).pop() || file;
-                        lines.push(`- ${fileName}`);
-                    }
-                    lines.push("");
-                }
-
-                lines.push("---");
-                lines.push("");
-            }
-
-            const markdownContent = lines.join("\n");
-
-            // Generate safe filename
-            const safeName = context.name
-                .replace(/[^a-zA-Z0-9_-]/g, "_")
-                .toLowerCase();
-            const timestamp = new Date().toISOString().slice(0, 10);
-            const defaultFileName = `${safeName}_${timestamp}.md`;
-
-            // Open save dialog
-            const filePath = await save({
-                title: $_("contexts.exportTitle"),
-                defaultPath: defaultFileName,
-                filters: [
-                    {
-                        name: "Markdown",
-                        extensions: ["md"],
-                    },
-                ],
-            });
-
-            console.log("Export to:", filePath);
-
-            if (filePath) {
-                // Write the file
-                await writeTextFile(filePath, markdownContent);
-            }
-        } catch (e) {
-            console.error("Failed to export context", e);
-        } finally {
-            isExporting = false;
-        }
+    /**
+     * Open import dialog for a context.
+     */
+    function openImportDialog(context: Context) {
+        importContext = context;
+        importDialogOpen = true;
     }
 </script>
 
@@ -233,7 +162,7 @@
                 </div>
 
                 <div class="space-y-4">
-                    {#each settings.contexts as context, i}
+                    {#each contexts as context, i}
                         <div
                             class="rounded-lg border border-border bg-card p-4 space-y-3 shadow-sm"
                         >
@@ -241,7 +170,7 @@
                                 <input
                                     class="flex-1 bg-transparent font-medium focus:outline-none border-b border-transparent focus:border-primary/50 text-sm py-1"
                                     bind:value={context.name}
-                                    onchange={saveSettings}
+                                    onchange={saveContexts}
                                     placeholder={$_(
                                         "contexts.contextNamePlaceholder",
                                     )}
@@ -255,13 +184,21 @@
                                 {/if}
                                 <button
                                     class="text-muted-foreground hover:text-primary text-xs px-2 py-1 rounded hover:bg-muted flex items-center gap-1 transition-colors"
-                                    onclick={() => exportContext(context)}
-                                    disabled={isExporting ||
-                                        (stashCounts[context.id] ?? 0) === 0}
+                                    onclick={() => openExportDialog(context)}
+                                    disabled={(stashCounts[context.id] ?? 0) ===
+                                        0}
                                     title={$_("contexts.exportContext")}
                                 >
                                     <Download size={12} />
                                     {$_("contexts.export")}
+                                </button>
+                                <button
+                                    class="text-muted-foreground hover:text-primary text-xs px-2 py-1 rounded hover:bg-muted flex items-center gap-1 transition-colors"
+                                    onclick={() => openImportDialog(context)}
+                                    title={$_("contexts.importContext")}
+                                >
+                                    <Upload size={12} />
+                                    {$_("contexts.import")}
                                 </button>
                                 <button
                                     class="text-muted-foreground hover:text-destructive text-xs px-2 py-1 rounded hover:bg-muted"
@@ -300,7 +237,7 @@
                                         <select
                                             class="bg-muted/50 rounded px-2 py-1 border border-transparent focus:border-primary/50 outline-none"
                                             bind:value={rule.ruleType}
-                                            onchange={saveSettings}
+                                            onchange={saveContexts}
                                         >
                                             <option value="process"
                                                 >{$_(
@@ -316,7 +253,7 @@
                                         <select
                                             class="bg-muted/50 rounded px-2 py-1 border border-transparent focus:border-primary/50 outline-none"
                                             bind:value={rule.matchType}
-                                            onchange={saveSettings}
+                                            onchange={saveContexts}
                                         >
                                             <option value="contains"
                                                 >{$_(
@@ -332,7 +269,7 @@
                                         <input
                                             class="flex-1 bg-muted/50 px-2 py-1 rounded border border-transparent focus:border-primary/50 outline-none"
                                             bind:value={rule.value}
-                                            onchange={saveSettings}
+                                            onchange={saveContexts}
                                             placeholder={$_(
                                                 "contexts.rules.valuePlaceholder",
                                             )}
@@ -355,7 +292,7 @@
                         </div>
                     {/each}
 
-                    {#if settings.contexts.length === 0}
+                    {#if contexts.length === 0}
                         <div
                             class="text-center py-12 text-muted-foreground/50 text-sm italic border-2 border-dashed border-border/50 rounded-xl bg-muted/5"
                         >
@@ -379,6 +316,33 @@
                 contextToDelete = null;
             }}
             onCancel={() => (contextToDelete = null)}
+        />
+    {/if}
+
+    {#if exportContext}
+        <ExportDialog
+            bind:open={exportDialogOpen}
+            context={exportContext}
+            stashes={getContextStashes(exportContext)}
+            onClose={() => {
+                exportDialogOpen = false;
+                exportContext = null;
+            }}
+        />
+    {/if}
+
+    {#if importContext}
+        <ImportDialog
+            bind:open={importDialogOpen}
+            context={importContext}
+            existingStashes={getContextStashes(importContext)}
+            onClose={() => {
+                importDialogOpen = false;
+                importContext = null;
+            }}
+            onImportComplete={() => {
+                load();
+            }}
         />
     {/if}
 </div>

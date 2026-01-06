@@ -14,10 +14,14 @@
     "fs:allow-read",
     "fs:allow-write",
     "fs:allow-write-text-file",
+    "fs:allow-write-file",
     {
       "identifier": "fs:scope",
       "allow": [
-        "$HOME/.stashpad/**/*"
+        "$HOME/.stashpad/**/*",
+        "$DOWNLOAD/**/*",
+        "$DESKTOP/**/*",
+        "$DOCUMENT/**/*"
       ]
     },
     "shell:default",

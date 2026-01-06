@@ -64,7 +64,10 @@
     <button
       class="p-2 hover:bg-muted rounded-md text-muted-foreground hover:text-foreground transition-colors"
       onclick={() => {
-        adapter.triggerAutoCleanup();
+        // Only trigger cleanup for "after-n-days" strategy (not "on-close" which should only run on restart)
+        if (settings.clearCompletedStrategy === "after-n-days") {
+          adapter.triggerAutoCleanup();
+        }
         onBack();
       }}
       title={$_("settings.backToStash")}

@@ -30,6 +30,16 @@
 
     const adapter = new DesktopStorageAdapter();
 
+    /**
+     * Handle drag start for individual file attachments.
+     * Enables dragging files to external applications.
+     */
+    async function handleDragStart(e: DragEvent) {
+        e.preventDefault();
+        // Start native drag with just this file
+        await adapter.startDrag("", [filePath]);
+    }
+
     let isHovering = $state(false);
     let previewData = $state<FilePreviewData | null>(null);
     let isLoading = $state(false);
@@ -186,13 +196,15 @@
 </script>
 
 <div class="relative inline-block">
-    <!-- File Badge with Hover Trigger -->
+    <!-- File Badge with Hover Trigger (Draggable) -->
     <button
         class="group/file inline-flex items-center gap-1 rounded-full border border-border bg-secondary/50 px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-secondary hover:text-foreground hover:border-primary/50 transition-all cursor-pointer max-w-[150px]"
         onmouseenter={handleMouseEnter}
         onmouseleave={handleMouseLeave}
         {onclick}
-        title={$_("filePreview.clickToPreview")}
+        draggable="true"
+        ondragstart={handleDragStart}
+        title={$_("filePreview.dragOrClickToPreview")}
     >
         <!-- File Type Icon -->
         {#if fileType === "image"}

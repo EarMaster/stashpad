@@ -139,6 +139,30 @@
         "export": "Export",
         "exportContext": "Export all stashes as Markdown file",
         "exportTitle": "Export Context as Markdown",
+        "exportDialog": {
+            "title": "Export Context",
+            "selectStashes": "Select stashes to export",
+            "includeAttachments": "Include attachments (export as ZIP)",
+            "selectAll": "Select All",
+            "deselectAll": "Deselect All",
+            "export": "Export",
+            "noStashesSelected": "No stashes selected"
+        },
+        "import": "Import",
+        "importContext": "Import stashes from file",
+        "importDialog": {
+            "title": "Import Stashes",
+            "selectFile": "Select File",
+            "selectFileDesc": "Choose a Stashpad export file to import",
+            "selectStashes": "Select stashes to import",
+            "supportedFormats": "Supports .md and .zip files exported from Stashpad",
+            "chooseFile": "Choose File",
+            "parsing": "Parsing…",
+            "import": "Import",
+            "noStashesFound": "No stashes found in file",
+            "duplicate": "Duplicate",
+            "duplicatesFound": "{count} potential duplicates found"
+        },
         "rules": {
             "process": "Process Name",
             "title": "Window Title",
@@ -192,6 +216,7 @@
         "restoreToActive": "Restore to active queue",
         "markAsCompleted": "Mark as completed",
         "dragToAIContext": "Drag to AI Context",
+        "dragAllAttachments": "Drag all attachments",
         "editPlaceholder": "Edit stash content…",
         "copyToClipboard": "Copy to clipboard",
         "editContent": "Edit content",
@@ -233,6 +258,7 @@
     },
     "filePreview": {
         "clickToPreview": "Click to preview attachment",
+        "dragOrClickToPreview": "Drag to export, click to preview",
         "openLocation": "Open location",
         "unsupportedType": "Preview not available for this attachment type",
         "videoNotSupported": "Your browser does not support video playback",

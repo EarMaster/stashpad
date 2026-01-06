@@ -45,7 +45,7 @@ export interface Context {
 export interface Settings {
     autoContextDetection: boolean;
     visualEffectsEnabled?: boolean;
-    contexts: Context[];
+    // contexts moved to separate store
     activeContextId?: string | null;
     shortcuts: Record<string, string>;
     /** Locale preference: 'auto' for automatic detection or a specific locale code */
@@ -65,6 +65,8 @@ export interface Settings {
     clearCompletedDays?: number;
     /** Number of lines of pasted text before it becomes an attachment. 0 = ask user, default 8 */
     pasteAsAttachmentThreshold?: number;
+    /** Last used timestamp for the default context */
+    defaultContextLastUsed?: string;
 }
 
 export interface IStorageService {
@@ -100,6 +102,12 @@ export interface IStorageService {
     deleteCompletedStashes(contextId?: string): Promise<void>;
     triggerAutoCleanup(): Promise<void>;
     isWindows10(): Promise<boolean>;
+
+    // Context management
+    getContexts(): Promise<Context[]>;
+    saveContexts(contexts: Context[]): Promise<void>;
+    saveContext(context: Context): Promise<void>;
+    deleteContext(id: string): Promise<void>;
 }
 
 /**
