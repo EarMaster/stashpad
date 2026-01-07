@@ -123,11 +123,12 @@
     },
     "contexts": {
         "title": "Contexts",
+        "defaultContext": "Default",
         "back": "Back",
         "loadingContexts": "Loading contexts…",
         "manageDescription": "Manage your contexts and auto-switching rules.",
-        "addContext": "+ Add Context",
-        "addRule": "+ Add Rule",
+        "addContext": "Add Context",
+        "addRule": "Add Rule",
         "newContext": "New Context",
         "contextNamePlaceholder": "Context Name",
         "removeContext": "Remove",
@@ -146,7 +147,10 @@
             "selectAll": "Select All",
             "deselectAll": "Deselect All",
             "export": "Export",
-            "noStashesSelected": "No stashes selected"
+            "noStashesSelected": "No stashes selected",
+            "estimatedSize": "Estimated file size",
+            "file": "file",
+            "files": "files"
         },
         "import": "Import",
         "importContext": "Import stashes from file",
@@ -161,14 +165,22 @@
             "import": "Import",
             "noStashesFound": "No stashes found in file",
             "duplicate": "Duplicate",
-            "duplicatesFound": "{count} potential duplicates found"
+            "duplicateTooltip": "This stash may already exist in your queue",
+            "duplicatesFound": "{count} potential duplicates found",
+            "dropToImport": "or drop file here"
         },
         "rules": {
             "process": "Process Name",
             "title": "Window Title",
-            "contains": "Contains",
-            "exact": "Exact Match",
+            "contains": "contains",
+            "exact": "is exactly",
             "valuePlaceholder": "Value (e.g. 'code', 'Project X')"
+        },
+        "stats": {
+            "stash": "stash",
+            "stashes": "stashes",
+            "storage": "storage used",
+            "lastUsed": "last used"
         }
     },
     "contextSwitcher": {
@@ -194,6 +206,7 @@
         }
     },
     "queue": {
+        "active": "Active",
         "stashQueue": "Stash Queue",
         "completed": "Completed",
         "backToTop": "Back to top",
@@ -212,6 +225,8 @@
     },
     "stashCard": {
         "emptyStash": "-- empty --",
+        "attachment": "{count} attachment ({size})",
+        "attachments": "{count} attachments ({size})",
         "copied": "Copied!",
         "restoreToActive": "Restore to active queue",
         "markAsCompleted": "Mark as completed",
@@ -226,7 +241,10 @@
         "deleteStash": "Delete stash",
         "deleteStashConfirm": "Delete this stash?",
         "shiftClickDelete": "Shift+Click to skip confirmation",
-        "dragToReorder": "Drag to reorder"
+        "dragToReorder": "Drag to reorder",
+        "limitExceeded": "Limit Exceeded",
+        "fileTooLarge": "File too large. Maximum size is {limit}.",
+        "stashSizeExceeded": "Total stash size limit ({limit}) exceeded."
     },
     "editor": {
         "placeholder": "Type your stash here… (Cmd+Enter to save)",

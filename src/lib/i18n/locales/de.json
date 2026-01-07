@@ -108,15 +108,27 @@
             "clickToSet": "Klicken zum Festlegen…",
             "pressShortcut": "Tastenkürzel drücken…",
             "clearShortcut": "Tastenkürzel löschen"
+        },
+        "clearCompleted": {
+            "label": "Erledigte automatisch löschen",
+            "description": "Erledigte Stashes automatisch entfernen",
+            "never": "Nie",
+            "onClose": "Beim Neustart",
+            "afterNDays": "Nach {days} Tagen"
+        },
+        "clearCompletedDays": {
+            "label": "Aufbewahrungsdauer",
+            "description": "Tage, die erledigte Stashes aufbewahrt werden"
         }
     },
     "contexts": {
         "title": "Kontexte",
+        "defaultContext": "Standard",
         "back": "Zurück",
         "loadingContexts": "Kontexte werden geladen…",
         "manageDescription": "Verwalten Sie Ihre Kontexte und Auto-Wechsel-Regeln.",
-        "addContext": "+ Kontext hinzufügen",
-        "addRule": "+ Regel hinzufügen",
+        "addContext": "Kontext hinzufügen",
+        "addRule": "Regel hinzufügen",
         "newContext": "Neuer Kontext",
         "contextNamePlaceholder": "Kontextname",
         "removeContext": "Entfernen",
@@ -135,7 +147,10 @@
             "selectAll": "Alle auswählen",
             "deselectAll": "Alle abwählen",
             "export": "Exportieren",
-            "noStashesSelected": "Keine Stashes ausgewählt"
+            "noStashesSelected": "Keine Stashes ausgewählt",
+            "estimatedSize": "Geschätzte Dateigröße",
+            "file": "Datei",
+            "files": "Dateien"
         },
         "import": "Importieren",
         "importContext": "Stashes aus Datei importieren",
@@ -150,14 +165,22 @@
             "import": "Importieren",
             "noStashesFound": "Keine Stashes in Datei gefunden",
             "duplicate": "Duplikat",
-            "duplicatesFound": "{count} mögliche Duplikate gefunden"
+            "duplicateTooltip": "Dieser Stash existiert möglicherweise bereits in deiner Warteschlange",
+            "duplicatesFound": "{count} mögliche Duplikate gefunden",
+            "dropToImport": "oder Datei hier ablegen"
         },
         "rules": {
             "process": "Prozessname",
             "title": "Fenstertitel",
-            "contains": "Enthält",
-            "exact": "Exakte Übereinstimmung",
+            "contains": "enthält",
+            "exact": "ist exakt",
             "valuePlaceholder": "Wert (z.B. 'code', 'Projekt X')"
+        },
+        "stats": {
+            "stash": "Stash",
+            "stashes": "Stashes",
+            "storage": "Speicher verwendet",
+            "lastUsed": "zuletzt verwendet"
         }
     },
     "contextSwitcher": {
@@ -183,6 +206,7 @@
         }
     },
     "queue": {
+        "active": "Aktiv",
         "stashQueue": "Stash-Warteschlange",
         "completed": "Erledigt",
         "clearCompleted": "Erledigte löschen",
@@ -202,6 +226,8 @@
     "stashCard": {
         "emptyStash": "-- leer --",
         "copied": "Kopiert!",
+        "attachment": "{count} Anhang ({size})",
+        "attachments": "{count} Anhänge ({size})",
         "restoreToActive": "Zur aktiven Warteschlange wiederherstellen",
         "markAsCompleted": "Als erledigt markieren",
         "dragToAIContext": "Zum KI-Kontext ziehen",
@@ -215,7 +241,10 @@
         "deleteStash": "Stash löschen",
         "deleteStashConfirm": "Diesen Stash löschen?",
         "shiftClickDelete": "Umschalt+Klick zum Überspringen der Bestätigung",
-        "dragToReorder": "Zum Neuordnen ziehen"
+        "dragToReorder": "Zum Neuordnen ziehen",
+        "limitExceeded": "Limit überschritten",
+        "fileTooLarge": "Datei zu groß. Maximale Größe ist {limit}.",
+        "stashSizeExceeded": "Gesamtgröße des Stashes ({limit}) überschritten."
     },
     "editor": {
         "placeholder": "Stash hier eingeben… (Cmd+Enter zum Speichern)",

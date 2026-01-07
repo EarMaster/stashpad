@@ -36,6 +36,8 @@
         SUPPORTED_LANGUAGES,
     } from "$lib/utils/language-detection";
     import markedInstance from "$lib/utils/markdown";
+    import { formatBytes } from "$lib/utils/format";
+    import { locale } from "$lib/i18n";
 
     let {
         open = $bindable(false),
@@ -389,7 +391,10 @@
                                 <span
                                     class="text-xs text-muted-foreground shrink-0"
                                 >
-                                    {previewData.mimeType}
+                                    {previewData.mimeType} • {formatBytes(
+                                        previewData.fileSize || 0,
+                                        $locale || "en",
+                                    )}
                                 </span>
                             {/if}
                         </div>

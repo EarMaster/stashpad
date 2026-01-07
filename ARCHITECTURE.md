@@ -28,6 +28,9 @@
 * **Styling:** Tailwind CSS.
 * **UI Library:** `shadcn-svelte` (or accessible primitives using Tailwind).
 * **Icons:** Lucide Svelte.
+* **Internationalization (i18n):** All user-facing strings **MUST** come from the i18n system (`$_("key")`).
+    * 🚫 **DO NOT** hardcode any user-visible text directly in components.
+    * Add new keys to `src/lib/i18n/locales/en.json` and `de.json`.
 
 ### Storage Strategy
 * **Metadata:** Local JSON file (`~/.stashpad/db.json`).
@@ -115,6 +118,24 @@ export interface IStorageService {
       * **Validation:** Save disabled if empty or no files attached.
       * **Shortcuts:** `Cmd/Ctrl+Enter` to save, `Escape` to cancel.
       * **Instant Actions:** "Add File" button always visible.
+
+### B.1 Drag-and-Drop Architecture (Tauri)
+
+> **IMPORTANT:** With `dragDropEnabled: true` in `tauri.conf.json`, Tauri intercepts native drag events at the OS level. HTML5 `ondrop`, `ondragenter`, etc. events **do not fire** in the webview.
+
+#### Implementation Pattern
+1. **Tauri Events:** Listen for `tauri://drag-enter`, `tauri://drag-over`, `tauri://drag-leave`, and `tauri://drag-drop` from `@tauri-apps/api/event`.
+2. **Position-Based Targeting:** These events include cursor `position: { x, y }`. Use `document.elementFromPoint(x, y)` to find the target element.
+3. **Shared State Store:** `src/lib/stores/drag-state.svelte.ts` coordinates state between global listeners and individual components.
+4. **File Paths:** Tauri provides file paths directly (not `File` objects), so use `saveAssetFromPath` instead of `saveAsset`.
+
+#### Component Responsibilities
+* **`Editor.svelte`:** Listens for Tauri drag events directly via `onMount`. Handles drops when Editor area is targeted.
+* **`Queue.svelte`:** Listens for Tauri drag events at the queue level. Uses `findStashAtPosition()` to determine which StashCard is targeted.
+* **`StashCard.svelte`:** Uses `isStashHovered(item.id)` from the drag state store to display drop overlay. Does NOT listen for drag events directly.
+
+#### Legacy Note
+If `dragDropEnabled` is set to `false` in the future (e.g., for web version), HTML5 drag events can be restored.
 
 ### C. Stash Cards (`StashCard.svelte`)
 

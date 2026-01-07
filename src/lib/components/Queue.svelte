@@ -21,10 +21,17 @@
    import { flip } from "svelte/animate";
    import { fade, fly } from "svelte/transition";
    import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
-   import type { StashItem, Context } from "$lib/types";
+   import type { StashItem, Context, Attachment } from "$lib/types";
    import { _ } from "$lib/i18n";
    import StashCard from "./StashCard.svelte";
    import ConfirmationDialog from "./ConfirmationDialog.svelte";
+   import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+   import { onMount, onDestroy } from "svelte";
+   import {
+      setHoveredStash,
+      setDragging,
+      findStashAtPosition,
+   } from "$lib/stores/drag-state.svelte";
    import {
       Trash2,
       ArrowUp,
@@ -381,9 +388,9 @@
    async function updateContent(
       item: StashItem,
       content: string,
-      files: string[],
+      attachments: Attachment[],
    ) {
-      const updated = { ...item, content, files };
+      const updated = { ...item, content, attachments };
       await adapter.saveStash(updated);
       load();
    }
@@ -500,6 +507,90 @@
    function scrollToTop() {
       scrollContainer?.scrollTo({ top: 0, behavior: "smooth" });
    }
+
+   // Tauri drag-drop event listeners for StashCard targeting
+   let unlistenDrop: UnlistenFn | null = null;
+   let unlistenEnter: UnlistenFn | null = null;
+   let unlistenOver: UnlistenFn | null = null;
+   let unlistenLeave: UnlistenFn | null = null;
+
+   onMount(async () => {
+      // Listen for Tauri's native drag events to coordinate StashCard drop zones
+      unlistenEnter = await listen<{ position: { x: number; y: number } }>(
+         "tauri://drag-enter",
+         (event) => {
+            setDragging(true);
+            const stashId = findStashAtPosition(
+               event.payload.position.x,
+               event.payload.position.y,
+            );
+            setHoveredStash(stashId);
+         },
+      );
+
+      unlistenOver = await listen<{ position: { x: number; y: number } }>(
+         "tauri://drag-over",
+         (event) => {
+            const stashId = findStashAtPosition(
+               event.payload.position.x,
+               event.payload.position.y,
+            );
+            setHoveredStash(stashId);
+         },
+      );
+
+      unlistenLeave = await listen("tauri://drag-leave", () => {
+         setDragging(false);
+         setHoveredStash(null);
+      });
+
+      unlistenDrop = await listen<{
+         paths: string[];
+         position: { x: number; y: number };
+      }>("tauri://drag-drop", async (event) => {
+         const stashId = findStashAtPosition(
+            event.payload.position.x,
+            event.payload.position.y,
+         );
+         setDragging(false);
+         setHoveredStash(null);
+
+         if (stashId) {
+            // Find the stash and add attachments to it
+            const stash = stashes.find((s) => s.id === stashId);
+            if (stash && !stash.completed) {
+               const paths = event.payload.paths;
+               let newAttachments = [...stash.attachments];
+               for (const path of paths) {
+                  try {
+                     const attachment = await adapter.saveAssetFromPath(
+                        path,
+                        stash.contextId,
+                        stash.id,
+                     );
+                     attachment.stashId = stash.id;
+                     newAttachments.push(attachment);
+                  } catch (err) {
+                     console.error("Failed to save dropped asset", err);
+                  }
+               }
+               if (newAttachments.length > stash.attachments.length) {
+                  const updated = { ...stash, attachments: newAttachments };
+                  await adapter.saveStash(updated);
+                  load();
+               }
+            }
+         }
+         // Note: Editor handles its own drops via separate listeners
+      });
+   });
+
+   onDestroy(() => {
+      unlistenEnter?.();
+      unlistenOver?.();
+      unlistenLeave?.();
+      unlistenDrop?.();
+   });
 </script>
 
 <div class="relative flex-1 flex flex-col min-h-0 bg-[var(--background-queue)]">
@@ -739,8 +830,8 @@
                         onMoveToBottom={() => moveToBottom(item)}
                         onToggleComplete={() => toggleComplete(item)}
                         onDelete={(skip) => deleteStash(item.id, skip)}
-                        onUpdateContent={(content, files) =>
-                           updateContent(item, content, files)}
+                        onUpdateContent={(content, attachments) =>
+                           updateContent(item, content, attachments)}
                         availableTags={allTags}
                      />
                   {/if}

@@ -12,7 +12,13 @@
         children,
         ...rest
     } = $props<{
-        variant?: "instant" | "additional" | "main" | "complete" | "drag";
+        variant?:
+            | "instant"
+            | "additional"
+            | "main"
+            | "complete"
+            | "drag"
+            | "context";
         danger?: boolean;
         class?: string;
         onclick?: (e: MouseEvent) => void;
@@ -42,6 +48,10 @@
 
         // Drag handles
         drag: "h-7 w-7 p-0 rounded-md cursor-grab active:cursor-grabbing shrink-0",
+
+        // Context actions - collapse to icon on small screens
+        context:
+            "group px-2 py-1 hover:bg-muted text-muted-foreground hover:text-foreground text-xs rounded flex items-center gap-1.5 transition-colors",
     };
 </script>
 

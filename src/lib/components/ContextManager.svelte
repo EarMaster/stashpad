@@ -7,18 +7,27 @@
     import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
     import type { Settings, StashItem, Context } from "$lib/types";
     import { _ } from "$lib/i18n";
+    import { tick } from "svelte";
     import ConfirmationDialog from "./ConfirmationDialog.svelte";
     import ExportDialog from "./ExportDialog.svelte";
     import ImportDialog from "./ImportDialog.svelte";
-    import { Download, Upload } from "lucide-svelte";
+    import { ArrowDownAZ, ArrowUpAZ, Clock } from "lucide-svelte";
+    import { calculateTotalAttachmentSize } from "$lib/utils/format";
 
-    let { onBack } = $props<{ onBack: () => void }>();
+    import ContextManagerItem from "./ContextManagerItem.svelte";
+
+    let { onBack, onSelect } = $props<{
+        onBack: () => void;
+        onSelect?: (id: string) => void;
+    }>();
 
     let contexts = $state<Context[]>([]);
     let stashCounts = $state<Record<string, number>>({});
+    let contextSizes = $state<Record<string, number>>({});
     let allStashes = $state<StashItem[]>([]);
     let isLoading = $state(true);
-    let contextToDelete = $state<number | null>(null);
+    let contextToDelete = $state<string | null>(null);
+    let deleteConfirmationOpen = $state(false);
 
     // Export dialog state
     let exportDialogOpen = $state(false);
@@ -30,6 +39,36 @@
 
     const adapter = new DesktopStorageAdapter();
 
+    // Sorting state
+    let sortBy = $state<"name" | "lastUsed">("name");
+    let sortDirection = $state<"asc" | "desc">("asc");
+
+    // Track newly created context for auto-focus
+    let newlyCreatedContextId = $state<string | null>(null);
+
+    // Separate default context from regular contexts
+    let defaultContext = $derived(contexts.find((c) => c.id === "default"));
+
+    let nonDefaultContexts = $derived(
+        contexts.filter((c) => c.id !== "default"),
+    );
+
+    let sortedContexts = $derived(
+        [...nonDefaultContexts].sort((a, b) => {
+            if (sortBy === "name") {
+                return sortDirection === "asc"
+                    ? a.name.localeCompare(b.name)
+                    : b.name.localeCompare(a.name);
+            } else {
+                const dateA = new Date(a.lastUsed || 0).getTime();
+                const dateB = new Date(b.lastUsed || 0).getTime();
+                // For dates, usually we want newest first (desc) as default "top",
+                // but if user selects ASC, they want oldest first.
+                return sortDirection === "asc" ? dateA - dateB : dateB - dateA;
+            }
+        }),
+    );
+
     async function load() {
         try {
             contexts = await adapter.getContexts();
@@ -38,15 +77,28 @@
             const stashes = await adapter.loadStashes();
             allStashes = stashes;
             const counts: Record<string, number> = { default: 0 };
-            contexts.forEach((ctx) => (counts[ctx.id] = 0));
+            const sizes: Record<string, number> = { default: 0 };
+            contexts.forEach((ctx) => {
+                counts[ctx.id] = 0;
+                sizes[ctx.id] = 0;
+            });
 
             stashes.forEach((stash: StashItem) => {
+                const ctxId = stash.contextId || "default";
                 if (!stash.completed) {
-                    const ctxId = stash.contextId || "default";
                     counts[ctxId] = (counts[ctxId] || 0) + 1;
+                }
+                // Include size of all stashes (active and completed) in context size
+                // OR should it be only active? Usually storage management implies all.
+                // Let's count all valid attachments.
+                if (stash.attachments && stash.attachments.length > 0) {
+                    sizes[ctxId] =
+                        (sizes[ctxId] || 0) +
+                        calculateTotalAttachmentSize(stash.attachments);
                 }
             });
             stashCounts = counts;
+            contextSizes = sizes;
         } catch (e) {
             console.error("Failed to load contexts", e);
         } finally {
@@ -66,39 +118,27 @@
         load();
     });
 
-    function addContext() {
-        contexts = [
-            ...contexts,
-            {
-                id: crypto.randomUUID(),
-                name: $_("contexts.newContext"),
-                rules: [],
-                lastUsed: new Date().toISOString(),
-            },
-        ];
-        saveContexts();
+    async function addContext() {
+        const newContext = {
+            id: crypto.randomUUID(),
+            name: $_("contexts.newContext"),
+            rules: [],
+            lastUsed: new Date().toISOString(),
+        };
+        contexts = [...contexts, newContext];
+        newlyCreatedContextId = newContext.id;
+        await saveContexts();
     }
 
-    function removeContext(index: number) {
-        contexts.splice(index, 1);
-        saveContexts();
-    }
-
-    function addRule(contextIndex: number) {
-        contexts[contextIndex].rules = [
-            ...contexts[contextIndex].rules,
-            {
-                ruleType: "process",
-                matchType: "contains",
-                value: "",
-            },
-        ];
-        saveContexts();
-    }
-
-    function removeRule(contextIndex: number, ruleIndex: number) {
-        contexts[contextIndex].rules.splice(ruleIndex, 1);
-        saveContexts();
+    async function removeContext(id: string) {
+        // Delete from database (marks as deleted = 1)
+        try {
+            await adapter.deleteContext(id);
+            // Remove from local array after successful DB deletion
+            contexts = contexts.filter((c) => c.id !== id);
+        } catch (e) {
+            console.error("Failed to delete context:", e);
+        }
     }
 
     /**
@@ -151,154 +191,119 @@
                     {$_("contexts.loadingContexts")}
                 </div>
             {:else}
-                <div class="flex items-center justify-between">
-                    <p class="text-sm text-muted-foreground">
+                <div class="flex items-center justify-between gap-4">
+                    <p class="text-sm text-muted-foreground hidden sm:block">
                         {$_("contexts.manageDescription")}
                     </p>
-                    <button
-                        class="text-xs bg-primary text-primary-foreground px-3 py-1.5 rounded-md hover:bg-primary/90 transition-colors shadow-sm font-medium"
-                        onclick={addContext}>{$_("contexts.addContext")}</button
-                    >
+
+                    <div class="flex items-center gap-2 ml-auto">
+                        <!-- Sort Controls -->
+                        <div
+                            class="flex items-center bg-muted/50 rounded-md p-0.5 mr-2"
+                        >
+                            <button
+                                class="p-1.5 rounded-sm transition-colors {sortBy ===
+                                'name'
+                                    ? 'bg-background shadow-sm text-foreground'
+                                    : 'text-muted-foreground hover:text-foreground'}"
+                                onclick={() => {
+                                    if (sortBy === "name") {
+                                        sortDirection =
+                                            sortDirection === "asc"
+                                                ? "desc"
+                                                : "asc";
+                                    } else {
+                                        sortBy = "name";
+                                        sortDirection = "asc";
+                                    }
+                                }}
+                                title={$_("contextSwitcher.sortAlphabetically")}
+                            >
+                                {#if sortBy === "name" && sortDirection === "desc"}
+                                    <ArrowUpAZ size={14} />
+                                {:else}
+                                    <ArrowDownAZ size={14} />
+                                {/if}
+                            </button>
+                            <button
+                                class="p-1.5 rounded-sm transition-colors {sortBy ===
+                                'lastUsed'
+                                    ? 'bg-background shadow-sm text-foreground'
+                                    : 'text-muted-foreground hover:text-foreground'}"
+                                onclick={() => {
+                                    if (sortBy === "lastUsed") {
+                                        sortDirection =
+                                            sortDirection === "asc"
+                                                ? "desc"
+                                                : "asc";
+                                    } else {
+                                        sortBy = "lastUsed";
+                                        sortDirection = "desc";
+                                    }
+                                }}
+                                title={$_("contextSwitcher.sortByLastUsed")}
+                            >
+                                <Clock size={14} />
+                            </button>
+                        </div>
+
+                        <button
+                            class="text-xs bg-primary text-primary-foreground px-3 py-1.5 rounded-md hover:bg-primary/90 transition-colors shadow-sm font-medium"
+                            onclick={addContext}
+                            >{$_("contexts.addContext")}</button
+                        >
+                    </div>
                 </div>
 
                 <div class="space-y-4">
-                    {#each contexts as context, i}
-                        <div
-                            class="rounded-lg border border-border bg-card p-4 space-y-3 shadow-sm"
-                        >
-                            <div class="flex items-center gap-2">
-                                <input
-                                    class="flex-1 bg-transparent font-medium focus:outline-none border-b border-transparent focus:border-primary/50 text-sm py-1"
-                                    bind:value={context.name}
-                                    onchange={saveContexts}
-                                    placeholder={$_(
-                                        "contexts.contextNamePlaceholder",
-                                    )}
-                                />
-                                {#if stashCounts[context.id] !== undefined}
-                                    <span
-                                        class="text-[10px] text-muted-foreground tabular-nums bg-muted px-1.5 py-0.5 rounded"
-                                    >
-                                        {stashCounts[context.id]}
-                                    </span>
-                                {/if}
-                                <button
-                                    class="text-muted-foreground hover:text-primary text-xs px-2 py-1 rounded hover:bg-muted flex items-center gap-1 transition-colors"
-                                    onclick={() => openExportDialog(context)}
-                                    disabled={(stashCounts[context.id] ?? 0) ===
-                                        0}
-                                    title={$_("contexts.exportContext")}
-                                >
-                                    <Download size={12} />
-                                    {$_("contexts.export")}
-                                </button>
-                                <button
-                                    class="text-muted-foreground hover:text-primary text-xs px-2 py-1 rounded hover:bg-muted flex items-center gap-1 transition-colors"
-                                    onclick={() => openImportDialog(context)}
-                                    title={$_("contexts.importContext")}
-                                >
-                                    <Upload size={12} />
-                                    {$_("contexts.import")}
-                                </button>
-                                <button
-                                    class="text-muted-foreground hover:text-destructive text-xs px-2 py-1 rounded hover:bg-muted"
-                                    onclick={(e) => {
-                                        if (e.shiftKey) {
-                                            removeContext(i);
-                                        } else {
-                                            contextToDelete = i;
-                                        }
-                                    }}
-                                    title={$_("contexts.shiftClickToSkip")}
-                                    >{$_("contexts.removeContext")}</button
-                                >
-                            </div>
-
-                            <!-- Rules -->
-                            <div
-                                class="pl-2 border-l-2 border-muted space-y-2 mt-2"
-                            >
-                                <div
-                                    class="text-[10px] text-muted-foreground font-medium flex justify-between uppercase tracking-wider"
-                                >
-                                    <span>{$_("contexts.autoSwitchRules")}</span
-                                    >
-                                    <button
-                                        class="text-xs text-primary hover:underline"
-                                        onclick={() => addRule(i)}
-                                        >{$_("contexts.addRule")}</button
-                                    >
-                                </div>
-
-                                {#each context.rules as rule, j}
-                                    <div
-                                        class="flex items-center gap-2 text-xs group"
-                                    >
-                                        <select
-                                            class="bg-muted/50 rounded px-2 py-1 border border-transparent focus:border-primary/50 outline-none"
-                                            bind:value={rule.ruleType}
-                                            onchange={saveContexts}
-                                        >
-                                            <option value="process"
-                                                >{$_(
-                                                    "contexts.rules.process",
-                                                )}</option
-                                            >
-                                            <option value="title"
-                                                >{$_(
-                                                    "contexts.rules.title",
-                                                )}</option
-                                            >
-                                        </select>
-                                        <select
-                                            class="bg-muted/50 rounded px-2 py-1 border border-transparent focus:border-primary/50 outline-none"
-                                            bind:value={rule.matchType}
-                                            onchange={saveContexts}
-                                        >
-                                            <option value="contains"
-                                                >{$_(
-                                                    "contexts.rules.contains",
-                                                )}</option
-                                            >
-                                            <option value="exact"
-                                                >{$_(
-                                                    "contexts.rules.exact",
-                                                )}</option
-                                            >
-                                        </select>
-                                        <input
-                                            class="flex-1 bg-muted/50 px-2 py-1 rounded border border-transparent focus:border-primary/50 outline-none"
-                                            bind:value={rule.value}
-                                            onchange={saveContexts}
-                                            placeholder={$_(
-                                                "contexts.rules.valuePlaceholder",
-                                            )}
-                                        />
-                                        <button
-                                            class="text-muted-foreground hover:text-destructive px-1.5 opacity-0 group-hover:opacity-100 transition-opacity"
-                                            onclick={() => removeRule(i, j)}
-                                            >×</button
-                                        >
-                                    </div>
-                                {/each}
-                                {#if context.rules.length === 0}
-                                    <div
-                                        class="text-[10px] text-muted-foreground/50 italic py-1"
-                                    >
-                                        {$_("contexts.noRules")}
-                                    </div>
-                                {/if}
-                            </div>
-                        </div>
-                    {/each}
-
-                    {#if contexts.length === 0}
-                        <div
-                            class="text-center py-12 text-muted-foreground/50 text-sm italic border-2 border-dashed border-border/50 rounded-xl bg-muted/5"
-                        >
-                            {$_("contexts.noContexts")}
-                        </div>
+                    <!-- Default Context (from database) -->
+                    {#if defaultContext}
+                        {@const defaultIndex = contexts.findIndex(
+                            (c) => c.id === "default",
+                        )}
+                        <ContextManagerItem
+                            isDefault={true}
+                            bind:context={contexts[defaultIndex]}
+                            stats={{
+                                count: stashCounts["default"] || 0,
+                                size: contextSizes["default"] || 0,
+                            }}
+                            onSave={saveContexts}
+                            onExport={() => openExportDialog(defaultContext)}
+                            onImport={() => openImportDialog(defaultContext)}
+                            onSelect={onSelect
+                                ? () => onSelect?.("default")
+                                : undefined}
+                        />
                     {/if}
+
+                    {#each sortedContexts as context (context.id)}
+                        {@const originalIndex = contexts.findIndex(
+                            (c) => c.id === context.id,
+                        )}
+                        <ContextManagerItem
+                            bind:context={contexts[originalIndex]}
+                            autoFocus={context.id === newlyCreatedContextId}
+                            stats={{
+                                count: stashCounts[context.id] || 0,
+                                size: contextSizes[context.id] || 0,
+                            }}
+                            onSave={saveContexts}
+                            onDelete={(shift) => {
+                                if (shift) {
+                                    removeContext(context.id);
+                                } else {
+                                    contextToDelete = context.id;
+                                    deleteConfirmationOpen = true;
+                                }
+                            }}
+                            onExport={() => openExportDialog(context)}
+                            onImport={() => openImportDialog(context)}
+                            onSelect={onSelect
+                                ? () => onSelect?.(context.id)
+                                : undefined}
+                        />
+                    {/each}
                 </div>
             {/if}
         </div>
@@ -306,39 +311,40 @@
 
     {#if contextToDelete !== null}
         <ConfirmationDialog
-            open={true}
+            bind:open={deleteConfirmationOpen}
             title={$_("contexts.deleteConfirm")}
-            description={$_("contexts.deleteConfirm")}
+            description=""
             confirmText={$_("common.delete")}
             variant="destructive"
             onConfirm={() => {
-                if (contextToDelete !== null) removeContext(contextToDelete);
+                if (contextToDelete !== null) {
+                    removeContext(contextToDelete);
+                    contextToDelete = null;
+                }
+            }}
+            onCancel={() => {
                 contextToDelete = null;
             }}
-            onCancel={() => (contextToDelete = null)}
         />
     {/if}
 
-    {#if exportContext}
+    {#if exportDialogOpen && exportContext}
         <ExportDialog
             bind:open={exportDialogOpen}
             context={exportContext}
             stashes={getContextStashes(exportContext)}
-            onClose={() => {
-                exportDialogOpen = false;
-                exportContext = null;
-            }}
+            onClose={() => (exportContext = null)}
         />
     {/if}
 
-    {#if importContext}
+    {#if importDialogOpen && importContext}
         <ImportDialog
             bind:open={importDialogOpen}
             context={importContext}
             existingStashes={getContextStashes(importContext)}
             onClose={() => {
-                importDialogOpen = false;
                 importContext = null;
+                importDialogOpen = false;
             }}
             onImportComplete={() => {
                 load();

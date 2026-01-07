@@ -8,9 +8,12 @@
     import { Dialog } from "bits-ui";
     import { open as openFile } from "@tauri-apps/plugin-dialog";
     import { readFile, readTextFile } from "@tauri-apps/plugin-fs";
+    import { getCurrentWebview } from "@tauri-apps/api/webview";
+    import { onDestroy } from "svelte";
     import JSZip from "jszip";
-    import type { Context, StashItem } from "$lib/types";
+    import type { Context, StashItem, Attachment } from "$lib/types";
     import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
+    import { getRelativeTime } from "$lib/utils/date";
     import {
         Upload,
         FileText,
@@ -44,8 +47,10 @@
     let isImporting = $state(false);
     let isParsing = $state(false);
     let importedFileName = $state("");
+    let isDragging = $state(false);
 
     const adapter = new DesktopStorageAdapter();
+    let unlistenDrop: (() => void) | null = null;
 
     // Reset state when dialog opens
     $effect(() => {
@@ -58,10 +63,82 @@
             isImporting = false;
             isParsing = false;
             importedFileName = "";
+            isDragging = false;
+        }
+    });
+
+    // Setup drag-drop listener when in select step
+    $effect(() => {
+        // Only setup listener when dialog is open and in select step
+        if (!open || step !== "select") {
+            if (unlistenDrop) {
+                unlistenDrop();
+                unlistenDrop = null;
+            }
+            return;
+        }
+
+        // Setup Tauri file drop listener
+        getCurrentWebview()
+            .onDragDropEvent(async (event) => {
+                if (event.payload.type === "drop") {
+                    const paths = event.payload.paths;
+                    if (paths && paths.length > 0) {
+                        const filePath = paths[0];
+                        const ext = filePath.toLowerCase().split(".").pop();
+                        if (ext === "md" || ext === "zip") {
+                            await loadFromPath(filePath);
+                        }
+                    }
+                    isDragging = false;
+                } else if (
+                    event.payload.type === "enter" ||
+                    event.payload.type === "over"
+                ) {
+                    isDragging = true;
+                } else if (event.payload.type === "leave") {
+                    isDragging = false;
+                }
+            })
+            .then((unlisten) => {
+                unlistenDrop = unlisten;
+            });
+
+        // Return cleanup function
+        return () => {
+            if (unlistenDrop) {
+                unlistenDrop();
+                unlistenDrop = null;
+            }
+        };
+    });
+
+    // Cleanup on destroy
+    onDestroy(() => {
+        if (unlistenDrop) {
+            unlistenDrop();
         }
     });
 
     // Derived stats
+    let activeStashes = $derived(
+        parsedStashes
+            .filter((s) => !s.completed)
+            .sort(
+                (a, b) =>
+                    new Date(b.createdAt).getTime() -
+                    new Date(a.createdAt).getTime(),
+            ),
+    );
+    let completedStashes = $derived(
+        parsedStashes
+            .filter((s) => s.completed)
+            .sort(
+                (a, b) =>
+                    new Date(b.createdAt).getTime() -
+                    new Date(a.createdAt).getTime(),
+            ),
+    );
     let selectedStashes = $derived(
         parsedStashes.filter((s) => selectedIds.has(s.id)),
     );
@@ -85,15 +162,22 @@
 
         if (!filePath) return;
 
+        await loadFromPath(filePath as string);
+    }
+
+    /**
+     * Load and parse a file from a path
+     */
+    async function loadFromPath(filePath: string) {
         isParsing = true;
         try {
-            const fileName = (filePath as string).split(/[\\/]/).pop() || "";
+            const fileName = filePath.split(/[\\/]/).pop() || "";
             importedFileName = fileName;
 
             if (fileName.endsWith(".zip")) {
-                await parseZipFile(filePath as string);
+                await parseZipFile(filePath);
             } else {
-                await parseMarkdownFile(filePath as string);
+                await parseMarkdownFile(filePath);
             }
 
             // Detect duplicates
@@ -143,7 +227,14 @@
             for (const file of files) {
                 if (!file.dir) {
                     const data = await file.async("uint8array");
-                    const name = file.name.split("/").pop() || file.name;
+                    let name = file.name.split("/").pop() || file.name;
+
+                    // Strip stash ID prefix if present (format: 12345678_filename.ext)
+                    const prefixMatch = name.match(/^[a-f0-9]{8}_(.+)$/);
+                    if (prefixMatch) {
+                        name = prefixMatch[1]; // Use the original filename without prefix
+                    }
+
                     attachmentFiles.set(name, data);
                 }
             }
@@ -163,15 +254,37 @@
         let currentContent: string[] = [];
         let currentFiles: string[] = [];
         let inAttachments = false;
+        let currentSectionCompleted = false; // Track whether we're in completed section
 
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i];
 
-            // Detect stash header: ## [Status] Date
-            const headerMatch = line.match(
-                /^## \[(✓ Completed|Active)\] (.+)$/,
+            // Detect new format section headers: ## Active Stashes (N) or ## Completed Stashes (N)
+            const sectionMatch = line.match(
+                /^## (Active|Completed) Stashes \(\d+\)$/,
             );
-            if (headerMatch) {
+            if (sectionMatch) {
+                // Save previous stash before changing sections
+                if (currentStash) {
+                    stashes.push(
+                        finalizeStash(
+                            currentStash,
+                            currentContent,
+                            currentFiles,
+                        ),
+                    );
+                    currentStash = null;
+                    currentContent = [];
+                    currentFiles = [];
+                }
+                currentSectionCompleted = sectionMatch[1] === "Completed";
+                inAttachments = false;
+                continue;
+            }
+
+            // Detect new format stash header: ### Date
+            const newHeaderMatch = line.match(/^### (.+)$/);
+            if (newHeaderMatch) {
                 // Save previous stash
                 if (currentStash) {
                     stashes.push(
@@ -184,11 +297,10 @@
                 }
 
                 // Start new stash
-                const isCompleted = headerMatch[1] === "✓ Completed";
-                const dateStr = headerMatch[2];
+                const dateStr = newHeaderMatch[1];
                 currentStash = {
                     id: crypto.randomUUID(),
-                    completed: isCompleted,
+                    completed: currentSectionCompleted,
                     createdAt: parseDate(dateStr),
                     contextId: context.id,
                 };
@@ -219,12 +331,29 @@
                     /^- \[(.+)\]\(attachments\/(.+)\)$/,
                 );
                 if (attachMatch) {
-                    currentFiles.push(attachMatch[2]);
+                    let fileName = attachMatch[2];
+
+                    // Strip stash ID prefix if present (format: 12345678_filename.ext)
+                    const prefixMatch = fileName.match(/^[a-f0-9]{8}_(.+)$/);
+                    if (prefixMatch) {
+                        fileName = prefixMatch[1]; // Use the original filename without prefix
+                    }
+
+                    currentFiles.push(fileName);
                 } else {
                     // Plain attachment reference: - filename.ext
                     const plainMatch = line.match(/^- (.+)$/);
                     if (plainMatch) {
-                        currentFiles.push(plainMatch[1]);
+                        let fileName = plainMatch[1];
+
+                        // Strip stash ID prefix if present (format: 12345678_filename.ext)
+                        const prefixMatch =
+                            fileName.match(/^[a-f0-9]{8}_(.+)$/);
+                        if (prefixMatch) {
+                            fileName = prefixMatch[1]; // Use the original filename without prefix
+                        }
+
+                        currentFiles.push(fileName);
                     }
                 }
                 continue;
@@ -258,6 +387,7 @@
             id: partial.id || crypto.randomUUID(),
             content: contentLines.join("\n").trim(),
             files: files,
+            attachments: [], // Will be populated during import
             createdAt: partial.createdAt || new Date().toISOString(),
             contextId: partial.contextId || context.id,
             completed: partial.completed || false,
@@ -366,37 +496,54 @@
         isImporting = true;
         try {
             for (const stash of selectedStashes) {
-                // Copy attachments if from ZIP
-                const newFiles: string[] = [];
-                for (const fileName of stash.files) {
-                    const fileData = attachmentFiles.get(fileName);
-                    if (fileData) {
-                        // Create a File object from Uint8Array and save via adapter
-                        // Use ArrayBuffer.slice to ensure correct type
-                        const blob = new Blob([
-                            fileData.buffer.slice(
-                                fileData.byteOffset,
-                                fileData.byteOffset + fileData.byteLength,
-                            ) as ArrayBuffer,
-                        ]);
-                        const file = new File([blob], fileName);
-                        const savedPath = await adapter.saveAsset(
-                            file,
-                            context.id,
-                            stash.id,
-                        );
-                        newFiles.push(savedPath);
-                    }
-                }
-
-                // Update stash with new file paths
+                // First, save the stash to the database (without attachments)
                 const stashToSave: StashItem = {
                     ...stash,
-                    files: newFiles.length > 0 ? newFiles : [],
+                    files: [], // Clear legacy files array
+                    attachments: [], // Will be populated after files are saved
                     contextId: context.id,
                 };
 
                 await adapter.saveStash(stashToSave);
+
+                // Now that the stash exists in the DB, save attachments
+                const attachments: Attachment[] = [];
+                for (const fileName of stash.files || []) {
+                    const fileData = attachmentFiles.get(fileName);
+                    if (fileData) {
+                        try {
+                            // Create a File object from Uint8Array and save via adapter
+                            const blob = new Blob([
+                                fileData.buffer.slice(
+                                    fileData.byteOffset,
+                                    fileData.byteOffset + fileData.byteLength,
+                                ) as ArrayBuffer,
+                            ]);
+                            const file = new File([blob], fileName);
+                            const savedAttachment = await adapter.saveAsset(
+                                file,
+                                context.id,
+                                stash.id,
+                            );
+                            // saveAsset returns an Attachment object
+                            attachments.push(savedAttachment);
+                        } catch (err) {
+                            console.error(
+                                `Failed to save attachment ${fileName}:`,
+                                err,
+                            );
+                        }
+                    }
+                }
+
+                // Update the stash with the attachments
+                if (attachments.length > 0) {
+                    const updatedStash: StashItem = {
+                        ...stashToSave,
+                        attachments,
+                    };
+                    await adapter.saveStash(updatedStash);
+                }
             }
 
             onImportComplete();
@@ -422,15 +569,8 @@
     function getPreviewText(stash: StashItem): string {
         const text = stash.content.trim();
         if (!text) return $_("stashCard.emptyStash");
-        if (text.length > 80) return text.slice(0, 80) + "…";
+        if (text.length > 60) return text.slice(0, 60) + "…";
         return text;
-    }
-
-    /**
-     * Format date for display
-     */
-    function formatDate(dateStr: string): string {
-        return new Date(dateStr).toLocaleDateString();
     }
 </script>
 
@@ -440,20 +580,20 @@
             class="fixed inset-0 z-[100] bg-black/50 backdrop-blur-sm animate-in fade-in-0"
         />
         <Dialog.Content
-            class="fixed left-[50%] top-[50%] z-[100] w-full max-w-lg translate-x-[-50%] translate-y-[-50%] outline-none max-h-[80vh] flex flex-col animate-in zoom-in-95 fade-in-0 duration-200"
+            class="fixed left-[50%] top-[50%] z-[100] w-full max-w-2xl translate-x-[-50%] translate-y-[-50%] outline-none max-h-[85vh] flex flex-col animate-in zoom-in-95 fade-in-0 duration-200"
         >
             <div
                 class="bg-popover text-popover-foreground border-border border shadow-lg rounded-lg flex flex-col overflow-hidden"
             >
                 <!-- Header -->
-                <div class="p-4 border-b border-border shrink-0">
+                <div class="px-4 py-3 border-b border-border shrink-0">
                     <Dialog.Title
-                        class="text-lg font-semibold block tracking-tight"
+                        class="text-base font-semibold block tracking-tight"
                     >
-                        {$_("contexts.importDialog.title")}
+                        {$_("contexts.importDialog.title")}: {context.name}
                     </Dialog.Title>
                     <Dialog.Description
-                        class="text-sm text-muted-foreground mt-1"
+                        class="text-xs text-muted-foreground mt-0.5"
                     >
                         {step === "select"
                             ? $_("contexts.importDialog.selectFileDesc")
@@ -463,7 +603,14 @@
 
                 {#if step === "select"}
                     <!-- File Selection Step -->
-                    <div class="p-8 flex flex-col items-center gap-4">
+                    <div
+                        class="p-8 flex flex-col items-center gap-4 border-2 border-dashed rounded-lg m-4 transition-colors
+                            {isDragging
+                            ? 'border-primary bg-primary/5'
+                            : 'border-muted'}"
+                        role="region"
+                        aria-label="Drop zone"
+                    >
                         <div
                             class="w-16 h-16 rounded-full bg-muted flex items-center justify-center"
                         >
@@ -486,17 +633,18 @@
                                 ? $_("contexts.importDialog.parsing")
                                 : $_("contexts.importDialog.chooseFile")}
                         </button>
+                        <p class="text-xs text-muted-foreground">
+                            {$_("contexts.importDialog.dropToImport")}
+                        </p>
                     </div>
                 {:else}
                     <!-- Preview Step -->
-                    <div
-                        class="flex-1 overflow-y-auto p-4 space-y-2 max-h-[40vh]"
-                    >
+                    <div class="flex-1 overflow-y-auto px-4 py-2 max-h-[50vh]">
                         {#if duplicateCount > 0}
                             <div
-                                class="flex items-center gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 text-sm mb-3"
+                                class="flex items-center gap-2 p-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 text-xs mb-3"
                             >
-                                <AlertTriangle size={16} />
+                                <AlertTriangle size={14} />
                                 <span>
                                     {$_(
                                         "contexts.importDialog.duplicatesFound",
@@ -508,72 +656,133 @@
                             </div>
                         {/if}
 
-                        {#each parsedStashes as stash (stash.id)}
-                            <button
-                                type="button"
-                                class="w-full flex items-start gap-3 p-3 rounded-lg border transition-colors text-left
-                                    {selectedIds.has(stash.id)
-                                    ? 'border-primary bg-primary/5'
-                                    : 'border-border hover:bg-muted/50'}"
-                                onclick={() => toggleStash(stash.id)}
-                            >
-                                <!-- Checkbox -->
-                                <div class="shrink-0 mt-0.5">
-                                    {#if selectedIds.has(stash.id)}
-                                        <CheckSquare
-                                            size={18}
-                                            class="text-primary"
-                                        />
-                                    {:else}
-                                        <Square
-                                            size={18}
-                                            class="text-muted-foreground"
-                                        />
-                                    {/if}
+                        <!-- Active Stashes -->
+                        {#if activeStashes.length > 0}
+                            <div class="mb-3">
+                                <div
+                                    class="text-[10px] uppercase tracking-wider text-muted-foreground font-medium mb-1.5 px-1"
+                                >
+                                    {$_("queue.active")} ({activeStashes.length})
                                 </div>
-
-                                <!-- Content -->
-                                <div class="flex-1 min-w-0">
-                                    <div
-                                        class="flex items-center gap-2 text-xs text-muted-foreground mb-1"
-                                    >
-                                        <span
-                                            >{formatDate(stash.createdAt)}</span
+                                <div class="space-y-0.5">
+                                    {#each activeStashes as stash (stash.id)}
+                                        <button
+                                            type="button"
+                                            class="w-full flex items-center gap-2 px-2 py-1.5 rounded transition-colors text-left
+                                                {selectedIds.has(stash.id)
+                                                ? 'bg-primary/10'
+                                                : 'hover:bg-muted/50'}"
+                                            onclick={() =>
+                                                toggleStash(stash.id)}
                                         >
-                                        {#if stash.completed}
+                                            <div class="shrink-0">
+                                                {#if selectedIds.has(stash.id)}
+                                                    <CheckSquare
+                                                        size={14}
+                                                        class="text-primary"
+                                                    />
+                                                {:else}
+                                                    <Square
+                                                        size={14}
+                                                        class="text-muted-foreground"
+                                                    />
+                                                {/if}
+                                            </div>
                                             <span
-                                                class="px-1.5 py-0.5 rounded bg-muted text-[10px]"
+                                                class="flex-1 text-sm truncate"
+                                                >{getPreviewText(stash)}</span
                                             >
-                                                {$_("queue.completed")}
-                                            </span>
-                                        {/if}
-                                        {#if duplicateIds.has(stash.id)}
                                             <span
-                                                class="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-600 dark:text-amber-400 text-[10px] flex items-center gap-1"
+                                                class="text-[10px] text-muted-foreground shrink-0"
+                                                >{getRelativeTime(
+                                                    stash.createdAt,
+                                                    $_,
+                                                )}</span
                                             >
-                                                <AlertTriangle size={10} />
-                                                {$_(
-                                                    "contexts.importDialog.duplicate",
-                                                )}
-                                            </span>
-                                        {/if}
-                                        {#if stash.files && stash.files.length > 0}
-                                            <span
-                                                class="px-1.5 py-0.5 rounded bg-muted text-[10px]"
-                                            >
-                                                {stash.files.length}
-                                                {stash.files.length === 1
-                                                    ? "file"
-                                                    : "files"}
-                                            </span>
-                                        {/if}
-                                    </div>
-                                    <p class="text-sm truncate">
-                                        {getPreviewText(stash)}
-                                    </p>
+                                            {#if duplicateIds.has(stash.id)}
+                                                <span
+                                                    class="text-[10px] text-amber-500 shrink-0 cursor-help"
+                                                    title={$_(
+                                                        "contexts.importDialog.duplicateTooltip",
+                                                    )}>⚠️</span
+                                                >
+                                            {/if}
+                                            {#if stash.files && stash.files.length > 0}
+                                                <span
+                                                    class="text-[10px] text-muted-foreground shrink-0"
+                                                    >📎{stash.files
+                                                        .length}</span
+                                                >
+                                            {/if}
+                                        </button>
+                                    {/each}
                                 </div>
-                            </button>
-                        {/each}
+                            </div>
+                        {/if}
+
+                        <!-- Completed Stashes -->
+                        {#if completedStashes.length > 0}
+                            <div>
+                                <div
+                                    class="text-[10px] uppercase tracking-wider text-muted-foreground font-medium mb-1.5 px-1"
+                                >
+                                    {$_("queue.completed")} ({completedStashes.length})
+                                </div>
+                                <div class="space-y-0.5">
+                                    {#each completedStashes as stash (stash.id)}
+                                        <button
+                                            type="button"
+                                            class="w-full flex items-center gap-2 px-2 py-1.5 rounded transition-colors text-left opacity-60
+                                                {selectedIds.has(stash.id)
+                                                ? 'bg-primary/10'
+                                                : 'hover:bg-muted/50'}"
+                                            onclick={() =>
+                                                toggleStash(stash.id)}
+                                        >
+                                            <div class="shrink-0">
+                                                {#if selectedIds.has(stash.id)}
+                                                    <CheckSquare
+                                                        size={14}
+                                                        class="text-primary"
+                                                    />
+                                                {:else}
+                                                    <Square
+                                                        size={14}
+                                                        class="text-muted-foreground"
+                                                    />
+                                                {/if}
+                                            </div>
+                                            <span
+                                                class="flex-1 text-sm truncate line-through"
+                                                >{getPreviewText(stash)}</span
+                                            >
+                                            <span
+                                                class="text-[10px] text-muted-foreground shrink-0"
+                                                >{getRelativeTime(
+                                                    stash.createdAt,
+                                                    $_,
+                                                )}</span
+                                            >
+                                            {#if duplicateIds.has(stash.id)}
+                                                <span
+                                                    class="text-[10px] text-amber-500 shrink-0 cursor-help"
+                                                    title={$_(
+                                                        "contexts.importDialog.duplicateTooltip",
+                                                    )}>⚠️</span
+                                                >
+                                            {/if}
+                                            {#if stash.files && stash.files.length > 0}
+                                                <span
+                                                    class="text-[10px] text-muted-foreground shrink-0"
+                                                    >📎{stash.files
+                                                        .length}</span
+                                                >
+                                            {/if}
+                                        </button>
+                                    {/each}
+                                </div>
+                            </div>
+                        {/if}
 
                         {#if parsedStashes.length === 0}
                             <div

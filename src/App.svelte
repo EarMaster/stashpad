@@ -17,7 +17,7 @@
 <script lang="ts">
    import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
    import { _ } from "$lib/i18n";
-   import type { Settings, StashItem, Context } from "$lib/types";
+   import type { Settings, StashItem, Context, Attachment } from "$lib/types";
    import Header from "$lib/components/Header.svelte";
    import Editor from "$lib/components/Editor.svelte";
    import Queue from "$lib/components/Queue.svelte";
@@ -39,7 +39,7 @@
 
    // Draft state persistence
    let editorDraft = $state("");
-   let editorFiles = $state<string[]>([]);
+   let editorFiles = $state<Attachment[]>([]);
 
    let showExitConfirmation = $state(false);
    let isWin10 = $state(false);
@@ -226,16 +226,12 @@
          settings.activeContextId = ctxId;
          currentContextId = ctxId;
 
-         // Update lastUsed timestamp
-         if (ctxId === "default") {
-            settings.defaultContextLastUsed = new Date().toISOString();
-         } else {
-            const ctx = contexts.find((c) => c.id === ctxId);
-            if (ctx) {
-               ctx.lastUsed = new Date().toISOString();
-               // Save context update
-               adapter.saveContext(ctx);
-            }
+         // Update lastUsed timestamp for selected context
+         const ctx = contexts.find((c) => c.id === ctxId);
+         if (ctx) {
+            ctx.lastUsed = new Date().toISOString();
+            // Save context update
+            adapter.saveContext(ctx);
          }
 
          adapter.saveSettings(settings);
@@ -300,6 +296,11 @@
 
       if (loadedId && exists) {
          currentContextId = loadedId;
+      } else {
+         // Fallback to default if active context is invalid/deleted
+         currentContextId = "default";
+         settings.activeContextId = "default";
+         adapter.saveSettings(settings);
       }
    }
 
@@ -400,7 +401,6 @@
          {contexts}
          {currentContextId}
          {stashCounts}
-         defaultContextLastUsed={settings.defaultContextLastUsed}
          autoContextDetection={settings.autoContextDetection}
          mode={movingStash ? "move" : "switch"}
          title={movingStash ? "Move Stash to…" : "Switch Context"}
@@ -488,6 +488,12 @@
                view = "Settings";
             }
             loadSettings();
+         }}
+         onSelect={async (id) => {
+            await loadContexts();
+            selectContext(id);
+            view = "Main";
+            contextSelectorOpen = false;
          }}
       />
    {/if}

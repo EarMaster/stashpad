@@ -16,7 +16,7 @@
 
 <script lang="ts">
   import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
-  import type { StashItem, FilePreviewData } from "$lib/types";
+  import type { StashItem, FilePreviewData, Attachment } from "$lib/types";
   import { detectLanguage } from "$lib/utils/language-detection";
   import { _ } from "$lib/i18n";
   import {
@@ -33,12 +33,22 @@
     Code,
     Heading,
   } from "lucide-svelte";
-  import { open } from "@tauri-apps/plugin-dialog";
   import { getCaretCoordinates } from "$lib/utils/caret";
   import FilePreviewModal from "./FilePreviewModal.svelte";
   import ConfirmationDialog from "./ConfirmationDialog.svelte";
   import { fade } from "svelte/transition";
   import { convertFileSrc } from "@tauri-apps/api/core";
+  import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+  import { onMount, onDestroy } from "svelte";
+  import { findStashAtPosition } from "$lib/stores/drag-state.svelte";
+  import { stat } from "@tauri-apps/plugin-fs";
+  import { open, message } from "@tauri-apps/plugin-dialog";
+  import {
+    checkAttachmentSizeLimits,
+    calculateTotalAttachmentSize,
+    formatBytes,
+  } from "$lib/utils/format";
+  import { locale } from "$lib/i18n";
 
   let {
     onStash,
@@ -58,8 +68,8 @@
     /** When editing an existing stash, pass its ID for proper file storage */
     existingStashId?: string;
     content?: string;
-    files?: string[];
-    onSave?: (content: string, files: string[]) => Promise<void> | void;
+    files?: Attachment[];
+    onSave?: (content: string, files: Attachment[]) => Promise<void> | void;
     onCancel?: () => void;
     saveLabel?: string;
     autoFocus?: boolean;
@@ -74,6 +84,7 @@
   let stashId = $state(existingStashId ?? crypto.randomUUID());
 
   let dragOver = $state(false);
+  let dragCounter = 0;
   let isSaving = $state(false);
 
   // Tag Autocomplete
@@ -101,6 +112,58 @@
   let pendingPasteText = $state<string | null>(null);
 
   const adapter = new DesktopStorageAdapter();
+
+  // Tauri native drag-drop event listeners
+  let unlistenDrop: UnlistenFn | null = null;
+  let unlistenEnter: UnlistenFn | null = null;
+  let unlistenLeave: UnlistenFn | null = null;
+
+  onMount(async () => {
+    // Listen for Tauri's native drag-drop events
+    unlistenEnter = await listen("tauri://drag-enter", () => {
+      dragOver = true;
+    });
+
+    unlistenLeave = await listen("tauri://drag-leave", () => {
+      dragOver = false;
+    });
+
+    unlistenDrop = await listen<{
+      paths: string[];
+      position: { x: number; y: number };
+    }>("tauri://drag-drop", async (event) => {
+      dragOver = false;
+
+      // Check if drop is targeting a StashCard - if so, Queue handles it
+      const targetStashId = findStashAtPosition(
+        event.payload.position.x,
+        event.payload.position.y,
+      );
+      if (targetStashId) {
+        return; // Let Queue.svelte handle this drop
+      }
+
+      const paths = event.payload.paths;
+      for (const path of paths) {
+        try {
+          const attachment = await adapter.saveAssetFromPath(
+            path,
+            currentContextId,
+            stashId,
+          );
+          files = [...files, attachment];
+        } catch (err) {
+          console.error("Failed to save dropped asset", err);
+        }
+      }
+    });
+  });
+
+  onDestroy(() => {
+    unlistenEnter?.();
+    unlistenLeave?.();
+    unlistenDrop?.();
+  });
 
   function focusOnMount(node: HTMLTextAreaElement) {
     if (autoFocus) node.focus();
@@ -189,44 +252,32 @@
 
   /**
    * Handle drop events for file attachments.
-   * Ignores drops when a stash drag is in progress to prevent stash-to-editor attachment.
+   * NOTE: With dragDropEnabled=true, Tauri intercepts drops.
+   * This handler is kept for fallback but primary handling is via Tauri events.
    */
   async function handleDrop(e: DragEvent) {
     e.preventDefault();
     e.stopPropagation();
     dragOver = false;
-
-    if (e.dataTransfer?.files) {
-      for (let i = 0; i < e.dataTransfer.files.length; i++) {
-        const file = e.dataTransfer.files[i];
-        try {
-          const path = await adapter.saveAsset(file, currentContextId, stashId);
-          files = [...files, path];
-        } catch (err) {
-          console.error("Failed to save asset", err);
-        }
-      }
-    }
+    // Tauri handles drops via tauri://drag-drop event
   }
 
   function handleDragEnter(e: DragEvent) {
     e.preventDefault();
     e.stopPropagation();
-    dragOver = true;
+    // Tauri handles via tauri://drag-enter event
   }
 
   function handleDragOver(e: DragEvent) {
     e.preventDefault();
     e.stopPropagation();
     if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
-    dragOver = true;
   }
 
   function handleDragLeave(e: DragEvent) {
-    const target = e.currentTarget as Node;
-    const related = e.relatedTarget as Node;
-    if (target.contains(related)) return;
-    dragOver = false;
+    e.preventDefault();
+    e.stopPropagation();
+    // Tauri handles via tauri://drag-leave event
   }
 
   /**
@@ -245,8 +296,12 @@
       for (let i = 0; i < clipboardData.files.length; i++) {
         const file = clipboardData.files[i];
         try {
-          const path = await adapter.saveAsset(file, currentContextId, stashId);
-          files = [...files, path];
+          const attachment = await adapter.saveAsset(
+            file,
+            currentContextId,
+            stashId,
+          );
+          files = [...files, attachment];
         } catch (err) {
           console.error("Failed to save pasted file:", err);
         }
@@ -310,8 +365,13 @@
     const file = new File([blob], filename, { type: mimeType });
 
     try {
-      const path = await adapter.saveAsset(file, currentContextId, stashId);
-      files = [...files, path];
+      const attachment = await adapter.saveAsset(
+        file,
+        currentContextId,
+        stashId,
+        detection.language ?? undefined,
+      );
+      files = [...files, attachment];
     } catch (err) {
       console.error("Failed to save text as attachment:", err);
     }
@@ -370,7 +430,12 @@
         const stash: StashItem = {
           id: stashId, // Use pre-generated ID for consistency with file storage
           content,
-          files: [...files], // copy
+          files: [], // Deprecated
+          attachments: files.map((f) => ({
+            ...f,
+            id: f.id || crypto.randomUUID(),
+            stashId: stashId,
+          })),
           createdAt: new Date().toISOString(),
           contextId: currentContextId,
         };
@@ -424,12 +489,12 @@
   }
 
   async function removeFile(index: number) {
-    const filePath = files[index];
+    const attachment = files[index];
     files = files.filter((_, i) => i !== index);
 
     // Delete the file from the cache directory
     try {
-      await adapter.deleteAsset(filePath);
+      await adapter.deleteAsset(attachment.filePath);
     } catch (err) {
       console.error("Failed to delete asset from cache:", err);
     }
@@ -438,8 +503,8 @@
   /**
    * Determine file type icon based on extension.
    */
-  function getFileIcon(path: string) {
-    const ext = path.split(".").pop()?.toLowerCase() || "";
+  function getFileIcon(fileName: string) {
+    const ext = fileName.split(".").pop()?.toLowerCase() || "";
     const imageExts = [
       "png",
       "jpg",
@@ -602,12 +667,12 @@
         const paths = Array.isArray(selected) ? selected : [selected];
         for (const path of paths) {
           try {
-            const savedPath = await adapter.saveAssetFromPath(
+            const attachment = await adapter.saveAssetFromPath(
               path,
               currentContextId,
               stashId,
             );
-            files = [...files, savedPath];
+            files = [...files, attachment];
           } catch (err) {
             console.error("Failed to save asset from path", err);
           }
@@ -752,25 +817,24 @@
         <div
           class="relative group/file bg-background px-2 py-0.5 rounded text-[10px] border border-border flex items-center gap-1 shadow-sm shrink-0 cursor-pointer hover:border-primary/50 transition-colors"
           title={$_("filePreview.clickToPreview")}
-          onmouseenter={(e) => handleFileMouseEnter(i, file, e)}
+          onmouseenter={(e) => handleFileMouseEnter(i, file.filePath, e)}
           onmouseleave={handleFileMouseLeave}
-          onclick={() => openFilePreview(file)}
-          onkeydown={(e) => e.key === "Enter" && openFilePreview(file)}
+          onclick={() => openFilePreview(file.filePath)}
+          onkeydown={(e) => e.key === "Enter" && openFilePreview(file.filePath)}
           role="button"
           tabindex="0"
         >
           <!-- File type icon -->
-          {#if getFileIcon(file) === "image"}
+          {#if getFileIcon(file.fileName) === "image"}
             <Image size={10} class="shrink-0 text-muted-foreground" />
-          {:else if getFileIcon(file) === "video"}
+          {:else if getFileIcon(file.fileName) === "video"}
             <Video size={10} class="shrink-0 text-muted-foreground" />
-          {:else if getFileIcon(file) === "text"}
+          {:else if getFileIcon(file.fileName) === "text"}
             <FileText size={10} class="shrink-0 text-muted-foreground" />
           {:else}
             <FileIcon size={10} class="shrink-0 text-muted-foreground" />
           {/if}
-          <span class="truncate max-w-[100px]">{file.split(/[\\/]/).pop()}</span
-          >
+          <span class="truncate max-w-[100px]">{file.fileName}</span>
           <button
             class="text-muted-foreground hover:text-destructive transition-colors"
             onclick={(e) => {

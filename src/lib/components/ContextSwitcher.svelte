@@ -24,7 +24,6 @@
     let {
         contexts,
         currentContextId,
-        defaultContextLastUsed = undefined,
         autoContextDetection = $bindable(false),
         mode = "switch",
         title = "",
@@ -36,7 +35,6 @@
     } = $props<{
         contexts: Context[];
         currentContextId: string;
-        defaultContextLastUsed?: string;
         autoContextDetection?: boolean;
         mode?: "switch" | "move";
         title?: string;
@@ -61,15 +59,7 @@
 
     // Derived state for the list
     let displayedContexts = $derived.by(() => {
-        let list = [
-            {
-                id: "default",
-                name: $_("common.default"),
-                rules: [] as any[],
-                lastUsed: defaultContextLastUsed,
-            },
-            ...contexts,
-        ];
+        let list = contexts;
 
         // Filter
         if (searchQuery) {
@@ -77,8 +67,8 @@
             return results.map((r) => r.obj);
         }
 
-        // Sort
-        list.sort((a, b) => {
+        // Sort - create a copy to avoid mutating state in $derived
+        return [...list].sort((a, b) => {
             if (sortBy === "alpha") {
                 return a.name.localeCompare(b.name);
             } else if (sortBy === "alphaDesc") {
@@ -93,8 +83,6 @@
                 return tB - tA; // Newest first
             }
         });
-
-        return list;
     });
 
     $effect(() => {

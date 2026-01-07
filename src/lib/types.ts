@@ -12,10 +12,22 @@
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 // See the GNU Affero General Public License for more details.
 
+export interface Attachment {
+    id: string;
+    stashId: string;
+    filePath: string;
+    fileName: string;
+    fileSize: number;
+    mimeType?: string;
+    syntax?: string;
+    createdAt: string;
+}
+
 export interface StashItem {
     id: string;
     content: string;
-    files: string[];
+    attachments: Attachment[];
+    files?: string[]; // Deprecated, kept for backward compatibility during migration
     createdAt: string;
     contextId?: string;
     completed?: boolean;
@@ -79,9 +91,10 @@ export interface IStorageService {
      * @param file - The file to save
      * @param contextId - The context ID for folder organization
      * @param stashId - The stash ID for folder organization
-     * @returns The absolute path to the saved file
+     * @param syntax - Optional detected syntax/language
+     * @returns The saved attachment metadata
      */
-    saveAsset(file: File, contextId?: string, stashId?: string): Promise<string>;
+    saveAsset(file: File, contextId?: string, stashId?: string, syntax?: string): Promise<Attachment>;
     getPreviousAppInfo(): Promise<AppContext>;
     getSmartTransferTarget(): Promise<'GUI' | 'CLI'>;
     copyToClipboard(text: string): Promise<void>;
@@ -92,9 +105,10 @@ export interface IStorageService {
      * @param path - The source file path
      * @param contextId - The context ID for folder organization
      * @param stashId - The stash ID for folder organization
-     * @returns The absolute path to the saved file
+     * @param syntax - Optional detected syntax/language
+     * @returns The saved attachment metadata
      */
-    saveAssetFromPath(path: string, contextId?: string, stashId?: string): Promise<string>;
+    saveAssetFromPath(path: string, contextId?: string, stashId?: string, syntax?: string): Promise<Attachment>;
     readFileForPreview(path: string): Promise<FilePreviewData>;
     getSettings(): Promise<Settings>;
     saveSettings(settings: Settings): Promise<void>;
@@ -129,6 +143,8 @@ export interface FilePreviewData {
     fileName: string;
     /** MIME type of the file */
     mimeType: string;
+    /** File size in bytes */
+    fileSize: number;
 }
 
 

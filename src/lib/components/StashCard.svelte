@@ -15,9 +15,14 @@
 -->
 
 <script lang="ts">
-  import type { StashItem, FilePreviewData } from "$lib/types";
+  import type { StashItem, FilePreviewData, Attachment } from "$lib/types";
   import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
-  import { _ } from "$lib/i18n";
+  import { _, locale } from "$lib/i18n";
+  import {
+    formatBytes,
+    calculateTotalAttachmentSize,
+    checkAttachmentSizeLimits,
+  } from "$lib/utils/format";
   import { fade, fly } from "svelte/transition";
   import { dragHandle } from "svelte-dnd-action";
   import {
@@ -37,10 +42,12 @@
   import Editor from "./Editor.svelte";
   import FilePreviewTooltip from "./FilePreviewTooltip.svelte";
   import FilePreviewModal from "./FilePreviewModal.svelte";
-  import { open } from "@tauri-apps/plugin-dialog";
+  import { stat } from "@tauri-apps/plugin-fs";
+  import { open, message } from "@tauri-apps/plugin-dialog";
   import { getRelativeTime } from "$lib/utils/date";
   import marked from "$lib/utils/markdown";
   import ActionButton from "./ActionButton.svelte";
+  import { isStashHovered } from "$lib/stores/drag-state.svelte";
 
   let {
     item,
@@ -68,7 +75,7 @@
     onMoveToBottom: () => void;
     onToggleComplete: () => void;
     onDelete: (skipConfirm?: boolean) => void;
-    onUpdateContent: (content: string, files: string[]) => void;
+    onUpdateContent: (content: string, attachments: Attachment[]) => void;
     availableTags?: string[];
   }>();
 
@@ -76,7 +83,7 @@
   let copied = $state(false);
   let isEditing = $state(false);
   let editContent = $state("");
-  let editFiles = $state<string[]>([]);
+  let editFiles = $state<Attachment[]>([]);
   let clickTimeout: ReturnType<typeof setTimeout> | undefined = undefined; // State for click debounce
 
   // File preview modal state
@@ -84,12 +91,18 @@
   let selectedPreviewFilePath = $state("");
 
   let isLoadingPreview = $state(false);
-  let dragOver = $state(false);
+
+  // Drag-drop state: check if this stash is being hovered during a Tauri drag
+  let dragOver = $derived(isStashHovered(item.id));
+  let totalAttachmentSize = $derived(
+    calculateTotalAttachmentSize(item.attachments),
+  );
 
   $effect(() => {
     if (isEditing) {
       editContent = item.content;
-      editFiles = [...item.files];
+      editContent = item.content;
+      editFiles = [...item.attachments];
     }
   });
 
@@ -104,20 +117,20 @@
     }
 
     const text =
-      item.files.length > 0
-        ? `${content}\n\n---\n# SYSTEM CONTEXT - LOCAL FILES\n${item.files.join("\n")}`
+      item.attachments.length > 0
+        ? `${content}\n\n---\n# SYSTEM CONTEXT - LOCAL FILES\n${item.attachments.map((a) => a.filePath).join("\n")}`
         : content;
     await adapter.copyToClipboard(text);
     copied = true;
     setTimeout(() => (copied = false), 2000);
   }
 
-  function saveEdit(content: string, files: string[]) {
+  function saveEdit(content: string, attachments: Attachment[]) {
     if (
       content.trim() !== item.content ||
-      JSON.stringify(files) !== JSON.stringify(item.files)
+      JSON.stringify(attachments) !== JSON.stringify(item.attachments)
     ) {
-      onUpdateContent(content, files);
+      onUpdateContent(content, attachments);
     }
     isEditing = false;
   }
@@ -137,73 +150,71 @@
       });
       if (selected) {
         const paths = Array.isArray(selected) ? selected : [selected];
-        const newFiles = [...item.files];
+        let newAttachments = [...item.attachments];
+
+        const currentTotal = calculateTotalAttachmentSize(item.attachments);
+        let plannedAddition = 0;
+
         for (const path of paths) {
           try {
-            const savedPath = await adapter.saveAssetFromPath(
+            // Check size limits
+            const metadata = await stat(path);
+            const results = checkAttachmentSizeLimits(
+              metadata.size,
+              currentTotal + plannedAddition,
+            );
+
+            if (results.exceedsSingleLimit) {
+              await message(
+                $_("stashCard.fileTooLarge", {
+                  values: {
+                    limit: formatBytes(
+                      results.singleLimitBytes,
+                      $locale || "en",
+                    ),
+                  },
+                }),
+                { title: $_("stashCard.limitExceeded"), kind: "error" },
+              );
+              continue;
+            }
+
+            if (results.exceedsStashLimit) {
+              await message(
+                $_("stashCard.stashSizeExceeded", {
+                  values: {
+                    limit: formatBytes(
+                      results.stashLimitBytes,
+                      $locale || "en",
+                    ),
+                  },
+                }),
+                { title: $_("stashCard.limitExceeded"), kind: "error" },
+              );
+              continue;
+            }
+
+            // If check passes, track the size
+            plannedAddition += metadata.size;
+
+            const attachment = await adapter.saveAssetFromPath(
               path,
               item.contextId,
               item.id,
             );
-            newFiles.push(savedPath);
+            // Ensure IDs are consistent
+            attachment.stashId = item.id;
+            newAttachments.push(attachment);
           } catch (err) {
             console.error("Failed to save asset from path", err);
           }
         }
         // Update the stash with the new files
-        onUpdateContent(item.content, newFiles);
+        onUpdateContent(item.content, newAttachments);
       }
     } catch (err) {
       console.error("Failed to open file picker", err);
     }
-  }
-
-  /**
-   * Handles file drop onto the stash card.
-   * External files can be dropped to add as attachments.
-   */
-  async function handleFileDrop(e: DragEvent) {
-    e.preventDefault();
-    e.stopPropagation();
-    dragOver = false;
-
-    if (item.completed) return;
-
-    if (e.dataTransfer?.files) {
-      const newFiles = [...item.files];
-      for (let i = 0; i < e.dataTransfer.files.length; i++) {
-        const file = e.dataTransfer.files[i];
-        try {
-          const path = await adapter.saveAsset(file, item.contextId, item.id);
-          newFiles.push(path);
-        } catch (err) {
-          console.error("Failed to save asset", err);
-        }
-      }
-      if (newFiles.length > item.files.length) {
-        onUpdateContent(item.content, newFiles);
-      }
-    }
-  }
-
-  function handleFileDragOver(e: DragEvent) {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
-    if (!item.completed) dragOver = true;
-  }
-
-  function handleFileDragEnter(e: DragEvent) {
-    e.preventDefault();
-    e.stopPropagation();
-    if (!item.completed) dragOver = true;
-  }
-
-  function handleFileDragLeave(e: DragEvent) {
-    const target = e.currentTarget as Node;
-    const related = e.relatedTarget as Node;
-    if (target.contains(related)) return;
-    dragOver = false;
   }
 
   /**
@@ -256,13 +267,10 @@
   onclick={handleCardClick}
   onkeydown={(e) => e.key === "Enter" && handleCopy(e.shiftKey)}
   ondblclick={handleDoubleClick}
-  ondrop={handleFileDrop}
-  ondragover={handleFileDragOver}
-  ondragenter={handleFileDragEnter}
-  ondragleave={handleFileDragLeave}
   role="button"
   tabindex="0"
   draggable="false"
+  data-stash-id={item.id}
 >
   <!-- Drop overlay -->
   {#if dragOver}
@@ -342,7 +350,7 @@
         </div>
       {/if}
 
-      {#if !isEditing && item.files.length > 0}
+      {#if !isEditing && item.attachments.length > 0}
         <div
           class="mt-2 flex gap-1.5 items-start leading-none {item.completed
             ? 'opacity-50'
@@ -358,20 +366,23 @@
               draggable="true"
               ondragstart={async (e) => {
                 e.preventDefault();
-                await adapter.startDrag("", item.files);
+                await adapter.startDrag(
+                  "",
+                  item.attachments.map((a) => a.filePath),
+                );
               }}
-              title={$_("stashCard.dragAllAttachments")}
+              title={`${$_("stashCard.dragAllAttachments")} (${formatBytes(totalAttachmentSize, $locale || "en")})`}
             >
               <FolderOutput size={10} class="shrink-0" />
-              <span class="truncate">{item.files.length}</span>
+              <span class="truncate">{item.attachments.length}</span>
             </button>
           </div>
           <div class="inline-block flex flex-wrap items-center">
-            {#each item.files as file}
+            {#each item.attachments as attachment}
               <FilePreviewTooltip
-                filePath={file}
-                fileName={file.split(/[\\/]/).pop() || "file"}
-                onclick={() => openFilePreview(file)}
+                filePath={attachment.filePath}
+                fileName={attachment.fileName}
+                onclick={() => openFilePreview(attachment.filePath)}
               />
             {/each}
           </div>
@@ -407,7 +418,24 @@
             <Copy size={12} />
           </ActionButton>
           <span>{getRelativeTime(item.createdAt, $_)}</span>
+          {#if totalAttachmentSize > 0}
+            <span>•</span>
+            <span
+              >{$_(
+                item.attachments.length === 1
+                  ? "stashCard.attachment"
+                  : "stashCard.attachments",
+                {
+                  values: {
+                    count: item.attachments.length,
+                    size: formatBytes(totalAttachmentSize, $locale || "en"),
+                  },
+                },
+              )}</span
+            >
+          {/if}
           {#if copied}
+            <span>•</span>
             <span
               class="text-green-500 font-medium animate-pulse"
               transition:fade>{$_("stashCard.copied")}</span
@@ -516,7 +544,7 @@
 <!-- File Preview Modal -->
 <FilePreviewModal
   bind:open={previewModalOpen}
-  files={item.files}
+  files={item.attachments.map((a) => a.filePath)}
   bind:filePath={selectedPreviewFilePath}
   onClose={closeFilePreview}
 />

@@ -13,7 +13,7 @@
 // See the GNU Affero General Public License for more details.
 
 import { invoke } from '@tauri-apps/api/core';
-import type { IStorageService, StashItem, AppContext, Settings, FilePreviewData, Context } from '../types';
+import type { IStorageService, StashItem, AppContext, Settings, FilePreviewData, Context, Attachment } from '../types';
 
 export class DesktopStorageAdapter implements IStorageService {
     async saveStash(stash: StashItem, options?: { invertPosition?: boolean }): Promise<void> {
@@ -34,14 +34,17 @@ export class DesktopStorageAdapter implements IStorageService {
      * Save an asset file to the cache directory.
      * Files are organized hierarchically: cache/<contextId>/<stashId>/<filename>
      */
-    async saveAsset(file: File, contextId?: string, stashId?: string): Promise<string> {
+    async saveAsset(file: File, contextId?: string, stashId?: string, syntax?: string): Promise<Attachment> {
         const buffer = await file.arrayBuffer();
         const bytes = new Uint8Array(buffer);
         return await invoke('save_asset', {
             name: file.name,
-            data: bytes,
+            data: Array.from(bytes),
+            context_id: contextId ?? null,
             contextId: contextId ?? null,
-            stashId: stashId ?? null
+            stash_id: stashId ?? null,
+            stashId: stashId ?? null,
+            syntax: syntax ?? null
         });
     }
 
@@ -65,11 +68,14 @@ export class DesktopStorageAdapter implements IStorageService {
      * Import an asset from an external file path into the cache directory.
      * Files are organized hierarchically: cache/<contextId>/<stashId>/<filename>
      */
-    async saveAssetFromPath(path: string, contextId?: string, stashId?: string): Promise<string> {
+    async saveAssetFromPath(path: string, contextId?: string, stashId?: string, syntax?: string): Promise<Attachment> {
         return await invoke('save_asset_from_path', {
             path,
+            context_id: contextId ?? null,
             contextId: contextId ?? null,
-            stashId: stashId ?? null
+            stash_id: stashId ?? null,
+            stashId: stashId ?? null,
+            syntax: syntax ?? null
         });
     }
 

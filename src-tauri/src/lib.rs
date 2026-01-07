@@ -35,10 +35,26 @@ use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial};
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
+pub struct Attachment {
+    pub id: String,
+    pub stash_id: String,
+    pub file_path: String,
+    pub file_name: String,
+    pub file_size: i64,
+    pub mime_type: Option<String>,
+    pub syntax: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct StashItem {
     pub id: String,
     pub content: String,
-    pub files: Vec<String>,
+    #[serde(default)]
+    pub files: Vec<String>, // Deprecated, kept for backward compatibility/migration
+    #[serde(default)]
+    pub attachments: Vec<Attachment>,
     pub created_at: String,
     #[serde(default)]
     pub context_id: Option<String>,
@@ -103,6 +119,7 @@ fn ensure_storage_ready() {
     }
 }
 
+#[allow(dead_code)]
 fn persist_stashes_to_disk(stashes: &Vec<StashItem>) {
     let db_path = get_app_dir().join("db.json");
     if let Ok(file) = fs::File::create(db_path) {
@@ -301,6 +318,7 @@ fn persist_settings_to_disk(settings: &Settings) {
 
 // --- Contexts Storage (separate from settings) ---
 
+#[allow(dead_code)]
 struct ContextsState {
     contexts: Mutex<Vec<Context>>,
 }
@@ -613,7 +631,11 @@ fn save_stash(
              // Minimal struct for check
              Ok(StashItem {
                 id: row.get(0)?,
-                context_id: None, content: "".into(), files: vec![], created_at: "".into(),
+                context_id: None, 
+                content: "".into(), 
+                files: vec![], 
+                attachments: vec![],
+                created_at: "".into(),
                 completed: row.get(1)?,
                 completed_at: row.get(2)?,
             })
@@ -621,7 +643,7 @@ fn save_stash(
     ).optional().unwrap_or(None);
     
     let mut new_stash = stash.clone();
-    let mut position_val: Option<f64>;
+    let position_val: Option<f64>;
     
     if let Some(old) = existing {
         let status_changed = old.completed != stash.completed;
@@ -746,7 +768,7 @@ fn delete_completed_stashes(state: State<Arc<DbState>>, context_id: Option<Strin
 }
 
 fn perform_startup_cleanup(db: &mut DbManager, settings: &Settings) {
-    let cache_dir = get_app_dir().join("cache");
+    let _cache_dir = get_app_dir().join("cache");
     
     if settings.clear_completed_strategy == "on-close" {
          println!("Startup Cleanup: Clearing all completed stashes (on-close strategy)");
@@ -757,7 +779,7 @@ fn perform_startup_cleanup(db: &mut DbManager, settings: &Settings) {
          let _ = db.delete_completed_stashes(None);
          
     } else if settings.clear_completed_strategy == "after-n-days" {
-         let days = settings.clear_completed_days as i64;
+         let _days = settings.clear_completed_days as i64;
          // Clean older than days.
          // This is complex to replicate quickly without duplicating delete_completed_stashes logic but with date filter.
          // Leaving empty for now to strictly follow migration task (parity is good but DB is better).
@@ -793,11 +815,13 @@ fn trigger_auto_cleanup(state: State<Arc<DbState>>, settings_state: State<Arc<Se
 /// when stashes or contexts are deleted.
 #[tauri::command]
 fn save_asset(
+    state: State<Arc<DbState>>,
     name: String, 
     data: Vec<u8>, 
     context_id: Option<String>, 
-    stash_id: Option<String>
-) -> Result<String, String> {
+    stash_id: Option<String>,
+    syntax: Option<String>
+) -> Result<Attachment, String> {
     println!(
         "Saving asset: {} ({} bytes) context: {:?} stash: {:?}", 
         name, data.len(), context_id, stash_id
@@ -833,7 +857,69 @@ fn save_asset(
     let file_path = target_dir.join(safe_name.as_ref());
 
     match fs::write(&file_path, data) {
-        Ok(_) => Ok(file_path.to_string_lossy().into_owned()),
+        Ok(_) => {
+            let path_str = file_path.to_string_lossy().into_owned();
+            
+            // If we have a stash_id, save metadata to DB
+            if let Some(s_id) = &stash_id {
+                let file_size = fs::metadata(&file_path).map(|m| m.len()).unwrap_or(0) as i64;
+                // Simple mime guess or default
+                let mime_type = mime_guess::from_path(&file_path).first().map(|m| m.to_string());
+                use uuid::Uuid;
+                let att_id = Uuid::new_v4().to_string();
+                let created_at = chrono::Utc::now().to_rfc3339();
+
+                let db = state.db.lock().unwrap();
+                // Direct insert for simplicity - ideally this would be a method on DbManager
+                let res = db.conn.execute(
+                     "INSERT INTO attachments (id, stash_id, file_path, file_name, file_size, mime_type, syntax, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                     params![
+                         att_id,
+                         s_id,
+                         path_str,
+                         safe_name.as_ref(), 
+                         file_size,
+                         mime_type,
+                         syntax,
+                         created_at
+                     ]
+                );
+                
+                if let Err(e) = res {
+                     println!("Failed to save attachment metadata (likely due to missing stash parent): {}", e);
+                     // Suppress error so frontend receives the Attachment object. 
+                     // The attachment will be saved to DB when save_stash is called.
+                }
+
+                Ok(Attachment {
+                    id: att_id,
+                    stash_id: s_id.clone(),
+                    file_path: path_str,
+                    file_name: safe_name.into(),
+                    file_size,
+                    mime_type,
+                    syntax,
+                    created_at,
+                })
+            } else {
+                 // Context-only or loose file - return dummy attachment or error? 
+                 // Stashpad architecture implies assets belong to stashes usually. 
+                 // But context implementation might just return path.
+                 // We should probably enforce stash_id for new flow, but for compat:
+                 // Return partial attachment or change signature?
+                 // Let's create a temporary/dummy attachment struct for compat if stash_id missing
+                 Ok(Attachment {
+                    id: "".into(),
+                    stash_id: "".into(),
+                    file_path: path_str,
+                    file_name: safe_name.into(),
+                    file_size: 0,
+                    mime_type: None,
+                    syntax: None,
+                    created_at: "".into(),
+                })
+            }
+        }
         Err(e) => Err(format!("Failed to write file: {}", e)),
     }
 }
@@ -846,10 +932,12 @@ fn save_asset(
 /// - Otherwise: `cache/<filename>` (backwards compatibility)
 #[tauri::command]
 fn save_asset_from_path(
+    state: State<Arc<DbState>>,
     path: String, 
     context_id: Option<String>, 
-    stash_id: Option<String>
-) -> Result<String, String> {
+    stash_id: Option<String>,
+    syntax: Option<String>
+) -> Result<Attachment, String> {
     println!(
         "Importing asset from path: {} context: {:?} stash: {:?}", 
         path, context_id, stash_id
@@ -888,7 +976,63 @@ fn save_asset_from_path(
     let dest_path = target_dir.join(file_name.as_ref());
 
     match fs::copy(source_path, &dest_path) {
-        Ok(_) => Ok(dest_path.to_string_lossy().into_owned()),
+        Ok(_) => {
+            let path_str = dest_path.to_string_lossy().into_owned();
+            
+            // If we have a stash_id, save metadata to DB
+            if let Some(s_id) = &stash_id {
+                let file_size = fs::metadata(&dest_path).map(|m| m.len()).unwrap_or(0) as i64;
+                // Simple mime guess or default
+                let mime_type = mime_guess::from_path(&dest_path).first().map(|m| m.to_string());
+                use uuid::Uuid;
+                let att_id = Uuid::new_v4().to_string();
+                let created_at = chrono::Utc::now().to_rfc3339();
+
+                let db = state.db.lock().unwrap();
+                let res = db.conn.execute(
+                     "INSERT INTO attachments (id, stash_id, file_path, file_name, file_size, mime_type, syntax, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                     params![
+                         att_id,
+                         s_id,
+                         path_str,
+                         file_name.as_ref(), // Original name (sanitized)
+                         file_size,
+                         mime_type,
+                         syntax,
+                         created_at
+                     ]
+                );
+                
+                if let Err(e) = res {
+                     println!("Failed to save attachment metadata (likely due to missing stash parent): {}", e);
+                     // Suppress error so frontend receives the Attachment object.
+                     // The attachment will be saved to DB when save_stash is called.
+                }
+
+                Ok(Attachment {
+                    id: att_id,
+                    stash_id: s_id.clone(),
+                    file_path: path_str,
+                    file_name: file_name.into(),
+                    file_size,
+                    mime_type,
+                    syntax,
+                    created_at,
+                })
+            } else {
+                 // Context-only fallback
+                 Ok(Attachment {
+                    id: "".into(),
+                    stash_id: "".into(),
+                    file_path: path_str,
+                    file_name: file_name.into(),
+                    file_size: 0,
+                    mime_type: None,
+                    syntax: None,
+                    created_at: "".into(),
+                })
+            }
+        },
         Err(e) => Err(format!("Failed to copy file: {}", e)),
     }
 }
@@ -898,7 +1042,7 @@ fn save_asset_from_path(
 /// Only deletes files that are within the cache directory structure
 /// to prevent deletion of files outside the app's control.
 #[tauri::command]
-fn delete_asset(path: String) -> Result<(), String> {
+fn delete_asset(state: State<Arc<DbState>>, path: String) -> Result<(), String> {
     println!("Deleting asset: {}", path);
     
     let file_path = std::path::Path::new(&path);
@@ -911,13 +1055,24 @@ fn delete_asset(path: String) -> Result<(), String> {
     
     // Check if file exists
     if !file_path.exists() {
-        // File doesn't exist, consider this a success (already deleted)
-        return Ok(());
+        // File doesn't exist, try to clean up DB just in case
+    } else {
+        // Delete the file
+        fs::remove_file(file_path)
+            .map_err(|e| format!("Failed to delete file: {}", e))?;
     }
+
+    // Delete from DB based on file path
+    // Ideally we would delete by ID, but frontend currently passes path.
+    // In future we should pass ID.
+    // Normalized path string for DB query
+    let path_str = file_path.to_string_lossy();
     
-    // Delete the file
-    fs::remove_file(file_path)
-        .map_err(|e| format!("Failed to delete file: {}", e))?;
+    let db = state.db.lock().unwrap();
+    // We use a simplified query here. Note that paths might have different separators on Windows so we might need care.
+    // But since we store exact path string on save, exact match should work if string is consistent.
+    // For robustness, we could also ignore failures here if record not found.
+    let _ = db.conn.execute("DELETE FROM attachments WHERE file_path = ?1", params![path_str]);
     
     println!("Successfully deleted asset: {}", path);
     Ok(())
@@ -937,6 +1092,8 @@ pub struct FilePreviewData {
     pub file_name: String,
     /// MIME type if detected
     pub mime_type: String,
+    /// File size in bytes
+    pub file_size: u64,
 }
 
 /// Reads a file and returns preview data based on its type.
@@ -951,6 +1108,9 @@ fn read_file_for_preview(path: String) -> Result<FilePreviewData, String> {
     if !file_path.exists() {
         return Err("File does not exist".into());
     }
+
+    let metadata = std::fs::metadata(file_path).map_err(|e| e.to_string())?;
+    let file_size = metadata.len();
 
     let file_name = file_path
         .file_name()
@@ -1052,6 +1212,7 @@ fn read_file_for_preview(path: String) -> Result<FilePreviewData, String> {
         content,
         file_name,
         mime_type: mime_type.into(),
+        file_size,
     })
 }
 
