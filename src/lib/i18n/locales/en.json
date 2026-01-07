@@ -180,6 +180,7 @@
             "stash": "stash",
             "stashes": "stashes",
             "storage": "storage used",
+            "used": "used",
             "lastUsed": "last used"
         }
     },

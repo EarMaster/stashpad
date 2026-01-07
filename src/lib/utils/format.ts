@@ -16,10 +16,12 @@
  * Attachment size limits in bytes.
  */
 export const ATTACHMENT_SIZE_LIMITS = {
-    /** Maximum size for a single attachment (50 MB) */
-    MAX_SINGLE_FILE: 50 * 1024 * 1024,
+    /** Maximum size for a single attachment (20 MB) */
+    MAX_SINGLE_FILE: 20 * 1024 * 1024,
     /** Maximum total size for all attachments in a stash (100 MB) */
     MAX_STASH_TOTAL: 100 * 1024 * 1024,
+    /** Maximum total size for all attachments in a context (2 GB) */
+    MAX_CONTEXT_TOTAL: 2 * 1024 * 1024 * 1024,
 } as const;
 
 /**

@@ -13,7 +13,7 @@
         Trash2,
         Plus,
     } from "lucide-svelte";
-    import { formatBytes } from "$lib/utils/format";
+    import { formatBytes, ATTACHMENT_SIZE_LIMITS } from "$lib/utils/format";
     import { getRelativeTime } from "$lib/utils/date";
     import ActionButton from "./ActionButton.svelte";
 
@@ -147,14 +147,15 @@
                     : $_("contexts.stats.stashes")}
             </span>
         </div>
-        {#if stats.size > 0}
-            <div class="flex items-center gap-1.5">
-                <span class="font-medium"
-                    >{formatBytes(stats.size, $locale || "en")}</span
-                >
-                <span class="opacity-70">{$_("contexts.stats.storage")}</span>
-            </div>
-        {/if}
+        <div class="flex items-center gap-1.5">
+            <span class="font-medium">
+                {formatBytes(stats.size, $locale || "en")} / {formatBytes(
+                    ATTACHMENT_SIZE_LIMITS.MAX_CONTEXT_TOTAL,
+                    $locale || "en",
+                )}
+            </span>
+            <span class="opacity-70">{$_("contexts.stats.used")}</span>
+        </div>
         {#if context.lastUsed}
             <div class="flex items-center gap-1.5">
                 <span class="opacity-70">{$_("contexts.stats.lastUsed")}</span>
