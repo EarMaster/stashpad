@@ -33,15 +33,13 @@
       filter: drop-shadow(0 0 20px rgba(168, 85, 247, 0.3));
     }
 
-    #splash-text {
-      margin-top: 16px;
-      font-family: system-ui, -apple-system, sans-serif;
-      font-size: 18px;
-      font-weight: 600;
-      letter-spacing: 0.05em;
-      color: #a1a1aa;
+    #splash-typo {
+      margin-top: 20px;
+      width: 180px;
+      height: auto;
       opacity: 0;
       animation: fadeIn 0.5s ease-out 0.2s forwards;
+      filter: drop-shadow(0 0 10px rgba(168, 85, 247, 0.2));
     }
 
     #splash-loader {
@@ -133,7 +131,7 @@
   <!-- Splash Screen - shows immediately -->
   <div id="splash">
     <img id="splash-logo" src="/assets/stashpad/tauri/icons/Square71x71Logo.png" alt="Stashpad" />
-    <div id="splash-text">Stashpad</div>
+    <img id="splash-typo" src="/assets/stashpad/Typo.svg" alt="Stashpad" />
     <div id="splash-loader">
       <span></span>
       <span></span>

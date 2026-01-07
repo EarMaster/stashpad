@@ -25,6 +25,7 @@
    import { _ } from "$lib/i18n";
    import StashCard from "./StashCard.svelte";
    import ConfirmationDialog from "./ConfirmationDialog.svelte";
+   import Fireworks from "./Fireworks.svelte";
    import { listen, type UnlistenFn } from "@tauri-apps/api/event";
    import { onMount, onDestroy } from "svelte";
    import {
@@ -92,6 +93,10 @@
    let backupOrder = $state<StashItem[] | null>(null);
    let activeSort = $state<"asc" | "desc" | null>(null);
    let scrollContainer = $state<HTMLDivElement>();
+
+   // Fireworks state
+   let showFireworks = $state(false);
+   let previousActiveCount = $state(0);
 
    // Tag Filtering
    let selectedTags = $state<string[]>([]);
@@ -269,6 +274,20 @@
       stashes;
       currentContextId;
       syncLists();
+   });
+
+   // Watch for queue completion (all active stashes become completed)
+   $effect(() => {
+      const currentActiveCount = activeStashes.length;
+
+      // Trigger fireworks when: previous count was > 0 AND current count is 0
+      // This means the queue just became empty
+      if (previousActiveCount > 0 && currentActiveCount === 0) {
+         showFireworks = true;
+      }
+
+      // Update previous count for next comparison
+      previousActiveCount = currentActiveCount;
    });
 
    // Clear backup order ONLY when context changes
@@ -989,6 +1008,9 @@
       {/if}
    </div>
 </div>
+
+<!-- Fireworks celebration when queue is completed -->
+<Fireworks bind:show={showFireworks} duration={4000} />
 
 <style>
    /* svelte-dnd-action styles */
