@@ -27,6 +27,7 @@
   import ShortcutInput from "./ShortcutInput.svelte";
   import { fade } from "svelte/transition";
   import { onMount } from "svelte";
+  import { APP_VERSION } from "$lib/utils/version";
 
   let {
     settings = $bindable(),
@@ -537,7 +538,7 @@
         <div class="text-xs text-muted-foreground space-y-2">
           <p class="font-medium text-foreground/80">
             {$_("app.name")}
-            {$_("app.version")}
+            {APP_VERSION}
           </p>
           <p>{$_("app.copyright")}</p>
           <p>{$_("app.license")}</p>

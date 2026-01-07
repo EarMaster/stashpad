@@ -113,8 +113,8 @@ impl DbManager {
             
             // Create default context with empty rules
             self.conn.execute(
-                "INSERT OR REPLACE INTO contexts (id, name, rules, last_used, updated_at, deleted) VALUES ('default', 'Default', '[]', NULL, ?1, 0)",
-                params![now_ts()],
+                "INSERT OR REPLACE INTO contexts (id, name, rules, last_used, updated_at, deleted) VALUES ('default', 'Default', '[]', ?1, ?2, 0)",
+                params![now, now_ts()],
             )?;
 
             // Create starter stashes to help new users

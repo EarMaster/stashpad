@@ -24,9 +24,13 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "sync-version": "node scripts/sync-version.mjs",
+    "predev": "npm run sync-version",
     "dev": "tauri dev",
     "vite:dev": "vite",
     "vite:build": "tsc && vite build",
+    "prebuild": "npm run sync-version",
+    "build": "npm run vite:build && tauri build",
     "vite:preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",

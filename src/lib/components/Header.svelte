@@ -50,7 +50,21 @@
 
   function updateEffectiveContext() {
     if (settings.autoContextDetection) {
-      currentContextId = contextInfo.detectedContextId || "default";
+      const detectedId = contextInfo.detectedContextId || "default";
+      currentContextId = detectedId;
+
+      // Persist the detected context to settings so it's restored on app restart
+      if (settings.activeContextId !== detectedId) {
+        settings.activeContextId = detectedId;
+        adapter.saveSettings(settings);
+
+        // Update lastUsed timestamp for the detected context
+        const ctx = contexts.find((c) => c.id === detectedId);
+        if (ctx) {
+          ctx.lastUsed = new Date().toISOString();
+          adapter.saveContext(ctx);
+        }
+      }
     } else {
       currentContextId = settings.activeContextId || "default";
     }
