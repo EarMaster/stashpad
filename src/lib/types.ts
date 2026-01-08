@@ -79,6 +79,8 @@ export interface Settings {
     pasteAsAttachmentThreshold?: number;
     /** Last used timestamp for the default context */
     defaultContextLastUsed?: string;
+    /** Launch Stashpad automatically on system startup */
+    autostart?: boolean;
 }
 
 export interface IStorageService {
@@ -122,6 +124,8 @@ export interface IStorageService {
     saveContexts(contexts: Context[]): Promise<void>;
     saveContext(context: Context): Promise<void>;
     deleteContext(id: string): Promise<void>;
+    setAutostart(enabled: boolean): Promise<void>;
+    getAutostartEnabled(): Promise<boolean>;
 }
 
 /**

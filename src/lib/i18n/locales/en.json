@@ -73,6 +73,10 @@
                 "description": "Number of lines before pasted text becomes an attachment",
                 "zeroNote": "Set to 0 to always ask what to do",
                 "unit": "Lines"
+            },
+            "autostart": {
+                "label": "Launch on Startup",
+                "description": "Automatically start Stashpad when your computer starts"
             }
         },
         "appearance": {

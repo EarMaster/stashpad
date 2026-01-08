@@ -136,5 +136,13 @@ export class DesktopStorageAdapter implements IStorageService {
     async deleteContext(id: string): Promise<void> {
         return await invoke('delete_context', { id });
     }
+
+    async setAutostart(enabled: boolean): Promise<void> {
+        return await invoke('set_autostart', { enabled });
+    }
+
+    async getAutostartEnabled(): Promise<boolean> {
+        return await invoke('get_autostart_enabled');
+    }
 }
 

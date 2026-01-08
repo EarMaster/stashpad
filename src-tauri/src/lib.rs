@@ -190,6 +190,9 @@ pub struct Settings {
     /// Last used timestamp for the default context
     #[serde(default)]
     pub default_context_last_used: Option<String>,
+    /// Launch Stashpad automatically on system startup
+    #[serde(default)]
+    pub autostart: bool,
 }
 
 fn default_clear_completed_strategy() -> String {
@@ -228,6 +231,7 @@ impl Default for Settings {
             clear_completed_days: default_clear_completed_days(),
             paste_as_attachment_threshold: default_paste_as_attachment_threshold(),
             default_context_last_used: None,
+            autostart: false,
         }
     }
 }
@@ -1352,6 +1356,31 @@ fn is_windows_10() -> bool {
     }
 }
 
+#[tauri::command]
+fn set_autostart(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    use tauri_plugin_autostart::ManagerExt;
+    
+    let autostart_manager = app.autolaunch();
+    
+    if enabled {
+        autostart_manager.enable().map_err(|e| format!("Failed to enable autostart: {}", e))?;
+        println!("Autostart enabled");
+    } else {
+        autostart_manager.disable().map_err(|e| format!("Failed to disable autostart: {}", e))?;
+        println!("Autostart disabled");
+    }
+    
+    Ok(())
+}
+
+#[tauri::command]
+fn get_autostart_enabled(app: tauri::AppHandle) -> Result<bool, String> {
+    use tauri_plugin_autostart::ManagerExt;
+    
+    let autostart_manager = app.autolaunch();
+    autostart_manager.is_enabled().map_err(|e| format!("Failed to check autostart status: {}", e))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // 0. init devtools
@@ -1522,6 +1551,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, Some(vec![])))
         .plugin(tauri_plugin_global_shortcut::Builder::new().with_handler(move |app, _shortcut, event| {
              // Handle global shortcut (toggle window)
              use tauri_plugin_global_shortcut::ShortcutState;
@@ -1560,7 +1590,9 @@ pub fn run() {
             get_contexts,   // New
             save_contexts,  // New
             save_context,   // New
-            delete_context  // New
+            delete_context, // New
+            set_autostart,
+            get_autostart_enabled
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

@@ -73,6 +73,10 @@
                 "description": "Anzahl Zeilen, ab der eingefügter Text als Anhang gespeichert wird",
                 "zeroNote": "Auf 0 setzen, um immer nachzufragen",
                 "unit": "Zeilen"
+            },
+            "autostart": {
+                "label": "Beim Start ausführen",
+                "description": "Stashpad automatisch beim Systemstart starten"
             }
         },
         "appearance": {

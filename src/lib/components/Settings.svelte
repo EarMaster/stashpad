@@ -53,6 +53,17 @@
 
   onMount(async () => {
     isWin10 = await adapter.isWindows10();
+
+    // Load current autostart status
+    try {
+      const autostartEnabled = await adapter.getAutostartEnabled();
+      if (settings.autostart !== autostartEnabled) {
+        settings.autostart = autostartEnabled;
+        save();
+      }
+    } catch (e) {
+      console.error("Failed to get autostart status:", e);
+    }
   });
   // Force rebuild
 </script>
@@ -361,6 +372,40 @@
             </div>
           </div>
         {/if}
+
+        <!-- Autostart -->
+        <div
+          class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
+        >
+          <div class="space-y-0.5">
+            <div class="text-sm font-medium">
+              {$_("settings.general.autostart.label")}
+            </div>
+            <div class="text-xs text-muted-foreground">
+              {$_("settings.general.autostart.description")}
+            </div>
+          </div>
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input
+              type="checkbox"
+              class="sr-only peer"
+              bind:checked={settings.autostart}
+              onchange={async () => {
+                try {
+                  await adapter.setAutostart(settings.autostart ?? false);
+                  save();
+                } catch (e) {
+                  console.error("Failed to update autostart:", e);
+                  // Revert the toggle if it failed
+                  settings.autostart = !settings.autostart;
+                }
+              }}
+            />
+            <div
+              class="w-11 h-6 bg-muted rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary peer-focus-visible:ring-2 peer-focus-visible:ring-primary peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-background"
+            ></div>
+          </label>
+        </div>
       </section>
 
       <!-- Appearance Section -->
