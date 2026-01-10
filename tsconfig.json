@@ -11,7 +11,8 @@
     "moduleResolution": "bundler",
     "types": [
       "vite/client",
-      "@sveltejs/vite-plugin-svelte"
+      "@sveltejs/vite-plugin-svelte",
+      "vitest/globals"
     ],
     "strict": true,
     "noImplicitAny": false,

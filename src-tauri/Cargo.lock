@@ -4635,6 +4635,7 @@ dependencies = [
  "tauri-plugin-log",
  "tauri-plugin-shell",
  "tauri-plugin-window-state",
+ "tempfile",
  "uuid",
  "window-vibrancy 0.5.3",
 ]

@@ -34,21 +34,35 @@
     "vite:preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:icons": "tauri icon --output ./assets/stashpad/tauri/icons --ios-color #d8d8d9 ./assets/stashpad/Icon.svg"
+    "tauri:icons": "tauri icon --output ./assets/stashpad/tauri/icons --ios-color #d8d8d9 ./assets/stashpad/Icon.svg",
+    "test": "vitest run",
+    "test:ui": "vitest --ui",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:unit": "vitest run --testPathPattern=\\.test\\.",
+    "test:integration": "vitest run --testPathPattern=\\.integration\\."
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^6.2.1",
     "@tailwindcss/postcss": "^4.1.17",
     "@tauri-apps/api": "^2.9.1",
     "@tauri-apps/cli": "^2.9.5",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/svelte": "^5.3.1",
+    "@testing-library/user-event": "^14.6.1",
     "@types/node": "^24.10.1",
+    "@vitest/coverage-v8": "^4.0.16",
+    "@vitest/ui": "^4.0.16",
     "autoprefixer": "^10.4.22",
+    "happy-dom": "^20.1.0",
+    "jsdom": "^27.4.0",
     "postcss": "^8.5.6",
     "svelte": "^5.45.6",
     "tailwindcss": "^4.1.17",
     "tailwindcss-animate": "^1.0.7",
     "typescript": "~5.9.3",
-    "vite": "^7.2.6"
+    "vite": "^7.2.6",
+    "vitest": "^4.0.16"
   },
   "dependencies": {
     "@tailwindcss/typography": "^0.5.19",

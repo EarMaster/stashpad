@@ -491,3 +491,239 @@ fn now_ts() -> u64 {
         .unwrap_or_default()
         .as_secs()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rusqlite::Connection;
+    
+    /// Helper to create an in-memory test database
+    fn create_test_db() -> DbManager {
+        let conn = Connection::open_in_memory().expect("Failed to create in-memory database");
+        let manager = DbManager { conn };
+        manager.init_tables().expect("Failed to initialize tables");
+        manager
+    }
+    
+    #[test]
+    fn test_default_context_creation() {
+        let db = create_test_db();
+        
+        // Default context should be created automatically
+        let contexts = db.get_contexts().expect("Failed to get contexts");
+        assert!(contexts.len() >= 1, "Should have at least default context");
+        
+        let default_ctx = contexts.iter().find(|c| c.id == "default");
+        assert!(default_ctx.is_some(), "Default context should exist");
+        assert_eq!(default_ctx.unwrap().name, "Default");
+    }
+    
+    #[test]
+    fn test_save_and_get_context() {
+        let mut db = create_test_db();
+        
+        let test_context = Context {
+            id: "test-project".to_string(),
+            name: "Test Project".to_string(),
+            rules: vec![
+                ContextRule {
+                    rule_type: "process".to_string(),
+                    value: "code".to_string(),
+                    match_type: "exact".to_string(),
+                }
+            ],
+            last_used: Some(chrono::Utc::now().to_rfc3339()),
+        };
+        
+        db.save_context(&test_context).expect("Failed to save context");
+        
+        let contexts = db.get_contexts().expect("Failed to get contexts");
+        let saved = contexts.iter().find(|c| c.id == "test-project");
+        
+        assert!(saved.is_some(), "Context should be saved");
+        assert_eq!(saved.unwrap().name, "Test Project");
+    }
+    
+    #[test]
+    fn test_default_context_protection() {
+        let mut db = create_test_db();
+        
+        // Try to rename default context
+        let modified_default = Context {
+            id: "default".to_string(),
+            name: "Modified Name".to_string(),  // Should be ignored
+            rules: vec![],
+            last_used: None,
+        };
+        
+        db.save_context(&modified_default).expect("Save should succeed");
+        
+        let contexts = db.get_contexts().expect("Failed to get contexts");
+        let default = contexts.iter().find(|c| c.id == "default").unwrap();
+        
+        // Name should still be "Default", protected from modification
+        assert_eq!(default.name, "Default", "Default context name should be protected");
+    }
+    
+    #[test]
+    fn test_save_and_get_stash() {
+        let mut db = create_test_db();
+        
+        let stash = StashItem {
+            id: "test-stash-1".to_string(),
+            context_id: Some("default".to_string()),
+            content: "Test stash content".to_string(),
+            files: vec![],
+            attachments: vec![],
+            created_at: chrono::Utc::now().to_rfc3339(),
+            completed: false,
+            completed_at: None,
+        };
+        
+        db.save_stash(&stash, None).expect("Failed to save stash");
+        
+        let stashes = db.get_stashes().expect("Failed to get stashes");
+        let saved = stashes.iter().find(|s| s.id == "test-stash-1");
+        
+        assert!(saved.is_some(), "Stash should be saved");
+        assert_eq!(saved.unwrap().content, "Test stash content");
+        assert_eq!(saved.unwrap().completed, false);
+    }
+    
+    #[test]
+    fn test_delete_stash() {
+        let mut db = create_test_db();
+        
+        let stash = StashItem {
+            id: "stash-to-delete".to_string(),
+            context_id: Some("default".to_string()),
+            content: "Will be deleted".to_string(),
+            files: vec![],
+            attachments: vec![],
+            created_at: chrono::Utc::now().to_rfc3339(),
+            completed: false,
+            completed_at: None,
+        };
+        
+        db.save_stash(&stash, None).expect("Failed to save stash");
+        db.delete_stash("stash-to-delete").expect("Failed to delete stash");
+        
+        let stashes = db.get_stashes().expect("Failed to get stashes");
+        let deleted = stashes.iter().find(|s| s.id == "stash-to-delete");
+        
+        assert!(deleted.is_none(), "Stash should be soft-deleted");
+    }
+    
+    #[test]
+    fn test_delete_completed_stashes() {
+        let mut db = create_test_db();
+        
+        // Create completed and active stashes
+        let completed = StashItem {
+            id: "completed-1".to_string(),
+            context_id: Some("default".to_string()),
+            content: "Completed task".to_string(),
+            files: vec![],
+            attachments: vec![],
+            created_at: chrono::Utc::now().to_rfc3339(),
+            completed: true,
+            completed_at: Some(chrono::Utc::now().to_rfc3339()),
+        };
+        
+        let active = StashItem {
+            id: "active-1".to_string(),
+            context_id: Some("default".to_string()),
+            content: "Active task".to_string(),
+            files: vec![],
+            attachments: vec![],
+            created_at: chrono::Utc::now().to_rfc3339(),
+            completed: false,
+            completed_at: None,
+        };
+        
+        db.save_stash(&completed, None).expect("Failed to save completed stash");
+        db.save_stash(&active, None).expect("Failed to save active stash");
+        
+        db.delete_completed_stashes(None).expect("Failed to delete completed stashes");
+        
+        let stashes = db.get_stashes().expect("Failed to get stashes");
+        
+        assert!(stashes.iter().find(|s| s.id == "completed-1").is_none(), "Completed stash should be deleted");
+        assert!(stashes.iter().find(|s| s.id == "active-1").is_some(), "Active stash should remain");
+    }
+    
+    #[test]
+    fn test_stash_positioning() {
+        let mut db = create_test_db();
+        
+        let stash1 = StashItem {
+            id: "pos-1".to_string(),
+            context_id: Some("default".to_string()),
+            content: "First".to_string(),
+            files: vec![],
+            attachments: vec![],
+            created_at: chrono::Utc::now().to_rfc3339(),
+            completed: false,
+            completed_at: None,
+        };
+        
+        let stash2 = StashItem {
+            id: "pos-2".to_string(),
+            context_id: Some("default".to_string()),
+            content: "Second".to_string(),
+            files: vec![],
+            attachments: vec![],
+            created_at: chrono::Utc::now().to_rfc3339(),
+            completed: false,
+            completed_at: None,
+        };
+        
+        // Save without explicit position (should append)
+        db.save_stash(&stash1, None).expect("Failed to save stash1");
+        db.save_stash(&stash2, None).expect("Failed to save stash2");
+        
+        let stashes = db.get_stashes().expect("Failed to get stashes");
+        
+        // Should be ordered by position
+        let pos1_idx = stashes.iter().position(|s| s.id == "pos-1");
+        let pos2_idx = stashes.iter().position(|s| s.id == "pos-2");
+        
+        assert!(pos1_idx.is_some() && pos2_idx.is_some(), "Both stashes should exist");
+        assert!(pos1_idx.unwrap() < pos2_idx.unwrap(), "Stashes should be in insertion order");
+    }
+
+    #[test]
+    fn test_migrate_v1_files_to_attachments() {
+        let db = create_test_db();
+        
+        // Create a temporary file to test migration
+        let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
+        let file_path = temp_dir.path().join("test_file.txt");
+        std::fs::write(&file_path, "test file content").expect("Failed to write test file");
+        
+        // Manually insert a stash with "v1" style files
+        let stash_id = "v1-stash".to_string();
+        let files_json = format!("[\"{}\"]", file_path.to_string_lossy().replace("\\", "\\\\"));
+        let now = chrono::Utc::now().to_rfc3339();
+        
+        db.conn.execute(
+            "INSERT INTO stashes (id, context_id, content, files, created_at, completed, position, updated_at) VALUES (?1, 'default', 'v1 content', ?2, ?3, 0, 1.0, ?4)",
+            params![stash_id, files_json, now, now_ts()],
+        ).expect("Failed to insert v1 stash");
+        
+        // Verify it was inserted
+        let files_check: String = db.conn.query_row("SELECT files FROM stashes WHERE id = 'v1-stash'", [], |row| row.get(0)).unwrap();
+        assert_eq!(files_check, files_json);
+        
+        // Run migration
+        db.migrate_v1_files_to_attachments().expect("Migration failed");
+        
+        // Check if files column is cleared
+        let files_after: String = db.conn.query_row("SELECT files FROM stashes WHERE id = 'v1-stash'", [], |row| row.get(0)).unwrap();
+        assert_eq!(files_after, "[]");
+        
+        // Check if attachments were created
+        let count: i32 = db.conn.query_row("SELECT COUNT(*) FROM attachments WHERE stash_id = 'v1-stash'", [], |row| row.get(0)).unwrap();
+        assert_eq!(count, 1, "Should have 1 attachment after migration");
+    }
+}

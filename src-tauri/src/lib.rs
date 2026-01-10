@@ -605,6 +605,61 @@ fn get_previous_app_info(state: State<Arc<Mutex<TrackerState>>>) -> AppContext {
     }
 }
 
+fn get_effective_position(invert: bool, default_pos: &str) -> &str {
+    if invert {
+        if default_pos == "bottom" { "top" } else { "bottom" }
+    } else {
+        default_pos
+    }
+}
+
+fn calculate_stash_update(
+    stash: &StashItem,
+    existing: Option<&StashItem>,
+    effective_position_str: &str,
+    min_pos: Option<f64>,
+) -> (StashItem, Option<f64>) {
+    let mut new_stash = stash.clone();
+    let position_val: Option<f64>;
+    
+    if let Some(old) = existing {
+        let status_changed = old.completed != stash.completed;
+        
+        if status_changed {
+             if new_stash.completed {
+                 new_stash.completed_at = Some(chrono::Utc::now().to_rfc3339());
+             } else {
+                 new_stash.completed_at = None;
+             }
+             // Status changed -> Move to top/bottom
+             if effective_position_str == "bottom" {
+                 position_val = None; // Append to end
+             } else {
+                 // Top: min pos - 1
+                 position_val = Some(min_pos.unwrap_or(0.0) - 1.0);
+             }
+        } else if new_stash.completed && new_stash.completed_at.is_none() {
+             new_stash.completed_at = old.completed_at.clone();
+             position_val = None; // Keep existing pos
+        } else {
+            position_val = None; // Keep existing pos
+        }
+    } else {
+        // New item
+        if new_stash.completed && new_stash.completed_at.is_none() {
+            new_stash.completed_at = Some(chrono::Utc::now().to_rfc3339());
+        }
+        
+        if effective_position_str == "bottom" {
+            position_val = None; // Append
+        } else {
+             // Top
+             position_val = Some(min_pos.unwrap_or(0.0) - 1.0);
+        }
+    }
+    (new_stash, position_val)
+}
+
 #[tauri::command]
 fn save_stash(
     state: State<Arc<DbState>>, 
@@ -619,11 +674,7 @@ fn save_stash(
     let default_pos = settings.new_stash_position.clone();
     drop(settings); 
 
-    let effective_position_str = if invert {
-        if default_pos == "bottom" { "top" } else { "bottom" }
-    } else {
-        default_pos.as_str()
-    };
+    let effective_position_str = get_effective_position(invert, &default_pos);
     
     let mut db = state.db.lock().unwrap();
     
@@ -646,46 +697,13 @@ fn save_stash(
         }
     ).optional().unwrap_or(None);
     
-    let mut new_stash = stash.clone();
-    let position_val: Option<f64>;
-    
-    if let Some(old) = existing {
-        let status_changed = old.completed != stash.completed;
-        
-        if status_changed {
-             if new_stash.completed {
-                 new_stash.completed_at = Some(chrono::Utc::now().to_rfc3339());
-             } else {
-                 new_stash.completed_at = None;
-             }
-             // Status changed -> Move to top/bottom
-             if effective_position_str == "bottom" {
-                 position_val = None; // Append to end
-             } else {
-                 // Top: min pos - 1
-                 let min_pos: Option<f64> = db.conn.query_row("SELECT MIN(position) FROM stashes WHERE deleted=0", [], |row| row.get(0)).optional().unwrap_or(None);
-                 position_val = Some(min_pos.unwrap_or(0.0) - 1.0);
-             }
-        } else if new_stash.completed && new_stash.completed_at.is_none() {
-             new_stash.completed_at = old.completed_at;
-             position_val = None; // Keep existing pos
-        } else {
-            position_val = None; // Keep existing pos
-        }
+    let min_pos: Option<f64> = if effective_position_str == "top" {
+        db.conn.query_row("SELECT MIN(position) FROM stashes WHERE deleted=0", [], |row| row.get(0)).optional().unwrap_or(None)
     } else {
-        // New item
-        if new_stash.completed && new_stash.completed_at.is_none() {
-            new_stash.completed_at = Some(chrono::Utc::now().to_rfc3339());
-        }
-        
-        if effective_position_str == "bottom" {
-            position_val = None; // Append
-        } else {
-             // Top
-             let min_pos: Option<f64> = db.conn.query_row("SELECT MIN(position) FROM stashes WHERE deleted=0", [], |row| row.get(0)).optional().unwrap_or(None);
-             position_val = Some(min_pos.unwrap_or(0.0) - 1.0);
-        }
-    }
+        None
+    };
+
+    let (new_stash, position_val) = calculate_stash_update(&stash, existing.as_ref(), effective_position_str, min_pos);
 
     if let Err(e) = db.save_stash(&new_stash, position_val) {
         println!("Failed to save stash: {}", e);
@@ -695,6 +713,14 @@ fn save_stash(
 #[tauri::command]
 fn load_stashes(state: State<Arc<DbState>>) -> Vec<StashItem> {
     state.db.lock().unwrap().get_stashes().unwrap_or_default()
+}
+
+fn get_stash_cache_path(id: &str, context_id: Option<&str>) -> std::path::PathBuf {
+    let cache_dir = get_app_dir().join("cache");
+    let ctx_id = context_id.unwrap_or("default");
+    let safe_ctx = ctx_id.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_");
+    let safe_stash_id = id.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_");
+    cache_dir.join(safe_ctx).join(safe_stash_id)
 }
 
 #[tauri::command]
@@ -710,16 +736,13 @@ fn delete_stash(state: State<Arc<DbState>>, id: String) {
     ).optional().unwrap_or(None);
 
     if let Some((_, context_id)) = stash_info {
-        let cache_dir = get_app_dir().join("cache");
-        let ctx_id = context_id.as_deref().unwrap_or("default");
-        let safe_ctx = ctx_id.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_");
-        let safe_stash_id = id.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_");
-        let stash_folder = cache_dir.join(&safe_ctx).join(&safe_stash_id);
+        let stash_path = get_stash_cache_path(&id, context_id.as_deref());
         
-        if stash_folder.exists() {
-            if let Err(e) = fs::remove_dir_all(stash_folder) {
-                println!("Failed to delete stash folder: {}", e);
-            }
+        // delete directory recursively
+        if stash_path.exists() {
+             if let Err(e) = std::fs::remove_dir_all(&stash_path) {
+                 println!("Failed to delete stash attachments: {}", e);
+             }
         }
     }
     
@@ -1620,4 +1643,145 @@ pub fn run() {
             }
             _ => {}
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_validate_settings_defaults() {
+        let mut settings = Settings::default();
+        settings.new_stash_position = "invalid".to_string();
+        settings.clear_completed_strategy = "invalid".to_string();
+        settings.theme = Some("invalid".to_string());
+        settings.clear_completed_days = 0;
+        settings.paste_as_attachment_threshold = 2000;
+
+        let validated = validate_settings(settings);
+        
+        assert_eq!(validated.new_stash_position, "top");
+        assert_eq!(validated.clear_completed_strategy, "never");
+        assert!(validated.theme.is_none());
+        // days only defaults if strategy is after-n-days, which we just reset to never
+        assert_eq!(validated.clear_completed_days, 0); 
+        assert_eq!(validated.paste_as_attachment_threshold, 8);
+    }
+
+    #[test]
+    fn test_validate_settings_after_n_days() {
+        let mut settings = Settings::default();
+        settings.clear_completed_strategy = "after-n-days".to_string();
+        settings.clear_completed_days = 0;
+
+        let validated = validate_settings(settings);
+        
+        assert_eq!(validated.clear_completed_strategy, "after-n-days");
+        assert_eq!(validated.clear_completed_days, 7); // Default
+    }
+
+    #[test]
+    fn test_validate_settings_valid() {
+        let mut settings = Settings::default();
+        settings.new_stash_position = "bottom".to_string();
+        settings.clear_completed_strategy = "on-close".to_string();
+        settings.theme = Some("dark".to_string());
+        settings.clear_completed_days = 30;
+        settings.paste_as_attachment_threshold = 100;
+
+        let validated = validate_settings(settings.clone());
+        
+        assert_eq!(validated.new_stash_position, "bottom");
+        assert_eq!(validated.clear_completed_strategy, "on-close");
+        assert_eq!(validated.theme, Some("dark".to_string()));
+        assert_eq!(validated.clear_completed_days, 30);
+        assert_eq!(validated.paste_as_attachment_threshold, 100);
+    }
+
+    #[test]
+    fn test_get_effective_position() {
+        assert_eq!(get_effective_position(false, "top"), "top");
+        assert_eq!(get_effective_position(false, "bottom"), "bottom");
+        assert_eq!(get_effective_position(true, "top"), "bottom");
+        assert_eq!(get_effective_position(true, "bottom"), "top");
+    }
+
+    #[test]
+    fn test_calculate_stash_update_new() {
+        let stash = StashItem {
+            id: "1".into(),
+            context_id: None,
+            content: "test".into(),
+            files: vec![],
+            attachments: vec![],
+            created_at: "2024-01-01".into(),
+            completed: false,
+            completed_at: None,
+        };
+        
+        // New item, top
+        let (new_stash, pos) = calculate_stash_update(&stash, None, "top", Some(10.0));
+        assert_eq!(pos, Some(9.0));
+        assert!(!new_stash.completed);
+        
+        // New item, bottom
+        let (new_stash, pos) = calculate_stash_update(&stash, None, "bottom", None);
+        assert_eq!(pos, None);
+    }
+
+    #[test]
+    fn test_calculate_stash_update_status_change() {
+        let old = StashItem {
+            id: "1".into(),
+            context_id: None,
+            content: "test".into(),
+            files: vec![],
+            attachments: vec![],
+            created_at: "2024-01-01".into(),
+            completed: false,
+            completed_at: None,
+        };
+        
+        let mut new = old.clone();
+        new.completed = true;
+        
+        // Status change, top
+        let (updated, pos) = calculate_stash_update(&new, Some(&old), "top", Some(10.0));
+        assert_eq!(pos, Some(9.0));
+        assert!(updated.completed);
+        assert!(updated.completed_at.is_some());
+        
+        // Status change, bottom
+        let (updated, pos) = calculate_stash_update(&new, Some(&old), "bottom", None);
+        assert_eq!(pos, None);
+        assert!(updated.completed);
+    }
+
+    #[test]
+    fn test_calculate_stash_update_no_change() {
+        let old = StashItem {
+            id: "1".into(),
+            context_id: None,
+            content: "test".into(),
+            files: vec![],
+            attachments: vec![],
+            created_at: "2024-01-01".into(),
+            completed: false,
+            completed_at: None,
+        };
+        
+        let new = old.clone();
+        
+        let (_, pos) = calculate_stash_update(&new, Some(&old), "top", Some(10.0));
+        assert_eq!(pos, None); // Should keep existing position
+    }
+
+    #[test]
+    fn test_get_stash_cache_path() {
+        // Since get_app_dir() depends on Tauri, we might need a dummy path or mock.
+        // Assuming get_app_dir() returns a path like ~/.stashpad
+        let path = get_stash_cache_path("stash123", Some("my-context"));
+        assert!(path.to_string_lossy().contains("my-context"));
+        assert!(path.to_string_lossy().contains("stash123"));
+    }
 }

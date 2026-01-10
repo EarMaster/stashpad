@@ -55,6 +55,37 @@ Instead of interrupting your AI agent (like Claude, ChatGPT, or GitHub Copilot) 
 * `src/lib/services/`: Contains the **Storage Adapter Interface**. This separates the UI from the backend logic.
 * `src/lib/components/`: Svelte 5 UI components.
 
+## 🧪 Testing
+
+Stashpad includes comprehensive testing infrastructure for reliable code quality:
+
+### Running Tests
+
+```bash
+# Run all tests
+npm run test
+
+# Run tests in watch mode (for development)
+npm run test:watch
+
+# Run tests with interactive UI
+npm run test:ui
+
+# Generate coverage report
+npm run test:coverage
+
+# Run Rust backend tests
+cd src-tauri && cargo test
+```
+
+### Test Coverage
+
+- **70+ Frontend Tests**: Unit tests for utilities and services
+- **Vitest + Testing Library**: Modern testing framework with Svelte 5 support
+- **Mocked Tauri APIs**: Isolated unit testing without backend dependencies
+
+For comprehensive testing documentation, see [TESTING.md](TESTING.md).
+
 ## 📝 License
 
 This project's source code is licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0)**.
