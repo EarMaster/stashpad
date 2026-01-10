@@ -406,6 +406,8 @@ fn remove_contexts_from_settings() {
 /// - macOS: Vibrancy with HudWindow material
 /// - Linux: No library support (compositor handles transparency)
 fn apply_window_effects_to_window(window: &tauri::WebviewWindow, enabled: Option<bool>) {
+    #[cfg(target_os = "linux")]
+    let _ = window;
     let should_enable = enabled.unwrap_or(true);
     
     if should_enable {
@@ -1280,8 +1282,17 @@ fn start_drag(window: tauri::Window, text: String, files: Vec<String>) -> Result
 
     let image = drag::Image::Raw(vec![]);
 
-    drag::start_drag(&window, items, image, |_, _| {}, Default::default())
-        .map_err(|e| e.to_string())?;
+    #[cfg(target_os = "linux")]
+    {
+        let gtk_window = window.gtk_window().map_err(|e| e.to_string())?;
+        drag::start_drag(&gtk_window, items, image, |_, _| {}, Default::default())
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        drag::start_drag(&window, items, image, |_, _| {}, Default::default())
+            .map_err(|e| e.to_string())?;
+    }
 
     Ok(())
 }
@@ -1725,7 +1736,7 @@ mod tests {
         assert!(!new_stash.completed);
         
         // New item, bottom
-        let (new_stash, pos) = calculate_stash_update(&stash, None, "bottom", None);
+        let (_new_stash, pos) = calculate_stash_update(&stash, None, "bottom", None);
         assert_eq!(pos, None);
     }
 
