@@ -17,7 +17,7 @@ import { getRelativeTime } from '../date';
 
 describe('date utilities', () => {
     describe('getRelativeTime', () => {
-        let mockTranslate: ReturnType<typeof vi.fn>;
+        let mockTranslate: any;
         let mockNow: Date;
 
         beforeEach(() => {
