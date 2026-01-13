@@ -23,6 +23,7 @@
   import logoIcon from "../../../assets/stashpad/Icon-Darkmode.svg";
   import logoIconLight from "../../../assets/stashpad/Icon.svg";
   import logoTypo from "../../../assets/stashpad/Typo.svg";
+  import { tooltip } from "$lib/actions/tooltip";
 
   let contextInfo = $state<AppContext>({
     windowTitle: $_("header.checking"),
@@ -124,6 +125,7 @@
         class="flex items-center gap-1.5 text-sm font-medium text-foreground hover:bg-muted/50 rounded -ml-1 py-0.5 px-1 transition-colors text-left pointer-events-auto"
         onclick={onOpenContextSwitcher}
         title={contextInfo.windowTitle}
+        use:tooltip
       >
         <span class="truncate max-w-[150px] lg:max-w-[200px]">
           {getContextName(currentContextId || "default")}
@@ -153,6 +155,7 @@
       class="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded-md transition-colors pointer-events-auto"
       onclick={onOpenSettings}
       title={$_("header.settings")}
+      use:tooltip
     >
       ⚙️
     </button>
@@ -161,6 +164,7 @@
       class="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded-md transition-colors pointer-events-auto"
       onclick={() => getCurrentWindow().minimize()}
       title={$_("common.minimize")}
+      use:tooltip
     >
       ─
     </button>
@@ -168,6 +172,7 @@
       class="p-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-md transition-colors pointer-events-auto"
       onclick={() => getCurrentWindow().close()}
       title={$_("common.close")}
+      use:tooltip
     >
       ✕
     </button>

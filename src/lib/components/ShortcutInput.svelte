@@ -16,6 +16,7 @@
 
 <script lang="ts">
     import { _ } from "$lib/i18n";
+    import { tooltip } from "$lib/actions/tooltip";
     /**
      * ShortcutInput Component
      *
@@ -353,6 +354,7 @@
             class="clear-button"
             onclick={handleClear}
             title={$_("settings.shortcuts.clearShortcut")}
+            use:tooltip
             aria-label={$_("settings.shortcuts.clearShortcut")}
         >
             ×

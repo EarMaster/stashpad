@@ -65,7 +65,7 @@
             },
             "stripTagsOnCopy": {
                 "label": "Tags beim Kopieren entfernen",
-                "description": "#Hashtags beim Kopieren von Stash-Inhalten in die Zwischenablage entfernen",
+                "description": "Beim Kopieren von Stash-Inhalten in die Zwischenablage #tags entfernen",
                 "shiftModifier": "Shift halten beim Kopieren, um diese Einstellung temporär umzukehren"
             },
             "pasteAsAttachment": {
@@ -122,6 +122,35 @@
         "clearCompletedDays": {
             "label": "Aufbewahrungsdauer",
             "description": "Tage, die erledigte Stashes aufbewahrt werden"
+        },
+        "aiEnhancement": {
+            "title": "Prompt Verbesserung",
+            "enable": {
+                "label": "Prompt Verbesserung aktivieren",
+                "description": "Stash-Inhalte mit KI-Modellen verbessern"
+            },
+            "provider": {
+                "label": "Anbieter",
+                "description": "Wählen Sie einen Anbieter oder Benutzerdefiniert",
+                "custom": "Benutzerdefiniert"
+            },
+            "endpoint": {
+                "label": "API-Endpunkt",
+                "description": "OpenAI-kompatibler API-Endpunkt"
+            },
+            "apiKey": {
+                "label": "API-Schlüssel",
+                "description": "Ihr API-Schlüssel (lokal gespeichert)",
+                "show": "API-Schlüssel anzeigen",
+                "hide": "API-Schlüssel verbergen"
+            },
+            "model": {
+                "label": "Modell",
+                "description": "Modellname für die Verbesserung"
+            },
+            "testConnection": "Verbindung testen",
+            "testSuccess": "Verbindung erfolgreich!",
+            "testFailed": "Verbindung fehlgeschlagen: {error}"
         }
     },
     "contexts": {
@@ -248,7 +277,18 @@
         "dragToReorder": "Zum Neuordnen ziehen",
         "limitExceeded": "Limit überschritten",
         "fileTooLarge": "Datei zu groß. Maximale Größe ist {limit}.",
-        "stashSizeExceeded": "Gesamtgröße des Stashes ({limit}) überschritten."
+        "stashSizeExceeded": "Gesamtgröße des Stashes ({limit}) überschritten.",
+        "enhanceWithAI": "Mit KI verbessern",
+        "enhancing": "Wird verbessert…",
+        "enhanceError": "Verbesserung fehlgeschlagen: {error}",
+        "hasBeenEnhanced": "Verbessert mit KI",
+        "viewOriginal": "Original anzeigen",
+        "viewEnhanced": "Verbessert anzeigen",
+        "regenerateEnhanced": "Neu generieren",
+        "removeEnhanced": "Verbesserte Version entfernen",
+        "contentEdited": "Originalinhalt wurde bearbeitet. Verbesserte Version neu generieren?",
+        "regenerate": "Neu generieren",
+        "keepEnhanced": "Beibehalten"
     },
     "editor": {
         "placeholder": "Stash hier eingeben… (Cmd+Enter zum Speichern)",

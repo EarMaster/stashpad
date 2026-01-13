@@ -16,6 +16,7 @@
     import { formatBytes, ATTACHMENT_SIZE_LIMITS } from "$lib/utils/format";
     import { getRelativeTime } from "$lib/utils/date";
     import ActionButton from "./ActionButton.svelte";
+    import { tooltip } from "$lib/actions/tooltip";
 
     let {
         context = $bindable(),
@@ -39,7 +40,7 @@
         onSelect?: () => void;
     }>();
 
-    let inputElement: HTMLInputElement | undefined;
+    let inputElement = $state<HTMLInputElement>();
 
     $effect(() => {
         if (autoFocus && inputElement) {
@@ -221,6 +222,7 @@
                         class="text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity ml-auto sm:ml-0"
                         onclick={() => removeRule(j)}
                         title={$_("common.remove")}
+                        use:tooltip
                     >
                         ×
                     </button>

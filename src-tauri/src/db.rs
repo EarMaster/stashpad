@@ -89,6 +89,19 @@ impl DbManager {
         }
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_attachments_stash_id ON attachments(stash_id)", [])?;
 
+        // Migrate enhanced_content column for AI enhancement feature
+        let enhanced_content_exists: bool = self.conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('stashes') WHERE name='enhanced_content'",
+                [],
+                |row| row.get(0).map(|c: i32| c > 0),
+            )
+            .unwrap_or(false);
+
+        if !enhanced_content_exists {
+            let _ = self.conn.execute("ALTER TABLE stashes ADD COLUMN enhanced_content TEXT", []);
+        }
+
         // Migrate potentially existing files to attachments
         self.migrate_v1_files_to_attachments()?;
 
@@ -323,7 +336,7 @@ impl DbManager {
 
     pub fn get_stashes(&self) -> Result<Vec<StashItem>> {
         // 1. Get all stashes
-        let mut stmt = self.conn.prepare("SELECT id, context_id, content, files, created_at, completed, completed_at, position FROM stashes WHERE deleted = 0 ORDER BY position ASC")?;
+        let mut stmt = self.conn.prepare("SELECT id, context_id, content, files, created_at, completed, completed_at, position, enhanced_content FROM stashes WHERE deleted = 0 ORDER BY position ASC")?;
         
         let stash_rows = stmt.query_map([], |row| {
             let files_str: String = row.get(3)?;
@@ -334,6 +347,7 @@ impl DbManager {
                 id: row.get(0)?,
                 context_id: row.get(1)?,
                 content: row.get(2)?,
+                enhanced_content: row.get(8)?,
                 files: serde_json::from_str(&files_str).unwrap_or_default(),
                 attachments: Vec::new(), // Populate later
                 created_at: row.get(4)?,
@@ -412,11 +426,12 @@ impl DbManager {
         };
 
         self.conn.execute(
-            "INSERT OR REPLACE INTO stashes (id, context_id, content, files, created_at, completed, completed_at, position, updated_at, deleted) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 0)",
+            "INSERT OR REPLACE INTO stashes (id, context_id, content, enhanced_content, files, created_at, completed, completed_at, position, updated_at, deleted) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 0)",
             params![
                 stash.id,
                 stash.context_id,
                 stash.content,
+                stash.enhanced_content,
                 files_json,
                 stash.created_at,
                 stash.completed,

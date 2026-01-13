@@ -1,10 +1,12 @@
 <script lang="ts">
     import type { Snippet } from "svelte";
     import { twMerge } from "tailwind-merge";
+    import { tooltip } from "$lib/actions/tooltip";
 
     let {
         variant = "additional",
         danger = false,
+        active = false,
         class: className = "",
         onclick,
         title,
@@ -18,8 +20,10 @@
             | "main"
             | "complete"
             | "drag"
-            | "context";
+            | "context"
+            | "top";
         danger?: boolean;
+        active?: boolean;
         class?: string;
         onclick?: (e: MouseEvent) => void;
         title?: string;
@@ -52,18 +56,30 @@
         // Context actions - collapse to icon on small screens
         context:
             "group px-2 py-1 hover:bg-muted text-muted-foreground hover:text-foreground text-xs rounded flex items-center gap-1.5 transition-colors",
+
+        // Small badge-style buttons (e.g., version toggle)
+        top: "gap-1 px-1.5 py-0.5 min-h-5 text-[10px] bg-secondary/50 text-muted-foreground border-border hover:bg-secondary hover:text-foreground",
     };
+
+    // Active state styling for badge variant
+    let activeStyles = $derived(
+        active && variant === "top"
+            ? "bg-primary/10 text-primary border-primary/20"
+            : "",
+    );
 </script>
 
 <button
     class={twMerge(
         baseClass,
         variants[variant],
+        activeStyles,
         danger && "hover:bg-red-500/10 hover:text-red-500",
         className,
     )}
     {onclick}
     {title}
+    use:tooltip
     {disabled}
     type="button"
     {...rest}

@@ -20,6 +20,7 @@
     import { Search, ArrowDownUp, Clock } from "lucide-svelte";
     import fuzzysort from "fuzzysort";
     import { getRelativeTime } from "$lib/utils/date";
+    import { tooltip } from "$lib/actions/tooltip";
 
     let {
         contexts,
@@ -201,6 +202,7 @@
                             ? 'text-primary'
                             : ''}"
                         title={$_("contextSwitcher.sortByLastUsed")}
+                        use:tooltip
                         onclick={() => (sortBy = "lastUsed")}
                     >
                         <Clock size={12} />
@@ -212,6 +214,7 @@
                             ? 'text-primary'
                             : ''}"
                         title={$_("contextSwitcher.sortAlphabetically")}
+                        use:tooltip
                         onclick={() =>
                             (sortBy =
                                 sortBy === "alpha" ? "alphaDesc" : "alpha")}

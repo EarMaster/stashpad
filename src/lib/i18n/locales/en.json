@@ -65,7 +65,7 @@
             },
             "stripTagsOnCopy": {
                 "label": "Strip Tags on Copy",
-                "description": "Remove #hashtags when copying stash content to clipboard",
+                "description": "Remove #tags when copying stash content to clipboard",
                 "shiftModifier": "Hold Shift while copying to invert this setting temporarily"
             },
             "pasteAsAttachment": {
@@ -122,6 +122,35 @@
         "clearCompletedDays": {
             "label": "Days to Keep",
             "description": "Days to keep completed stashes before deleting"
+        },
+        "aiEnhancement": {
+            "title": "Prompt Enhancement",
+            "enable": {
+                "label": "Enable Prompt Enhancement",
+                "description": "Enhance stash content using AI models"
+            },
+            "provider": {
+                "label": "Provider",
+                "description": "Choose a provider or select Custom",
+                "custom": "Custom"
+            },
+            "endpoint": {
+                "label": "API Endpoint",
+                "description": "OpenAI-compatible API endpoint"
+            },
+            "apiKey": {
+                "label": "API Key",
+                "description": "Your API key (stored locally)",
+                "show": "Show API key",
+                "hide": "Hide API key"
+            },
+            "model": {
+                "label": "Model",
+                "description": "Model name to use for enhancement"
+            },
+            "testConnection": "Test Connection",
+            "testSuccess": "Connection successful!",
+            "testFailed": "Connection failed: {error}"
         }
     },
     "contexts": {
@@ -248,7 +277,18 @@
         "dragToReorder": "Drag to reorder",
         "limitExceeded": "Limit Exceeded",
         "fileTooLarge": "File too large. Maximum size is {limit}.",
-        "stashSizeExceeded": "Total stash size limit ({limit}) exceeded."
+        "stashSizeExceeded": "Total stash size limit ({limit}) exceeded.",
+        "enhanceWithAI": "Enhance with AI",
+        "enhancing": "Enhancing…",
+        "enhanceError": "Failed to enhance: {error}",
+        "hasBeenEnhanced": "Enhanced with AI",
+        "viewOriginal": "View original",
+        "viewEnhanced": "View enhanced",
+        "regenerateEnhanced": "Regenerate",
+        "removeEnhanced": "Remove enhanced version",
+        "contentEdited": "Original content was edited. Regenerate enhanced version?",
+        "regenerate": "Regenerate",
+        "keepEnhanced": "Keep current"
     },
     "editor": {
         "placeholder": "Type your stash here… (Cmd+Enter to save)",
@@ -268,6 +308,11 @@
             "description": "The pasted content can be added as text or saved as a file attachment.",
             "inline": "Paste as text",
             "attachment": "Save as attachment"
+        },
+        "clear": "Clear",
+        "clearConfirm": {
+            "title": "Clear Editor?",
+            "description": "This will remove all text and attachments. This action cannot be undone."
         }
     },
     "shortcutInput": {

@@ -51,6 +51,9 @@ pub struct Attachment {
 pub struct StashItem {
     pub id: String,
     pub content: String,
+    /// AI-enhanced version of the content (if generated)
+    #[serde(default)]
+    pub enhanced_content: Option<String>,
     #[serde(default)]
     pub files: Vec<String>, // Deprecated, kept for backward compatibility/migration
     #[serde(default)]
@@ -193,6 +196,26 @@ pub struct Settings {
     /// Launch Stashpad automatically on system startup
     #[serde(default)]
     pub autostart: bool,
+    /// AI enhancement configuration
+    #[serde(default)]
+    pub ai_config: Option<AiConfig>,
+}
+
+/// AI provider configuration for prompt enhancement
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AiConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub endpoint: String,
+    /// API key - stored obfuscated (not encrypted, just not plaintext)
+    #[serde(default)]
+    pub api_key: String,
+    #[serde(default)]
+    pub model: String,
+    #[serde(default)]
+    pub preset_id: Option<String>,
 }
 
 fn default_clear_completed_strategy() -> String {
@@ -232,7 +255,223 @@ impl Default for Settings {
             paste_as_attachment_threshold: default_paste_as_attachment_threshold(),
             default_context_last_used: None,
             autostart: false,
+            ai_config: None,
         }
+    }
+}
+
+/// Simple obfuscation key for API key storage (fallback)
+const OBFUSCATION_KEY: &[u8] = b"StashpadAIConfigKey2026";
+
+/// Keychain identifiers - using explicit target for Windows compatibility
+const KEYCHAIN_SERVICE: &str = "stashpad";
+const KEYCHAIN_USER: &str = "ai_api_key";
+const KEYCHAIN_TARGET: &str = "stashpad.ai_api_key";
+
+/// Create a keychain entry with consistent target across platforms
+fn create_keychain_entry() -> Result<keyring::Entry, keyring::Error> {
+    keyring::Entry::new_with_target(KEYCHAIN_TARGET, KEYCHAIN_SERVICE, KEYCHAIN_USER)
+}
+
+/// Store API key in system keychain and verify it can be retrieved
+fn store_api_key_in_keychain(key: &str) -> bool {
+    if key.is_empty() {
+        delete_api_key_from_keychain();
+        return true;
+    }
+    match create_keychain_entry() {
+        Ok(entry) => {
+            match entry.set_password(key) {
+                Ok(_) => {
+                    // Verify we can actually retrieve it
+                    match create_keychain_entry() {
+                        Ok(verify_entry) => {
+                            match verify_entry.get_password() {
+                                Ok(retrieved) if retrieved == key => {
+                                    println!("API key stored and verified in system keychain");
+                                    true
+                                }
+                                Ok(_) => {
+                                    println!("Keychain verification failed: retrieved key doesn't match");
+                                    false
+                                }
+                                Err(e) => {
+                                    println!("Keychain verification failed: {:?}", e);
+                                    false
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            println!("Keychain verification failed (entry creation): {:?}", e);
+                            false
+                        }
+                    }
+                }
+                Err(e) => {
+                    println!("Failed to store API key in keychain: {:?}", e);
+                    false
+                }
+            }
+        }
+        Err(e) => {
+            println!("Failed to create keychain entry: {:?}", e);
+            false
+        }
+    }
+}
+
+/// Retrieve API key from system keychain
+fn get_api_key_from_keychain() -> Option<String> {
+    match create_keychain_entry() {
+        Ok(entry) => {
+            match entry.get_password() {
+                Ok(password) => {
+                    println!("API key retrieved from system keychain");
+                    Some(password)
+                }
+                Err(_) => None
+            }
+        }
+        Err(_) => None
+    }
+}
+
+/// Delete API key from keychain
+fn delete_api_key_from_keychain() {
+    if let Ok(entry) = create_keychain_entry() {
+        let _ = entry.delete_credential();
+    }
+}
+
+/// Derive a 256-bit key from machine-specific information
+/// This makes the encrypted data machine-bound (can't be decrypted on another machine)
+fn derive_machine_key() -> [u8; 32] {
+    use sha2::{Sha256, Digest};
+    
+    let mut hasher = Sha256::new();
+    
+    // Add machine-specific data to the key derivation
+    // This includes hostname and app directory path
+    if let Ok(hostname) = std::env::var("COMPUTERNAME")
+        .or_else(|_| std::env::var("HOSTNAME"))
+        .or_else(|_| std::env::var("NAME"))
+    {
+        hasher.update(hostname.as_bytes());
+    }
+    
+    // Add app directory path (unique per user/installation)
+    hasher.update(get_app_dir().to_string_lossy().as_bytes());
+    
+    // Add a static salt
+    hasher.update(b"StashpadAPIKeyEncryption2026");
+    
+    let result = hasher.finalize();
+    let mut key = [0u8; 32];
+    key.copy_from_slice(&result);
+    key
+}
+
+/// Encrypt a string using AES-256-GCM (fallback for when keychain unavailable)
+fn encrypt_api_key(key: &str) -> String {
+    if key.is_empty() {
+        return String::new();
+    }
+    
+    use aes_gcm::{
+        aead::{Aead, KeyInit},
+        Aes256Gcm, Nonce,
+    };
+    use rand::RngCore;
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
+    
+    let encryption_key = derive_machine_key();
+    let cipher = Aes256Gcm::new_from_slice(&encryption_key).expect("Invalid key length");
+    
+    // Generate random 12-byte nonce
+    let mut nonce_bytes = [0u8; 12];
+    rand::thread_rng().fill_bytes(&mut nonce_bytes);
+    let nonce = Nonce::from_slice(&nonce_bytes);
+    
+    match cipher.encrypt(nonce, key.as_bytes()) {
+        Ok(ciphertext) => {
+            // Prepend nonce to ciphertext
+            let mut result = Vec::with_capacity(12 + ciphertext.len());
+            result.extend_from_slice(&nonce_bytes);
+            result.extend_from_slice(&ciphertext);
+            STANDARD.encode(&result)
+        }
+        Err(e) => {
+            println!("Encryption failed: {:?}", e);
+            // Fallback to simple obfuscation if encryption fails
+            obfuscate_simple(key)
+        }
+    }
+}
+
+/// Decrypt a string that was encrypted with encrypt_api_key
+fn decrypt_api_key(encoded: &str) -> String {
+    if encoded.is_empty() {
+        return String::new();
+    }
+    
+    use aes_gcm::{
+        aead::{Aead, KeyInit},
+        Aes256Gcm, Nonce,
+    };
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
+    
+    match STANDARD.decode(encoded) {
+        Ok(data) => {
+            if data.len() < 13 {
+                // Too short to be valid (12 byte nonce + at least 1 byte)
+                // Try legacy deobfuscation
+                return deobfuscate_simple(encoded);
+            }
+            
+            let (nonce_bytes, ciphertext) = data.split_at(12);
+            let encryption_key = derive_machine_key();
+            let cipher = Aes256Gcm::new_from_slice(&encryption_key).expect("Invalid key length");
+            let nonce = Nonce::from_slice(nonce_bytes);
+            
+            match cipher.decrypt(nonce, ciphertext) {
+                Ok(plaintext) => String::from_utf8(plaintext).unwrap_or_default(),
+                Err(_) => {
+                    // Decryption failed - might be old XOR obfuscated format
+                    deobfuscate_simple(encoded)
+                }
+            }
+        }
+        Err(_) => {
+            // Base64 decode failed - assume it's plaintext (migration case)
+            encoded.to_string()
+        }
+    }
+}
+
+/// Simple XOR obfuscation (legacy fallback)
+fn obfuscate_simple(key: &str) -> String {
+    let bytes: Vec<u8> = key
+        .bytes()
+        .enumerate()
+        .map(|(i, b)| b ^ OBFUSCATION_KEY[i % OBFUSCATION_KEY.len()])
+        .collect();
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
+    STANDARD.encode(&bytes)
+}
+
+/// Simple XOR deobfuscation (legacy fallback)
+fn deobfuscate_simple(encoded: &str) -> String {
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
+    match STANDARD.decode(encoded) {
+        Ok(bytes) => {
+            let decoded: Vec<u8> = bytes
+                .iter()
+                .enumerate()
+                .map(|(i, b)| b ^ OBFUSCATION_KEY[i % OBFUSCATION_KEY.len()])
+                .collect();
+            String::from_utf8(decoded).unwrap_or_default()
+        }
+        Err(_) => encoded.to_string()
     }
 }
 
@@ -248,7 +487,17 @@ fn load_settings_from_disk() -> Settings {
     let path = get_settings_path();
     if path.exists() {
         if let Ok(file) = fs::File::open(path) {
-            if let Ok(settings) = serde_json::from_reader(file) {
+            if let Ok(mut settings) = serde_json::from_reader::<_, Settings>(file) {
+                // Try to get API key - keychain first, then JSON fallback
+                if let Some(ref mut ai_config) = settings.ai_config {
+                    // First try keychain
+                    if let Some(keychain_key) = get_api_key_from_keychain() {
+                        ai_config.api_key = keychain_key;
+                    } else if !ai_config.api_key.is_empty() {
+                        // Fallback: decrypt from JSON
+                        ai_config.api_key = decrypt_api_key(&ai_config.api_key);
+                    }
+                }
                 // Validate and sanitize settings before returning
                 return validate_settings(settings);
             }
@@ -315,8 +564,26 @@ fn validate_settings(mut settings: Settings) -> Settings {
 
 fn persist_settings_to_disk(settings: &Settings) {
     let path = get_settings_path();
+    let mut settings_to_save = settings.clone();
+    
+    // Handle API key storage - try keychain first, fallback to obfuscation
+    if let Some(ref mut ai_config) = settings_to_save.ai_config {
+        let api_key = ai_config.api_key.clone();
+        
+        if !api_key.is_empty() {
+            if store_api_key_in_keychain(&api_key) {
+                // Keychain success - store empty in JSON
+                ai_config.api_key = String::new();
+            } else {
+                // Keychain failed - use encrypted JSON storage
+                println!("Keychain unavailable, using encrypted JSON storage");
+                ai_config.api_key = encrypt_api_key(&api_key);
+            }
+        }
+    }
+    
     if let Ok(file) = fs::File::create(path) {
-        let _ = serde_json::to_writer_pretty(file, settings);
+        let _ = serde_json::to_writer_pretty(file, &settings_to_save);
     }
 }
 
@@ -690,6 +957,7 @@ fn save_stash(
                 id: row.get(0)?,
                 context_id: None, 
                 content: "".into(), 
+                enhanced_content: None,
                 files: vec![], 
                 attachments: vec![],
                 created_at: "".into(),

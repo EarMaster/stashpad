@@ -1,0 +1,64 @@
+/* 
+ * Tooltip Styles
+ * Used by the tooltip action in $lib/actions/tooltip.ts
+ */
+
+.tooltip {
+    position: fixed;
+    z-index: 999999 !important;
+    max-width: 250px;
+    padding: 4px 8px;
+    background-color: var(--foreground);
+    color: var(--background);
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1.4;
+    border-radius: 4px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+    white-space: normal;
+    word-wrap: break-word;
+    text-align: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s ease-in-out;
+}
+
+.tooltip.visible {
+    opacity: 1;
+}
+
+/* Tooltip arrow */
+.tooltip-arrow {
+    position: absolute;
+    width: 0;
+    height: 0;
+    border: 5px solid transparent;
+}
+
+.tooltip-arrow.arrow-top {
+    bottom: -9px;
+    left: 50%;
+    transform: translateX(-50%);
+    border-top-color: var(--foreground);
+}
+
+.tooltip-arrow.arrow-bottom {
+    top: -9px;
+    left: 50%;
+    transform: translateX(-50%);
+    border-bottom-color: var(--foreground);
+}
+
+.tooltip-arrow.arrow-left {
+    right: -9px;
+    top: 50%;
+    transform: translateY(-50%);
+    border-left-color: var(--foreground);
+}
+
+.tooltip-arrow.arrow-right {
+    left: -9px;
+    top: 50%;
+    transform: translateY(-50%);
+    border-right-color: var(--foreground);
+}

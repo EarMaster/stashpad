@@ -463,6 +463,7 @@
             }}
             bind:allTags
             stripTagsOnCopy={settings.stripTagsOnCopy ?? true}
+            aiConfig={settings.aiConfig}
          />
       </div>
    {:else if view === "Settings"}

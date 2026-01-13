@@ -23,6 +23,7 @@
         AlertTriangle,
         FolderOpen,
     } from "lucide-svelte";
+    import { tooltip } from "$lib/actions/tooltip";
 
     let {
         open = $bindable(false),
@@ -704,7 +705,8 @@
                                                     class="text-[10px] text-amber-500 shrink-0 cursor-help"
                                                     title={$_(
                                                         "contexts.importDialog.duplicateTooltip",
-                                                    )}>⚠️</span
+                                                    )}
+                                                    use:tooltip>⚠️</span
                                                 >
                                             {/if}
                                             {#if stash.files && stash.files.length > 0}
@@ -768,7 +770,8 @@
                                                     class="text-[10px] text-amber-500 shrink-0 cursor-help"
                                                     title={$_(
                                                         "contexts.importDialog.duplicateTooltip",
-                                                    )}>⚠️</span
+                                                    )}
+                                                    use:tooltip>⚠️</span
                                                 >
                                             {/if}
                                             {#if stash.files && stash.files.length > 0}

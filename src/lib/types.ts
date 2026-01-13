@@ -26,6 +26,8 @@ export interface Attachment {
 export interface StashItem {
     id: string;
     content: string;
+    /** AI-enhanced version of the content (if generated) */
+    enhancedContent?: string;
     attachments: Attachment[];
     files?: string[]; // Deprecated, kept for backward compatibility during migration
     createdAt: string;
@@ -52,6 +54,24 @@ export interface Context {
     name: string;
     rules: ContextRule[];
     lastUsed?: string;
+}
+
+/** Configuration for an OpenAI-compatible API provider preset */
+export interface AIProviderPreset {
+    id: string;
+    name: string;
+    endpoint: string;
+    defaultModel: string;
+}
+
+/** User's AI configuration for prompt enhancement */
+export interface AIConfig {
+    enabled: boolean;
+    endpoint: string;
+    apiKey: string;
+    model: string;
+    /** Which preset was used, if any */
+    presetId?: string;
 }
 
 export interface Settings {
@@ -81,6 +101,8 @@ export interface Settings {
     defaultContextLastUsed?: string;
     /** Launch Stashpad automatically on system startup */
     autostart?: boolean;
+    /** AI configuration for prompt enhancement */
+    aiConfig?: AIConfig;
 }
 
 export interface IStorageService {

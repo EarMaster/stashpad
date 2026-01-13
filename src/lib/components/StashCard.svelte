@@ -15,7 +15,12 @@
 -->
 
 <script lang="ts">
-  import type { StashItem, FilePreviewData, Attachment } from "$lib/types";
+  import type {
+    StashItem,
+    FilePreviewData,
+    Attachment,
+    AIConfig,
+  } from "$lib/types";
   import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
   import { _, locale } from "$lib/i18n";
   import {
@@ -38,6 +43,12 @@
     ArrowDownToLine,
     Paperclip,
     FolderOutput,
+    Sparkles,
+    Loader2,
+    RefreshCw,
+    ArrowLeftRight,
+    X,
+    Tags,
   } from "lucide-svelte";
   import Editor from "./Editor.svelte";
   import FilePreviewTooltip from "./FilePreviewTooltip.svelte";
@@ -47,7 +58,10 @@
   import { getRelativeTime } from "$lib/utils/date";
   import marked from "$lib/utils/markdown";
   import ActionButton from "./ActionButton.svelte";
+  import TagBadge from "./TagBadge.svelte";
   import { isStashHovered } from "$lib/stores/drag-state.svelte";
+  import { aiService } from "$lib/services/ai-service";
+  import { tooltip } from "$lib/actions/tooltip";
 
   let {
     item,
@@ -63,6 +77,7 @@
     onDelete,
     onUpdateContent,
     availableTags = [],
+    aiConfig,
   } = $props<{
     item: StashItem;
     mode: "Drag" | "Copy";
@@ -75,8 +90,13 @@
     onMoveToBottom: () => void;
     onToggleComplete: () => void;
     onDelete: (skipConfirm?: boolean) => void;
-    onUpdateContent: (content: string, attachments: Attachment[]) => void;
+    onUpdateContent: (
+      content: string,
+      attachments: Attachment[],
+      enhancedContent?: string,
+    ) => void;
     availableTags?: string[];
+    aiConfig?: AIConfig;
   }>();
 
   const adapter = new DesktopStorageAdapter();
@@ -98,6 +118,36 @@
     calculateTotalAttachmentSize(item.attachments),
   );
 
+  // AI Enhancement state
+  let isEnhancing = $state(false);
+  /** Whether to show enhanced content (true) or original (false) */
+  let showEnhanced = $state(true);
+
+  // Check if AI enhancement is available (API key is optional for local LLMs)
+  let canEnhance = $derived(
+    aiConfig?.enabled &&
+      aiConfig?.endpoint &&
+      aiConfig?.model &&
+      !item.completed &&
+      item.content.trim().length > 0,
+  );
+
+  // Check if this item has an enhanced version
+  let hasEnhancedVersion = $derived(
+    !!item.enhancedContent && item.enhancedContent.trim().length > 0,
+  );
+
+  // Content to display based on view mode
+  let displayContent = $derived(
+    showEnhanced && hasEnhancedVersion ? item.enhancedContent! : item.content,
+  );
+
+  // Extract unique tags from content
+  let stashTags = $derived(() => {
+    const matches = item.content.match(/#[\w-]+/g);
+    return matches ? [...new Set(matches)] : [];
+  });
+
   $effect(() => {
     if (isEditing) {
       editContent = item.content;
@@ -107,7 +157,8 @@
   });
 
   async function handleCopy(invert = false) {
-    let content = item.content;
+    // Use the currently displayed content (original or enhanced based on toggle)
+    let content = displayContent;
 
     // Strip tags if setting is enabled (and not inverted) or disabled (and inverted)
     const shouldStrip = stripTagsOnCopy ? !invert : invert;
@@ -137,6 +188,56 @@
 
   function cancelEdit() {
     isEditing = false;
+  }
+
+  /**
+   * Enhance the stash content using AI.
+   * Stores result in enhancedContent field, preserving the original.
+   */
+  async function handleEnhance() {
+    if (!aiConfig || !canEnhance || isEnhancing) return;
+
+    isEnhancing = true;
+    try {
+      const enhanced = await aiService.enhancePrompt(item.content, aiConfig);
+      // Store enhanced version separately, keep original intact
+      onUpdateEnhancedContent(enhanced);
+      showEnhanced = true;
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      await message(
+        $_("stashCard.enhanceError", { values: { error: errorMsg } }),
+        { title: $_("stashCard.enhanceWithAI"), kind: "error" },
+      );
+    } finally {
+      isEnhancing = false;
+    }
+  }
+
+  /**
+   * Toggle between original and enhanced content view.
+   */
+  function toggleVersion() {
+    showEnhanced = !showEnhanced;
+  }
+
+  /**
+   * Update the enhanced content.
+   */
+  function onUpdateEnhancedContent(enhanced: string) {
+    // Create updated item with new enhancedContent
+    const updatedItem = { ...item, enhancedContent: enhanced };
+    // Use the existing update mechanism - parent will handle persistence
+    onUpdateContent(item.content, item.attachments, enhanced);
+  }
+
+  /**
+   * Remove the enhanced version, keeping only the original.
+   */
+  function removeEnhancedVersion() {
+    showEnhanced = false;
+    // Pass empty string to clear the enhanced content
+    onUpdateContent(item.content, item.attachments, "");
   }
 
   /**
@@ -266,7 +367,6 @@
   transition:fly={{ y: 20, duration: 300 }}
   onclick={handleCardClick}
   onkeydown={(e) => e.key === "Enter" && handleCopy(e.shiftKey)}
-  ondblclick={handleDoubleClick}
   role="button"
   tabindex="0"
   draggable="false"
@@ -329,6 +429,7 @@
             existingStashId={item.id}
             content={editContent}
             files={editFiles}
+            initialFiles={item.attachments}
             onSave={saveEdit}
             onCancel={cancelEdit}
             saveLabel={$_("common.save")}
@@ -337,12 +438,86 @@
           />
         </div>
       {:else if item.content}
+        <!-- Top bar: tags and enhancement controls -->
+        {#if stashTags().length > 0 || hasEnhancedVersion}
+          <div class="flex items-center gap-1.5 mb-1.5 flex-wrap">
+            <!-- Tags list -->
+            {#if stashTags().length > 0}
+              <span class="text-muted-foreground/50">
+                <Tags size="10" />
+              </span>
+              {#each stashTags() as tag}
+                <TagBadge {tag} />
+              {/each}
+            {/if}
+
+            <!-- Spacer -->
+            <span class="flex-1"></span>
+
+            <!-- Enhancement controls -->
+            {#if hasEnhancedVersion}
+              <span
+                title={$_("stashCard.hasBeenEnhanced")}
+                class="text-muted-foreground/50"
+              >
+                <Sparkles size={10} />
+              </span>
+
+              <ActionButton
+                variant="top"
+                active={showEnhanced}
+                onclick={(e) => {
+                  e.stopPropagation();
+                  toggleVersion();
+                }}
+                title={showEnhanced
+                  ? $_("stashCard.viewOriginal")
+                  : $_("stashCard.viewEnhanced")}
+              >
+                <ArrowLeftRight size={10} />
+                <span
+                  >{showEnhanced
+                    ? $_("stashCard.viewEnhanced").split(" ")[1]
+                    : $_("stashCard.viewOriginal").split(" ")[1]}</span
+                >
+              </ActionButton>
+              <ActionButton
+                variant="top"
+                onclick={(e) => {
+                  e.stopPropagation();
+                  handleEnhance();
+                }}
+                title={$_("stashCard.regenerateEnhanced")}
+                disabled={isEnhancing}
+              >
+                {#if isEnhancing}
+                  <Loader2 size={10} class="animate-spin" />
+                {:else}
+                  <RefreshCw size={10} />
+                {/if}
+              </ActionButton>
+              <ActionButton
+                variant="top"
+                danger
+                onclick={(e) => {
+                  e.stopPropagation();
+                  removeEnhancedVersion();
+                }}
+                title={$_("stashCard.removeEnhanced")}
+              >
+                <X size={10} />
+              </ActionButton>
+            {/if}
+          </div>
+        {/if}
         <div
           class="prose dark:prose-invert prose-xs max-w-none text-sm text-foreground/90 leading-relaxed font-sans {item.completed
             ? 'line-through text-muted-foreground/70'
             : ''}"
+          ondblclick={handleDoubleClick}
+          role="presentation"
         >
-          {@html marked.parse(item.content)}
+          {@html marked.parse(displayContent)}
         </div>
       {:else}
         <div class="text-xs text-muted-foreground/50 italic text-center">
@@ -371,6 +546,7 @@
                   item.attachments.map((a) => a.filePath),
                 );
               }}
+              use:tooltip
               title={`${$_("stashCard.dragAllAttachments")} (${formatBytes(totalAttachmentSize, $locale || "en")})`}
             >
               <FolderOutput size={10} class="shrink-0" />
@@ -404,6 +580,27 @@
               title={$_("editor.addFile")}
             >
               <Paperclip size={12} />
+            </ActionButton>
+          {/if}
+          <!-- Enhance with AI (Instant Action) -->
+          {#if canEnhance}
+            <ActionButton
+              variant="instant"
+              class={isEnhancing ? "animate-pulse" : ""}
+              onclick={(e) => {
+                e.stopPropagation();
+                handleEnhance();
+              }}
+              title={isEnhancing
+                ? $_("stashCard.enhancing")
+                : $_("stashCard.enhanceWithAI")}
+              disabled={isEnhancing}
+            >
+              {#if isEnhancing}
+                <Loader2 size={12} class="animate-spin" />
+              {:else}
+                <Sparkles size={12} />
+              {/if}
             </ActionButton>
           {/if}
           <!-- Copy (Instant Action) -->

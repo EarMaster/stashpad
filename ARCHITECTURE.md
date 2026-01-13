@@ -207,7 +207,7 @@ A global state (Svelte Rune) determines the transfer mode: `transferMode = 'drag
 
 -----
 
-## 5\. UI/UX Guidelines
+## 5. UI/UX Guidelines
 
   * **Theme:** Dark Mode Only.
   * **Palette:**
@@ -221,6 +221,33 @@ A global state (Svelte Rune) determines the transfer mode: `transferMode = 'drag
   * **Header UI:**
       * Left: Green dot + Active Project Name.
       * Right: Segmented Control `[✋ | 📋 | 🤖]`.
+
+### Tooltips
+
+**IMPORTANT:** Use the custom tooltip action (`$lib/actions/tooltip`) instead of native HTML `title` attributes for all interactive elements.
+
+#### Usage
+```svelte
+<script>
+  import { tooltip } from "$lib/actions/tooltip";
+</script>
+
+<button use:tooltip title="Click to save">Save</button>
+```
+
+#### Features
+- **Auto-positioning:** Automatically repositions to avoid viewport overflow
+- **Accessible:** Shows on hover AND keyboard focus
+- **Styled:** Consistent dark styling with arrow indicator
+- **Non-native:** Prevents browser's default tooltip, uses custom CSS
+
+#### When to Use
+- All `ActionButton` components (already integrated)
+- Any interactive element (`<button>`, `<a>`) that needs contextual help
+- Icon-only buttons that need labels for accessibility
+
+#### Styles
+Defined in `src/app.css` under `.custom-tooltip`. Customizable via CSS.
 
 -----
 

@@ -38,6 +38,7 @@
     import markedInstance from "$lib/utils/markdown";
     import { formatBytes } from "$lib/utils/format";
     import { locale } from "$lib/i18n";
+    import { tooltip } from "$lib/actions/tooltip";
 
     let {
         open = $bindable(false),
@@ -364,6 +365,7 @@
                                 id="preview-title"
                                 class="text-sm font-medium text-foreground truncate"
                                 title={previewData.fileName}
+                                use:tooltip
                             >
                                 {previewData.fileName}
                             </h2>
@@ -404,6 +406,7 @@
                                 class="p-2 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
                                 onclick={onClose}
                                 title={$_("common.close")}
+                                use:tooltip
                             >
                                 <X size={18} />
                             </button>
@@ -498,6 +501,7 @@
                         <button
                             class="text-xs text-muted-foreground truncate max-w-[60%] hover:text-foreground cursor-pointer text-left focus:outline-none transition-colors"
                             title={copied ? $_("common.copied") : filePath}
+                            use:tooltip
                             onclick={handleCopyPath}
                         >
                             {copied ? $_("common.copied") : filePath}
@@ -507,6 +511,7 @@
                                 class="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground transition-colors"
                                 onclick={openFileLocation}
                                 title={$_("filePreview.openLocation")}
+                                use:tooltip
                             >
                                 <ExternalLink size={12} />
                                 {$_("filePreview.openLocation")}

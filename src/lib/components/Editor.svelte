@@ -36,10 +36,11 @@
   import { getCaretCoordinates } from "$lib/utils/caret";
   import FilePreviewModal from "./FilePreviewModal.svelte";
   import ConfirmationDialog from "./ConfirmationDialog.svelte";
+  import Tooltip from "./Tooltip.svelte";
   import { fade } from "svelte/transition";
   import { convertFileSrc } from "@tauri-apps/api/core";
   import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-  import { onMount, onDestroy } from "svelte";
+  import { onMount, onDestroy, untrack } from "svelte";
   import { findStashAtPosition } from "$lib/stores/drag-state.svelte";
   import { stat } from "@tauri-apps/plugin-fs";
   import { open, message } from "@tauri-apps/plugin-dialog";
@@ -49,6 +50,7 @@
     formatBytes,
   } from "$lib/utils/format";
   import { locale } from "$lib/i18n";
+  import { tooltip } from "$lib/actions/tooltip";
 
   let {
     onStash,
@@ -56,6 +58,7 @@
     existingStashId,
     content = $bindable(""),
     files = $bindable([]),
+    initialFiles = [],
     onSave,
     onCancel,
     saveLabel,
@@ -69,6 +72,8 @@
     existingStashId?: string;
     content?: string;
     files?: Attachment[];
+    /** Original attachments when editing - used for tracking adds/removes */
+    initialFiles?: Attachment[];
     onSave?: (content: string, files: Attachment[]) => Promise<void> | void;
     onCancel?: () => void;
     saveLabel?: string;
@@ -81,7 +86,13 @@
   // Generate or use existing stash ID for file storage organization
   // This ensures files are stored in the correct folder structure before the stash is saved
   // Using $state so we can regenerate the ID after saving a new stash
-  let stashId = $state(existingStashId ?? crypto.randomUUID());
+  let stashId = $state(untrack(() => existingStashId) ?? crypto.randomUUID());
+
+  $effect(() => {
+    if (existingStashId && existingStashId !== stashId) {
+      stashId = existingStashId;
+    }
+  });
 
   let dragOver = $state(false);
   let dragCounter = 0;
@@ -110,6 +121,14 @@
   // Paste dialog state (when threshold is 0)
   let pasteChoiceDialogOpen = $state(false);
   let pendingPasteText = $state<string | null>(null);
+
+  // Track files added/removed during edit session for deferred file operations
+  // Added files should be deleted on cancel, removed files should be deleted on save
+  let addedFilePaths = $state<string[]>([]);
+  let removedFilePaths = $state<string[]>([]);
+
+  // Clear confirmation dialog state
+  let clearConfirmDialogOpen = $state(false);
 
   const adapter = new DesktopStorageAdapter();
 
@@ -152,6 +171,8 @@
             stashId,
           );
           files = [...files, attachment];
+          // Track added file for cleanup on cancel
+          addedFilePaths = [...addedFilePaths, attachment.filePath];
         } catch (err) {
           console.error("Failed to save dropped asset", err);
         }
@@ -302,6 +323,8 @@
             stashId,
           );
           files = [...files, attachment];
+          // Track added file for cleanup on cancel
+          addedFilePaths = [...addedFilePaths, attachment.filePath];
         } catch (err) {
           console.error("Failed to save pasted file:", err);
         }
@@ -372,6 +395,8 @@
         detection.language ?? undefined,
       );
       files = [...files, attachment];
+      // Track added file for cleanup on cancel
+      addedFilePaths = [...addedFilePaths, attachment.filePath];
     } catch (err) {
       console.error("Failed to save text as attachment:", err);
     }
@@ -420,6 +445,15 @@
     const invertPosition = (e as KeyboardEvent | MouseEvent)?.shiftKey ?? false;
     isSaving = true;
     try {
+      // Delete files that were removed during the edit session
+      for (const filePath of removedFilePaths) {
+        try {
+          await adapter.deleteAsset(filePath);
+        } catch (err) {
+          console.error("Failed to delete removed asset:", err);
+        }
+      }
+
       if (onSave) {
         await onSave(content, files);
       } else {
@@ -446,11 +480,73 @@
         stashId = crypto.randomUUID();
         onStash?.(stash.id);
       }
+
+      // Clear tracking arrays after successful save
+      addedFilePaths = [];
+      removedFilePaths = [];
     } catch (e) {
       console.error(e);
     } finally {
       isSaving = false;
     }
+  }
+
+  /**
+   * Handle cancel - clean up any files added during this edit session.
+   */
+  async function handleCancel() {
+    // Delete files that were added during this edit session
+    for (const filePath of addedFilePaths) {
+      try {
+        await adapter.deleteAsset(filePath);
+      } catch (err) {
+        console.error("Failed to delete added asset on cancel:", err);
+      }
+    }
+
+    // Clear tracking arrays
+    addedFilePaths = [];
+    removedFilePaths = [];
+
+    // Call the original onCancel callback
+    onCancel?.();
+  }
+
+  /**
+   * Handle clear button - shows confirmation unless shift is pressed.
+   */
+  function handleClear(e: MouseEvent) {
+    const skipConfirm = e.shiftKey;
+
+    // Only show clear if there's something to clear
+    if (!content.trim() && files.length === 0) return;
+
+    if (skipConfirm) {
+      doClear();
+    } else {
+      clearConfirmDialogOpen = true;
+    }
+  }
+
+  /**
+   * Actually clear the editor content and attachments.
+   */
+  async function doClear() {
+    // Delete all files that were added during this session
+    for (const filePath of addedFilePaths) {
+      try {
+        await adapter.deleteAsset(filePath);
+      } catch (err) {
+        console.error("Failed to delete asset on clear:", err);
+      }
+    }
+
+    // Clear the editor
+    content = "";
+    files = [];
+    addedFilePaths = [];
+    removedFilePaths = [];
+    clearConfirmDialogOpen = false;
   }
 
   function handleKeydown(e: KeyboardEvent) {
@@ -484,19 +580,27 @@
       save(e);
     }
     if (e.key === "Escape" && onCancel) {
-      onCancel();
+      handleCancel();
     }
   }
 
-  async function removeFile(index: number) {
+  /**
+   * Remove a file from the list.
+   * If the file was originally part of the stash, track it for deletion on save.
+   * If it was added during this session, remove it from the added list.
+   */
+  function removeFile(index: number) {
     const attachment = files[index];
     files = files.filter((_, i) => i !== index);
 
-    // Delete the file from the cache directory
-    try {
-      await adapter.deleteAsset(attachment.filePath);
-    } catch (err) {
-      console.error("Failed to delete asset from cache:", err);
+    // Check if this file was added during this edit session
+    const addedIndex = addedFilePaths.indexOf(attachment.filePath);
+    if (addedIndex !== -1) {
+      // File was added during this session, just remove from tracking
+      addedFilePaths = addedFilePaths.filter((_, i) => i !== addedIndex);
+    } else {
+      // File was part of the original stash, track for deletion on save
+      removedFilePaths = [...removedFilePaths, attachment.filePath];
     }
   }
 
@@ -580,7 +684,50 @@
     selectedPreviewFilePath = "";
   }
 
-  let hoverTooltipPosition = $state<"top" | "bottom">("bottom");
+  let tooltipX = $state(0);
+  let tooltipY = $state(0);
+  let xOffset = $state(0);
+  let showBelow = $state(false);
+
+  function updateTooltipPosition(target: HTMLElement) {
+    const rect = target.getBoundingClientRect();
+
+    const TOOLTIP_OFFSET = 8;
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top;
+
+    // Calculate tooltip position
+    tooltipX = centerX;
+
+    // Determine if tooltip should show below or above
+    if (centerY < window.innerHeight / 2) {
+      // Show below if in top half of screen
+      showBelow = true;
+      tooltipY = rect.bottom + TOOLTIP_OFFSET;
+    } else {
+      // Show above if in bottom half of screen
+      showBelow = false;
+      tooltipY = rect.top - TOOLTIP_OFFSET;
+    }
+
+    // Calculate horizontal offset to keep tooltip centered on element
+    const TOOLTIP_MAX_WIDTH = 280;
+    const viewportPadding = 8;
+
+    // Calculate if tooltip would overflow
+    const tooltipLeft = centerX - TOOLTIP_MAX_WIDTH / 2;
+    const tooltipRight = centerX + TOOLTIP_MAX_WIDTH / 2;
+
+    if (tooltipLeft < viewportPadding) {
+      // Would overflow left
+      xOffset = tooltipLeft - viewportPadding;
+    } else if (tooltipRight > window.innerWidth - viewportPadding) {
+      // Would overflow right
+      xOffset = tooltipRight - (window.innerWidth - viewportPadding);
+    } else {
+      xOffset = 0;
+    }
+  }
 
   /**
    * Handle mouse enter on a file badge - start hover preview.
@@ -590,8 +737,8 @@
     filePath: string,
     e: MouseEvent,
   ) {
-    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    hoverTooltipPosition = rect.top < 200 ? "top" : "bottom";
+    const target = e.currentTarget as HTMLElement;
+    updateTooltipPosition(target);
 
     hoverTimeout = setTimeout(async () => {
       hoveringFileIndex = index;
@@ -673,6 +820,8 @@
               stashId,
             );
             files = [...files, attachment];
+            // Track added file for cleanup on cancel
+            addedFilePaths = [...addedFilePaths, attachment.filePath];
           } catch (err) {
             console.error("Failed to save asset from path", err);
           }
@@ -710,6 +859,7 @@
       class="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-all"
       onclick={() => insertMarkdown("**", "**")}
       title={$_("editor.bold")}
+      use:tooltip
       tabindex="-1"
     >
       <Bold size={14} />
@@ -718,6 +868,7 @@
       class="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-all"
       onclick={() => insertMarkdown("_", "_")}
       title={$_("editor.italic")}
+      use:tooltip
       tabindex="-1"
     >
       <Italic size={14} />
@@ -726,6 +877,7 @@
       class="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-all"
       onclick={() => insertMarkdown("### ")}
       title={$_("editor.heading")}
+      use:tooltip
       tabindex="-1"
     >
       <Heading size={14} />
@@ -735,6 +887,7 @@
       class="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-all"
       onclick={() => insertMarkdown("- ")}
       title={$_("editor.list")}
+      use:tooltip
       tabindex="-1"
     >
       <List size={14} />
@@ -743,6 +896,7 @@
       class="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-all"
       onclick={() => insertMarkdown("`", "`")}
       title={$_("editor.code")}
+      use:tooltip
       tabindex="-1"
     >
       <Code size={14} />
@@ -751,6 +905,7 @@
       class="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-all"
       onclick={() => insertMarkdown("[", "](url)")}
       title={$_("editor.link")}
+      use:tooltip
       tabindex="-1"
     >
       <LinkIcon size={14} />
@@ -798,66 +953,65 @@
   {/if}
 
   <div
-    class="flex items-center justify-between p-2 border-t border-border bg-muted/30 rounded-b-xl"
+    class="flex items-start justify-between p-2 border-t border-border bg-muted/30 rounded-b-xl"
   >
-    <div
-      class="flex gap-2 overflow-x-auto flex-1 min-w-0 no-scrollbar items-center"
-    >
+    <div class="flex gap-2 items-start flex-1 min-w-0">
       <!-- Add file button -->
       <button
         class="shrink-0 flex items-center gap-1 bg-background px-2 py-0.5 rounded text-[10px] border border-border text-muted-foreground hover:text-foreground hover:border-primary/50 transition-colors shadow-sm"
         onclick={handleAddFile}
         title={$_("editor.addFile")}
+        use:tooltip
         type="button"
       >
         <Paperclip size={10} />
         <span>{$_("editor.addFile")}</span>
       </button>
-      {#each files as file, i}
-        <div
-          class="relative group/file bg-background px-2 py-0.5 rounded text-[10px] border border-border flex items-center gap-1 shadow-sm shrink-0 cursor-pointer hover:border-primary/50 transition-colors"
-          title={$_("filePreview.clickToPreview")}
-          onmouseenter={(e) => handleFileMouseEnter(i, file.filePath, e)}
-          onmouseleave={handleFileMouseLeave}
-          onclick={() => openFilePreview(file.filePath)}
-          onkeydown={(e) => e.key === "Enter" && openFilePreview(file.filePath)}
-          role="button"
-          tabindex="0"
-        >
-          <!-- File type icon -->
-          {#if getFileIcon(file.fileName) === "image"}
-            <Image size={10} class="shrink-0 text-muted-foreground" />
-          {:else if getFileIcon(file.fileName) === "video"}
-            <Video size={10} class="shrink-0 text-muted-foreground" />
-          {:else if getFileIcon(file.fileName) === "text"}
-            <FileText size={10} class="shrink-0 text-muted-foreground" />
-          {:else}
-            <FileIcon size={10} class="shrink-0 text-muted-foreground" />
-          {/if}
-          <span class="truncate max-w-[100px]">{file.fileName}</span>
-          <button
-            class="text-muted-foreground hover:text-destructive transition-colors"
-            onclick={(e) => {
-              e.stopPropagation();
-              removeFile(i);
-            }}
-            aria-label="Remove file"
-          >
-            <X size={10} />
-          </button>
 
-          <!-- Hover Preview Tooltip -->
-          {#if hoveringFileIndex === i}
-            <div
-              class="absolute z-50 left-1/2 -translate-x-1/2 pointer-events-none {hoverTooltipPosition ===
-              'top'
-                ? 'top-full mt-2'
-                : 'bottom-full mb-2'}"
-              transition:fade={{ duration: 100 }}
+      <div class="flex gap-2 flex-wrap items-center">
+        {#each files as file, i}
+          <div
+            class="relative group/file bg-background px-2 py-0.5 rounded text-[10px] border border-border flex items-center gap-1 shadow-sm shrink-0 cursor-pointer hover:border-primary/50 transition-colors"
+            title={$_("filePreview.clickToPreview")}
+            onmouseenter={(e) => handleFileMouseEnter(i, file.filePath, e)}
+            onmouseleave={handleFileMouseLeave}
+            onclick={() => openFilePreview(file.filePath)}
+            onkeydown={(e) =>
+              e.key === "Enter" && openFilePreview(file.filePath)}
+            role="button"
+            tabindex="0"
+          >
+            <!-- File type icon -->
+            {#if getFileIcon(file.fileName) === "image"}
+              <Image size={10} class="shrink-0 text-muted-foreground" />
+            {:else if getFileIcon(file.fileName) === "video"}
+              <Video size={10} class="shrink-0 text-muted-foreground" />
+            {:else if getFileIcon(file.fileName) === "text"}
+              <FileText size={10} class="shrink-0 text-muted-foreground" />
+            {:else}
+              <FileIcon size={10} class="shrink-0 text-muted-foreground" />
+            {/if}
+            <span class="truncate max-w-[100px]">{file.fileName}</span>
+            <button
+              class="text-muted-foreground hover:text-destructive transition-colors"
+              onclick={(e) => {
+                e.stopPropagation();
+                removeFile(i);
+              }}
+              aria-label="Remove file"
             >
-              <div
-                class="relative bg-popover border border-border rounded-lg shadow-xl"
-              >
+              <X size={10} />
+            </button>
+
+            <!-- Hover Preview Tooltip -->
+            <Tooltip
+              visible={hoveringFileIndex === i}
+              x={tooltipX}
+              y={tooltipY}
+              position={showBelow ? "bottom" : "top"}
+              {xOffset}
+            >
+              {#snippet children()}
                 {#if isLoadingHoverPreview}
                   <div
                     class="flex items-center justify-center w-32 h-24 bg-muted/50 p-2"
@@ -909,32 +1063,35 @@
                     </div>
                   </div>
                 {/if}
-                <!-- Arrow Pointer -->
-                <div
-                  class="absolute left-1/2 -translate-x-1/2 w-2 h-2 rotate-45 bg-popover border-border {hoverTooltipPosition ===
-                  'top'
-                    ? 'top-0 -translate-y-1/2 border-l border-t'
-                    : 'bottom-0 translate-y-1/2 border-r border-b'}"
-                ></div>
-              </div>
-            </div>
-          {/if}
-        </div>
-      {/each}
-      {#if files.length === 0}
-        <span class="text-[10px] text-muted-foreground/60 italic"
-          >{$_("editor.dragFilesHere")}</span
-        >
-      {/if}
+              {/snippet}
+            </Tooltip>
+          </div>
+        {/each}
+        {#if files.length === 0}
+          <span class="text-[10px] text-muted-foreground/60 italic"
+            >{$_("editor.dragFilesHere")}</span
+          >
+        {/if}
+      </div>
     </div>
 
     <div class="flex gap-2">
       {#if onCancel}
         <button
           class="bg-muted text-muted-foreground hover:bg-muted/80 px-3 py-1.5 rounded-md font-medium text-xs transition-colors shadow-sm"
-          onclick={onCancel}
+          onclick={handleCancel}
         >
           {$_("common.cancel")}
+        </button>
+      {:else}
+        <button
+          class="bg-muted text-muted-foreground hover:bg-muted/80 px-3 py-1.5 rounded-md font-medium text-xs transition-colors shadow-sm disabled:opacity-50"
+          onclick={handleClear}
+          disabled={!content.trim() && files.length === 0}
+          title={$_("contexts.shiftClickToSkip")}
+          use:tooltip
+        >
+          {$_("editor.clear")}
         </button>
       {/if}
       <button
@@ -965,4 +1122,14 @@
   cancelText={$_("editor.pasteChoice.inline")}
   onConfirm={handlePasteConfirm}
   onCancel={handlePasteCancel}
+/>
+
+<!-- Clear Confirmation Dialog -->
+<ConfirmationDialog
+  bind:open={clearConfirmDialogOpen}
+  title={$_("editor.clearConfirm.title")}
+  description={$_("editor.clearConfirm.description")}
+  confirmText={$_("common.clear")}
+  onConfirm={doClear}
+  onCancel={() => (clearConfirmDialogOpen = false)}
 />

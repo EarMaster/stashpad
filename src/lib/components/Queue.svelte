@@ -17,13 +17,13 @@
 <script lang="ts">
    import { tick, untrack } from "svelte";
    import { dragHandleZone, TRIGGERS } from "svelte-dnd-action";
-   import { getTagHue } from "$lib/utils/markdown";
    import { flip } from "svelte/animate";
    import { fade, fly } from "svelte/transition";
    import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
-   import type { StashItem, Context, Attachment } from "$lib/types";
+   import type { StashItem, Context, Attachment, AIConfig } from "$lib/types";
    import { _ } from "$lib/i18n";
    import StashCard from "./StashCard.svelte";
+   import TagBadge from "./TagBadge.svelte";
    import ConfirmationDialog from "./ConfirmationDialog.svelte";
    import Fireworks from "./Fireworks.svelte";
    import { listen, type UnlistenFn } from "@tauri-apps/api/event";
@@ -45,6 +45,7 @@
       RotateCcw,
       Filter,
    } from "lucide-svelte";
+   import { tooltip } from "$lib/actions/tooltip";
 
    let {
       transferMode,
@@ -56,6 +57,7 @@
       onStashHandled,
       allTags = $bindable([]),
       stripTagsOnCopy = true,
+      aiConfig,
    } = $props<{
       transferMode: string;
       refreshTrigger: number;
@@ -66,6 +68,7 @@
       onStashHandled?: () => void;
       allTags?: string[];
       stripTagsOnCopy?: boolean;
+      aiConfig?: AIConfig;
    }>();
 
    let stashes = $state<StashItem[]>([]);
@@ -408,8 +411,15 @@
       item: StashItem,
       content: string,
       attachments: Attachment[],
+      enhancedContent?: string,
    ) {
-      const updated = { ...item, content, attachments };
+      const updated = {
+         ...item,
+         content,
+         attachments,
+         // Only update enhancedContent if explicitly provided
+         ...(enhancedContent !== undefined && { enhancedContent }),
+      };
       await adapter.saveStash(updated);
       load();
    }
@@ -653,6 +663,7 @@
                            : ''}"
                         onclick={() => (showFilterMenu = !showFilterMenu)}
                         title={$_("queue.filterByTags")}
+                        use:tooltip
                      >
                         {#if selectedTags.length > 0}
                            <svg
@@ -757,15 +768,12 @@
                   transition:fade={{ duration: 150 }}
                >
                   {#each availableTags as tag}
-                     {@const hue = getTagHue(tag)}
-                     {@const isSelected = selectedTags.includes(tag)}
-                     <button
-                        class="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full border transition-all"
-                        style="--tag-hue: {hue}; {isSelected
-                           ? `background-color: hsla(${hue}, 100%, 75%, 0.2); border-color: hsla(${hue}, 80%, 40%, 0.3); color: hsla(${hue}, 90%, 25%, 1);`
-                           : `background-color: transparent; border-color: var(--border); color: var(--muted-foreground);`}"
+                     <TagBadge
+                        {tag}
+                        selected={selectedTags.includes(tag)}
+                        count={tagCounts.get(tag)}
                         onclick={() => {
-                           if (isSelected) {
+                           if (selectedTags.includes(tag)) {
                               selectedTags = selectedTags.filter(
                                  (t) => t !== tag,
                               );
@@ -773,37 +781,7 @@
                               selectedTags = [...selectedTags, tag];
                            }
                         }}
-                     >
-                        <svg
-                           xmlns="http://www.w3.org/2000/svg"
-                           width="12"
-                           height="12"
-                           viewBox="0 0 24 24"
-                           fill="none"
-                           stroke="currentColor"
-                           stroke-width="2.5"
-                           stroke-linecap="round"
-                           stroke-linejoin="round"
-                           class="flex-shrink-0 opacity-70"
-                           ><line x1="4" x2="20" y1="9" y2="9" /><line
-                              x1="4"
-                              x2="20"
-                              y1="15"
-                              y2="15"
-                           /><line x1="10" x2="8" y1="3" y2="21" /><line
-                              x1="16"
-                              x2="14"
-                              y1="3"
-                              y2="21"
-                           /></svg
-                        >
-                        <span class="font-medium">{tag.slice(1)}</span>
-                        {#if tagCounts.get(tag)}
-                           <span class="text-[9px] opacity-60"
-                              >{tagCounts.get(tag)}</span
-                           >
-                        {/if}
-                     </button>
+                     />
                   {/each}
                </div>
             {/if}
@@ -849,9 +827,19 @@
                         onMoveToBottom={() => moveToBottom(item)}
                         onToggleComplete={() => toggleComplete(item)}
                         onDelete={(skip) => deleteStash(item.id, skip)}
-                        onUpdateContent={(content, attachments) =>
-                           updateContent(item, content, attachments)}
+                        onUpdateContent={(
+                           content,
+                           attachments,
+                           enhancedContent,
+                        ) =>
+                           updateContent(
+                              item,
+                              content,
+                              attachments,
+                              enhancedContent,
+                           )}
                         availableTags={allTags}
+                        {aiConfig}
                      />
                   {/if}
                </div>
@@ -901,6 +889,7 @@
                      class="text-[9px] flex items-center gap-1 text-red-500/70 dark:text-red-400/70 hover:text-red-600 dark:hover:text-red-500 transition-colors bg-red-500/5 dark:bg-red-400/5 px-1.5 py-0.5 rounded border border-red-500/10 dark:border-red-400/10 pointer-events-auto"
                      onclick={() => (showClearCompletedConfirm = true)}
                      title={$_("queue.deleteAllCompleted")}
+                     use:tooltip
                   >
                      <Trash2 size={10} />
                      {$_("queue.clearCompleted")}
@@ -921,8 +910,8 @@
                         onMoveToBottom={() => {}}
                         onToggleComplete={() => toggleComplete(item)}
                         onDelete={() => deleteStash(item.id)}
-                        onUpdateContent={(content, files) =>
-                           updateContent(item, content, files)}
+                        onUpdateContent={(content, files, enhancedContent) =>
+                           updateContent(item, content, files, enhancedContent)}
                      />
                   </div>
                {/each}
