@@ -11,7 +11,12 @@
     import { getCurrentWebview } from "@tauri-apps/api/webview";
     import { onDestroy } from "svelte";
     import JSZip from "jszip";
-    import type { Context, StashItem, Attachment } from "$lib/types";
+    import type {
+        Context,
+        StashItem,
+        Attachment,
+        ContextRule,
+    } from "$lib/types";
     import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
     import { getRelativeTime } from "$lib/utils/date";
     import {
@@ -24,6 +29,7 @@
         FolderOpen,
     } from "lucide-svelte";
     import { tooltip } from "$lib/actions/tooltip";
+    import { load } from "js-yaml";
 
     let {
         open = $bindable(false),
@@ -39,6 +45,12 @@
         onImportComplete: () => void;
     }>();
 
+    interface Metadata {
+        name?: string;
+        description?: string;
+        rules?: ContextRule[];
+    }
+
     // State for import workflow
     let step = $state<"select" | "preview">("select");
     let parsedStashes = $state<StashItem[]>([]);
@@ -49,6 +61,20 @@
     let isParsing = $state(false);
     let importedFileName = $state("");
     let isDragging = $state(false);
+
+    // Metadata conflict state
+    let importedMetadata = $state<Metadata | null>(null);
+    let metadataConflict = $state<{
+        name: boolean;
+        description: boolean;
+        rules: boolean;
+    }>({ name: false, description: false, rules: false });
+    let conflictDialogOpen = $state(false);
+    let conflictChoices = $state<Record<string, "current" | "imported">>({
+        name: "current",
+        description: "current",
+        rules: "current",
+    });
 
     const adapter = new DesktopStorageAdapter();
     let unlistenDrop: (() => void) | null = null;
@@ -65,6 +91,8 @@
             isParsing = false;
             importedFileName = "";
             isDragging = false;
+            importedMetadata = null;
+            conflictDialogOpen = false;
         }
     });
 
@@ -175,13 +203,38 @@
             const fileName = filePath.split(/[\\/]/).pop() || "";
             importedFileName = fileName;
 
+            let metadata: Metadata | undefined;
+
             if (fileName.endsWith(".zip")) {
-                await parseZipFile(filePath);
+                metadata = await parseZipFile(filePath);
             } else {
-                await parseMarkdownFile(filePath);
+                metadata = await parseMarkdownFile(filePath);
             }
 
-            // Detect duplicates
+            // Check for metadata conflicts
+            if (metadata) {
+                importedMetadata = metadata;
+                const hasConflicts = detectMetadataConflicts(metadata);
+
+                if (hasConflicts) {
+                    conflictDialogOpen = true;
+                    // We pause here. The dialog will handle the rest.
+                    // But we also need to detect duplicates for the preview background
+                    detectDuplicates();
+                    // Select non-completed, non-duplicate stashes by default for preview
+                    // (This will be visible behind the conflict dialog or after it closes)
+                    selectedIds = new Set(
+                        parsedStashes
+                            .filter(
+                                (s) => !s.completed && !duplicateIds.has(s.id),
+                            )
+                            .map((s) => s.id),
+                    );
+                    return; // Stop here, wait for user resolution
+                }
+            }
+
+            // Detect duplicates (if no conflicts or conflicts auto-resolved?)
             detectDuplicates();
 
             // Select non-completed, non-duplicate stashes by default
@@ -200,11 +253,76 @@
     }
 
     /**
+     * Detect conflicts between imported metadata and current context
+     */
+    function detectMetadataConflicts(metadata: Metadata): boolean {
+        let hasConflict = false;
+        const conflicts = { name: false, description: false, rules: false };
+
+        // Check name
+        if (metadata.name && metadata.name !== context.name) {
+            conflicts.name = true;
+            hasConflict = true;
+        }
+
+        // Check description (treat falsy as empty string for comparison)
+        const currentDesc = context.description || "";
+        const importedDesc = metadata.description || "";
+        if (importedDesc !== currentDesc) {
+            conflicts.description = true;
+            hasConflict = true;
+        }
+
+        // Check rules
+        // For now, simple JSON stringify comparison.
+        // Ideally we should sort rules but order might matter.
+        // Let's assume order matters.
+        const currentRules = JSON.stringify(context.rules || []);
+        const importedRules = JSON.stringify(metadata.rules || []);
+        if (importedRules !== currentRules) {
+            conflicts.rules = true;
+            hasConflict = true;
+        }
+
+        metadataConflict = conflicts;
+        return hasConflict;
+    }
+    /**
+     * Resolve conflicts and proceed to preview
+     */
+    function resolveConflictAndImport() {
+        if (!importedMetadata) return;
+
+        // Apply choices to a temporary resolved state or directly modify context if we want to preview it?
+        // We will store the pending context updates and apply them during the final import save.
+        // For now, let's just update the context object in memory so the UI reflects it (e.g. title)
+        // and we will save it to persistence in handleImport.
+
+        if (conflictChoices.name === "imported" && importedMetadata.name) {
+            context.name = importedMetadata.name;
+        }
+        if (
+            conflictChoices.description === "imported" &&
+            importedMetadata.description
+        ) {
+            context.description = importedMetadata.description;
+        }
+        if (conflictChoices.rules === "imported" && importedMetadata.rules) {
+            context.rules = importedMetadata.rules;
+        }
+
+        conflictDialogOpen = false;
+        step = "preview";
+    }
+
+    /**
      * Parse a markdown file exported from Stashpad
      */
     async function parseMarkdownFile(filePath: string) {
         const content = await readTextFile(filePath);
-        parsedStashes = parseMarkdownContent(content);
+        const result = parseMarkdownContent(content);
+        parsedStashes = result.stashes;
+        return result.metadata;
     }
 
     /**
@@ -218,38 +336,68 @@
         const mdFile = zip.file("export.md");
         if (mdFile) {
             const content = await mdFile.async("text");
-            parsedStashes = parseMarkdownContent(content);
-        }
+            const result = parseMarkdownContent(content);
+            parsedStashes = result.stashes;
 
-        // Load attachments
-        const attachmentsFolder = zip.folder("attachments");
-        if (attachmentsFolder) {
-            const files = attachmentsFolder.file(/.*/);
-            for (const file of files) {
-                if (!file.dir) {
-                    const data = await file.async("uint8array");
-                    let name = file.name.split("/").pop() || file.name;
+            // Load attachments
+            const attachmentsFolder = zip.folder("attachments");
+            if (attachmentsFolder) {
+                const files = attachmentsFolder.file(/.*/);
+                for (const file of files) {
+                    if (!file.dir) {
+                        const data = await file.async("uint8array");
+                        let name = file.name.split("/").pop() || file.name;
 
-                    // Strip stash ID prefix if present (format: 12345678_filename.ext)
-                    const prefixMatch = name.match(/^[a-f0-9]{8}_(.+)$/);
-                    if (prefixMatch) {
-                        name = prefixMatch[1]; // Use the original filename without prefix
+                        // Strip stash ID prefix if present (format: 12345678_filename.ext)
+                        const prefixMatch = name.match(/^[a-f0-9]{8}_(.+)$/);
+                        if (prefixMatch) {
+                            name = prefixMatch[1]; // Use the original filename without prefix
+                        }
+
+                        attachmentFiles.set(name, data);
                     }
-
-                    attachmentFiles.set(name, data);
                 }
+                attachmentFiles = new Map(attachmentFiles); // Trigger reactivity
             }
-            attachmentFiles = new Map(attachmentFiles); // Trigger reactivity
+            return result.metadata;
         }
+        return undefined;
     }
 
     /**
-     * Parse markdown content into stash items
-     * Format: ## [Status] Date
+     * Parse markdown content into stash items and metadata
      */
-    function parseMarkdownContent(content: string): StashItem[] {
+    function parseMarkdownContent(content: string): {
+        stashes: StashItem[];
+        metadata?: Metadata;
+    } {
         const stashes: StashItem[] = [];
-        const lines = content.split("\n");
+        let metadata: Metadata | undefined;
+        let contentToParse = content;
+
+        // Parse YAML frontmatter
+        if (content.startsWith("---")) {
+            const endFrontmatter = content.indexOf("\n---", 3);
+            if (endFrontmatter !== -1) {
+                const frontmatter = content.slice(4, endFrontmatter);
+                try {
+                    const parsed = load(frontmatter) as any;
+                    if (parsed && typeof parsed === "object") {
+                        metadata = {
+                            name: parsed.name,
+                            description: parsed.description,
+                            rules: parsed.rules,
+                        };
+                    }
+                } catch (e) {
+                    console.error("Failed to parse frontmatter:", e);
+                }
+                // content starts after the closing --- \n
+                contentToParse = content.slice(endFrontmatter + 5);
+            }
+        }
+
+        const lines = contentToParse.split("\n");
 
         let currentStash: Partial<StashItem> | null = null;
         let currentContent: string[] = [];
@@ -373,7 +521,7 @@
             );
         }
 
-        return stashes;
+        return { stashes, metadata };
     }
 
     /**
@@ -496,6 +644,14 @@
 
         isImporting = true;
         try {
+            // Save context metadata if it was updated during conflict resolution
+            if (importedMetadata) {
+                // Check if context was modified in memory (by resolveConflictAndImport)
+                // We can just save the current context state, as resolveConflictAndImport
+                // already updated the in-memory context object.
+                await adapter.saveContext(context);
+            }
+
             for (const stash of selectedStashes) {
                 // First, save the stash to the database (without attachments)
                 const stashToSave: StashItem = {
@@ -866,3 +1022,133 @@
         </Dialog.Content>
     </Dialog.Portal>
 </Dialog.Root>
+
+{#if conflictDialogOpen && importedMetadata}
+    <Dialog.Root open={true} onOpenChange={() => (conflictDialogOpen = false)}>
+        <Dialog.Portal>
+            <Dialog.Overlay
+                class="fixed inset-0 z-[200] bg-black/50 backdrop-blur-sm animate-in fade-in-0"
+            />
+            <Dialog.Content
+                class="fixed left-[50%] top-[50%] z-[200] w-full max-w-2xl translate-x-[-50%] translate-y-[-50%] outline-none max-h-[85vh] flex flex-col animate-in zoom-in-95 fade-in-0 duration-200"
+            >
+                <div
+                    class="bg-background text-foreground border-border border shadow-lg rounded-lg flex flex-col overflow-hidden"
+                >
+                    <div class="px-6 py-4 border-b border-border">
+                        <Dialog.Title class="text-lg font-semibold"
+                            >{$_(
+                                "contexts.importDialog.conflictTitle",
+                            )}</Dialog.Title
+                        >
+                        <Dialog.Description
+                            class="text-sm text-muted-foreground"
+                        >
+                            {$_("contexts.importDialog.conflictDescription")}
+                        </Dialog.Description>
+                    </div>
+
+                    <div class="p-6 space-y-6 overflow-y-auto">
+                        <!-- Metadata Fields -->
+                        {#each ["name", "description", "rules"] as field}
+                            {#if metadataConflict[field as keyof Metadata]}
+                                <div
+                                    class="grid grid-cols-2 gap-4 items-stretch"
+                                >
+                                    <!-- Current Value -->
+                                    <button
+                                        class="p-4 rounded-lg border-2 text-left transition-all relative h-full flex flex-col {conflictChoices[
+                                            field
+                                        ] === 'current'
+                                            ? 'border-primary bg-primary/5 ring-1 ring-primary/20'
+                                            : 'border-border bg-muted/30 opacity-60 hover:opacity-80 hover:border-primary/50'}"
+                                        onclick={() =>
+                                            (conflictChoices[field] =
+                                                "current")}
+                                    >
+                                        <div
+                                            class="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wider flex items-center justify-between"
+                                        >
+                                            {$_("common.current")}
+                                            {#if conflictChoices[field] === "current"}
+                                                <div
+                                                    class="w-2 h-2 rounded-full bg-primary shadow-[0_0_8px_rgba(var(--primary),0.5)]"
+                                                ></div>
+                                            {/if}
+                                        </div>
+                                        <div
+                                            class="font-medium text-sm break-words whitespace-pre-wrap"
+                                        >
+                                            {field === "rules"
+                                                ? JSON.stringify(
+                                                      context.rules,
+                                                      null,
+                                                      2,
+                                                  )
+                                                : context[
+                                                      field as keyof Context
+                                                  ] || "—"}
+                                        </div>
+                                    </button>
+
+                                    <!-- Imported Value -->
+                                    <button
+                                        class="p-4 rounded-lg border-2 text-left transition-all relative h-full flex flex-col {conflictChoices[
+                                            field
+                                        ] === 'imported'
+                                            ? 'border-primary bg-primary/5 ring-1 ring-primary/20'
+                                            : 'border-border bg-muted/30 opacity-60 hover:opacity-80 hover:border-primary/50'}"
+                                        onclick={() =>
+                                            (conflictChoices[field] =
+                                                "imported")}
+                                    >
+                                        <div
+                                            class="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wider flex items-center justify-between"
+                                        >
+                                            {$_("common.imported")}
+                                            {#if conflictChoices[field] === "imported"}
+                                                <div
+                                                    class="w-2 h-2 rounded-full bg-primary shadow-[0_0_8px_rgba(var(--primary),0.5)]"
+                                                ></div>
+                                            {/if}
+                                        </div>
+                                        <div
+                                            class="font-medium text-sm break-words whitespace-pre-wrap"
+                                        >
+                                            {field === "rules"
+                                                ? JSON.stringify(
+                                                      importedMetadata.rules,
+                                                      null,
+                                                      2,
+                                                  )
+                                                : importedMetadata[
+                                                      field as keyof Metadata
+                                                  ] || "—"}
+                                        </div>
+                                    </button>
+                                </div>
+                            {/if}
+                        {/each}
+                    </div>
+
+                    <div
+                        class="px-6 py-4 border-t border-border bg-muted/20 flex justify-end gap-2"
+                    >
+                        <button
+                            class="px-4 py-2 text-sm font-medium hover:bg-muted rounded-md transition-colors"
+                            onclick={() => (conflictDialogOpen = false)}
+                        >
+                            {$_("common.cancel")}
+                        </button>
+                        <button
+                            class="bg-primary text-primary-foreground hover:bg-primary/90 px-4 py-2 text-sm font-medium rounded-md transition-colors"
+                            onclick={resolveConflictAndImport}
+                        >
+                            {$_("contexts.importDialog.confirmImport")}
+                        </button>
+                    </div>
+                </div>
+            </Dialog.Content>
+        </Dialog.Portal>
+    </Dialog.Root>
+{/if}

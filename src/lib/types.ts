@@ -52,6 +52,8 @@ export interface ContextRule {
 export interface Context {
     id: string;
     name: string;
+    /** Optional description for AI context (tech stack, project info) */
+    description?: string;
     rules: ContextRule[];
     lastUsed?: string;
 }
@@ -72,6 +74,27 @@ export interface AIConfig {
     model: string;
     /** Which preset was used, if any */
     presetId?: string;
+}
+
+/** Configuration for Stashpad Cloud sync */
+export interface CloudConfig {
+    enabled: boolean;
+    /** The root API endpoint for the cloud service */
+    endpoint: string;
+    /** The authenticated user's ID on the cloud service */
+    userId?: string;
+    /** The authenticated user's email on the cloud service */
+    email?: string;
+    /** The JWT token for authentication (stored in memory/secure storage) */
+    accessToken?: string;
+    /** Subscription tier: 'free', 'pro', 'enterprise' */
+    subscriptionTier?: string;
+    /** Subscription status: 'active', 'canceled', etc. */
+    subscriptionStatus?: string;
+    /** When the current billing period ends */
+    subscriptionPeriodEnd?: string;
+    /** Last sync timestamp */
+    lastSyncAt?: string;
 }
 
 export interface Settings {
@@ -103,6 +126,9 @@ export interface Settings {
     autostart?: boolean;
     /** AI configuration for prompt enhancement */
     aiConfig?: AIConfig;
+    resizeImages?: boolean;
+    /** Cloud configuration for synchronization */
+    cloudConfig?: CloudConfig;
 }
 
 export interface IStorageService {
@@ -148,6 +174,9 @@ export interface IStorageService {
     deleteContext(id: string): Promise<void>;
     setAutostart(enabled: boolean): Promise<void>;
     getAutostartEnabled(): Promise<boolean>;
+    startCloudAuth(): Promise<CloudConfig>;
+    /** Fetch account info from cloud and update local subscription status */
+    fetchCloudAccount(): Promise<CloudConfig>;
 }
 
 /**

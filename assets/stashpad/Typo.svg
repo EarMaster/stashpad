@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
 <svg width="100%" height="100%" viewBox="0 0 500 150" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xml:space="preserve" xmlns:serif="http://www.serif.com/" style="fill-rule:evenodd;clip-rule:evenodd;stroke-linejoin:round;stroke-miterlimit:2;">
-    <g transform="matrix(1,0,0,1,-2920,-1072)">
-        <g id="Typo" transform="matrix(0.763148,0,0,0.833531,729.766644,177.771435)">
+    <g transform="matrix(1,0,0,1,0,-1586)">
+        <g id="Typo" transform="matrix(0.763148,0,0,0.833531,-2190.233356,691.771435)">
             <rect x="2870" y="1072.82" width="655.181" height="179.957" style="fill:none;"/>
             <g id="Stashpad" transform="matrix(1.310363,0,0,1.199716,2706.18184,-1118.14614)">
                 <path id="d" d="M593.24,1937.126L602.129,1937.126L602.129,1859.349L593.24,1859.349L593.24,1886.904C589.462,1883.46 584.462,1881.571 578.795,1881.571C565.017,1881.571 555.462,1892.793 555.462,1909.349C555.462,1925.904 565.017,1937.126 578.795,1937.126C584.684,1937.126 589.351,1935.793 593.24,1932.126L593.24,1937.126ZM578.795,1928.238C571.017,1928.238 564.351,1920.46 564.351,1909.349C564.351,1898.238 571.017,1890.46 578.795,1890.46C586.573,1890.46 593.24,1898.238 593.24,1909.349C593.24,1920.46 586.573,1928.238 578.795,1928.238Z" style="fill:white;fill-rule:nonzero;"/>

@@ -160,6 +160,92 @@
       testingConnection = false;
     }
   }
+
+  let authenticatingCloud = $state(false);
+
+  async function handleCloudLogin() {
+    // Open the web portal for account/subscription management
+    // The website handles authentication and will redirect back with a token
+    openAccountPortal();
+  }
+
+  async function refreshSubscription() {
+    try {
+      const config = await adapter.fetchCloudAccount();
+      settings.cloudConfig = config;
+      save();
+    } catch (e) {
+      console.error("Failed to fetch subscription", e);
+    }
+  }
+
+  function handleCloudLogout() {
+    if (settings.cloudConfig) {
+      settings.cloudConfig.accessToken = undefined;
+      settings.cloudConfig.userId = undefined;
+      settings.cloudConfig.email = undefined;
+      settings.cloudConfig.subscriptionTier = undefined;
+      settings.cloudConfig.subscriptionStatus = undefined;
+      settings.cloudConfig.subscriptionPeriodEnd = undefined;
+      settings.cloudConfig.enabled = false;
+      save();
+    }
+  }
+
+  function openAccountPortal() {
+    const endpoint =
+      settings.cloudConfig?.endpoint || "https://stashpad.org/api";
+    const baseUrl = endpoint.replace(/\/api$/, "");
+    window.open(`${baseUrl}/account`, "_blank");
+  }
+
+  // Link code entry for manual device linking
+  let linkCode = $state("");
+  let linkCodeError = $state<string | null>(null);
+  let linkCodeLoading = $state(false);
+
+  async function exchangeLinkCode() {
+    if (!linkCode.trim()) return;
+
+    linkCodeLoading = true;
+    linkCodeError = null;
+
+    try {
+      const endpoint =
+        settings.cloudConfig?.endpoint || "https://stashpad.org/api";
+      const response = await fetch(`${endpoint}/auth/exchange-token`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ token: linkCode.trim() }),
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(error || "Invalid or expired code");
+      }
+
+      const data = await response.json();
+
+      // Update cloud config with the new auth
+      if (settings.cloudConfig) {
+        settings.cloudConfig.accessToken = data.token;
+        settings.cloudConfig.userId = data.userId;
+        settings.cloudConfig.enabled = true;
+        save();
+
+        // Fetch subscription status
+        await refreshSubscription();
+      }
+
+      linkCode = "";
+    } catch (e) {
+      linkCodeError = e instanceof Error ? e.message : "Failed to link account";
+    } finally {
+      linkCodeLoading = false;
+    }
+  }
   // Force rebuild
 </script>
 
@@ -236,6 +322,145 @@
             >→</span
           >
         </button>
+      </section>
+
+      <!-- Cloud Sync Section -->
+      <section class="space-y-4">
+        <h2
+          class="text-sm font-semibold uppercase tracking-wider text-muted-foreground"
+        >
+          {$_("settings.cloudSync.title")}
+        </h2>
+
+        <!-- Enable Toggle -->
+        <div
+          class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
+        >
+          <div class="space-y-0.5">
+            <div class="text-sm font-medium">
+              {$_("settings.cloudSync.enable.label")}
+            </div>
+            <div class="text-xs text-muted-foreground">
+              {$_("settings.cloudSync.enable.description")}
+            </div>
+          </div>
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input
+              type="checkbox"
+              class="sr-only peer"
+              bind:checked={settings.cloudConfig.enabled}
+              onchange={save}
+            />
+            <div
+              class="w-11 h-6 bg-muted rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary peer-focus-visible:ring-2 peer-focus-visible:ring-primary peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-background"
+            ></div>
+          </label>
+        </div>
+
+        {#if settings.cloudConfig}
+          <!-- Auth Status & Button -->
+          <div
+            class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
+            transition:fade={{ duration: 150 }}
+          >
+            <div class="space-y-0.5 flex-1 mr-4">
+              <div class="text-sm font-medium">
+                {$_("settings.cloudSync.auth.status")}
+              </div>
+              <div class="text-xs text-muted-foreground">
+                {#if settings.cloudConfig.accessToken}
+                  <span class="text-green-500 font-medium">
+                    {$_("settings.cloudSync.auth.authenticated")}
+                  </span>
+                  — {$_("settings.cloudSync.auth.loggedInAs", {
+                    values: { email: settings.cloudConfig.email },
+                  })}
+                {:else}
+                  <span class="text-muted-foreground">
+                    {$_("settings.cloudSync.auth.notAuthenticated")}
+                  </span>
+                {/if}
+              </div>
+            </div>
+            {#if settings.cloudConfig.accessToken}
+              <button
+                class="px-4 py-2 rounded-md text-sm font-medium border border-border hover:bg-muted transition-colors"
+                onclick={handleCloudLogout}
+              >
+                {$_("settings.cloudSync.auth.logout")}
+              </button>
+            {:else}
+              <!-- Link Code Entry for manual device linking -->
+              <div class="flex flex-col gap-2">
+                <div class="flex items-center gap-2">
+                  <input
+                    type="text"
+                    class="flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors font-mono"
+                    placeholder="Paste link code here..."
+                    bind:value={linkCode}
+                    onkeydown={(e) => {
+                      if (e.key === "Enter") exchangeLinkCode();
+                    }}
+                  />
+                  <button
+                    class="inline-flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+                    onclick={exchangeLinkCode}
+                    disabled={linkCodeLoading || !linkCode.trim()}
+                  >
+                    {linkCodeLoading ? "Linking..." : "Link"}
+                  </button>
+                </div>
+                {#if linkCodeError}
+                  <p class="text-xs text-red-500">{linkCodeError}</p>
+                {/if}
+                <p class="text-xs text-muted-foreground">
+                  Get a link code from <button
+                    type="button"
+                    class="text-primary hover:underline"
+                    onclick={handleCloudLogin}>stashpad.org/account</button
+                  >
+                </p>
+              </div>
+            {/if}
+          </div>
+
+          <!-- Subscription Status (if logged in) -->
+          {#if settings.cloudConfig.accessToken}
+            <div
+              class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
+              transition:fade={{ duration: 150 }}
+            >
+              <div class="space-y-0.5 flex-1 mr-4">
+                <div class="text-sm font-medium">Subscription</div>
+                <div class="text-xs text-muted-foreground">
+                  {#if settings.cloudConfig.subscriptionTier === "pro"}
+                    <span class="text-blue-500 font-medium">Pro</span>
+                    {#if settings.cloudConfig.subscriptionStatus === "active"}
+                      — Active
+                    {:else if settings.cloudConfig.subscriptionStatus}
+                      — {settings.cloudConfig.subscriptionStatus}
+                    {/if}
+                  {:else if settings.cloudConfig.subscriptionTier === "enterprise"}
+                    <span class="text-purple-500 font-medium">Enterprise</span>
+                    — Active
+                  {:else}
+                    <span class="text-muted-foreground">Free</span>
+                    — Cloud sync requires a subscription
+                  {/if}
+                </div>
+              </div>
+              <button
+                class="px-4 py-2 rounded-md text-sm font-medium border border-border hover:bg-muted transition-colors"
+                onclick={openAccountPortal}
+              >
+                {settings.cloudConfig.subscriptionTier === "free" ||
+                !settings.cloudConfig.subscriptionTier
+                  ? "Upgrade"
+                  : "Manage"}
+              </button>
+            </div>
+          {/if}
+        {/if}
       </section>
 
       <!-- General Section -->
@@ -395,6 +620,38 @@
           </div>
         </div>
 
+        <!-- Resize Images Option -->
+        <div
+          class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
+        >
+          <div class="space-y-0.5">
+            <div class="text-sm font-medium">Resize Images</div>
+            <div class="text-xs text-muted-foreground">
+              Automatically resize large images to save tokens.
+            </div>
+            {#if (settings.resizeImages ?? true) === false}
+              <div class="text-[10px] text-amber-500 mt-1 font-medium">
+                ⚠️ Strongly encouraged to keep enabled to avoid exceeding token
+                limits.
+              </div>
+            {/if}
+          </div>
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input
+              type="checkbox"
+              class="sr-only peer"
+              checked={settings.resizeImages ?? true}
+              onchange={() => {
+                settings.resizeImages = !(settings.resizeImages ?? true);
+                save();
+              }}
+            />
+            <div
+              class="w-11 h-6 bg-muted rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary peer-focus-visible:ring-2 peer-focus-visible:ring-primary peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-background"
+            ></div>
+          </label>
+        </div>
+
         <!-- Auto Clear Completed -->
         <div
           class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
@@ -509,6 +766,64 @@
               class="w-11 h-6 bg-muted rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary peer-focus-visible:ring-2 peer-focus-visible:ring-primary peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-background"
             ></div>
           </label>
+        </div>
+      </section>
+
+      <!-- Shortcuts Section -->
+      <section class="space-y-4">
+        <h2
+          class="text-sm font-semibold uppercase tracking-wider text-muted-foreground"
+        >
+          {$_("settings.shortcuts.title")}
+        </h2>
+
+        <div class="space-y-3">
+          <!-- Local Switching -->
+          <div
+            class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
+          >
+            <div class="space-y-0.5">
+              <div class="text-sm font-medium">
+                {$_("settings.shortcuts.switchContext.label")}
+              </div>
+              <div class="text-xs text-muted-foreground">
+                {$_("settings.shortcuts.switchContext.description")}
+              </div>
+            </div>
+            <ShortcutInput
+              value={settings.shortcuts?.["switch_context"] ||
+                "CommandOrControl+P"}
+              placeholder={$_("settings.shortcuts.clickToSet")}
+              onchange={(shortcut) => {
+                if (!settings.shortcuts) settings.shortcuts = {};
+                settings.shortcuts["switch_context"] = shortcut;
+                save();
+              }}
+            />
+          </div>
+
+          <!-- Global Toggle -->
+          <div
+            class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
+          >
+            <div class="space-y-0.5">
+              <div class="text-sm font-medium">
+                {$_("settings.shortcuts.toggleStashpad.label")}
+              </div>
+              <div class="text-xs text-muted-foreground">
+                {$_("settings.shortcuts.toggleStashpad.description")}
+              </div>
+            </div>
+            <ShortcutInput
+              value={settings.shortcuts?.["global_toggle"] || ""}
+              placeholder={$_("settings.shortcuts.clickToSet")}
+              onchange={(shortcut) => {
+                if (!settings.shortcuts) settings.shortcuts = {};
+                settings.shortcuts["global_toggle"] = shortcut;
+                save();
+              }}
+            />
+          </div>
         </div>
       </section>
 
@@ -824,64 +1139,6 @@
             </button>
           </div>
         {/if}
-      </section>
-
-      <!-- Shortcuts Section -->
-      <section class="space-y-4">
-        <h2
-          class="text-sm font-semibold uppercase tracking-wider text-muted-foreground"
-        >
-          {$_("settings.shortcuts.title")}
-        </h2>
-
-        <div class="space-y-3">
-          <!-- Local Switching -->
-          <div
-            class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
-          >
-            <div class="space-y-0.5">
-              <div class="text-sm font-medium">
-                {$_("settings.shortcuts.switchContext.label")}
-              </div>
-              <div class="text-xs text-muted-foreground">
-                {$_("settings.shortcuts.switchContext.description")}
-              </div>
-            </div>
-            <ShortcutInput
-              value={settings.shortcuts?.["switch_context"] ||
-                "CommandOrControl+P"}
-              placeholder={$_("settings.shortcuts.clickToSet")}
-              onchange={(shortcut) => {
-                if (!settings.shortcuts) settings.shortcuts = {};
-                settings.shortcuts["switch_context"] = shortcut;
-                save();
-              }}
-            />
-          </div>
-
-          <!-- Global Toggle -->
-          <div
-            class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
-          >
-            <div class="space-y-0.5">
-              <div class="text-sm font-medium">
-                {$_("settings.shortcuts.toggleStashpad.label")}
-              </div>
-              <div class="text-xs text-muted-foreground">
-                {$_("settings.shortcuts.toggleStashpad.description")}
-              </div>
-            </div>
-            <ShortcutInput
-              value={settings.shortcuts?.["global_toggle"] || ""}
-              placeholder={$_("settings.shortcuts.clickToSet")}
-              onchange={(shortcut) => {
-                if (!settings.shortcuts) settings.shortcuts = {};
-                settings.shortcuts["global_toggle"] = shortcut;
-                save();
-              }}
-            />
-          </div>
-        </div>
       </section>
 
       <!-- About / Footer -->

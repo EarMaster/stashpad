@@ -59,18 +59,19 @@
     let isInteractive = $derived(!!onclick);
 
     // Compute styles based on selected state
+    // Dark mode uses higher lightness for better readability
     let computedStyle = $derived(
         selected
-            ? `background-color: hsla(${hue}, 100%, 75%, 0.25); border-color: hsla(${hue}, 80%, 40%, 0.4); color: hsla(${hue}, 90%, 25%, 1);`
+            ? `--tag-bg: hsla(${hue}, 100%, 75%, 0.25); --tag-bg-dark: hsla(${hue}, 70%, 30%, 0.35); --tag-border: hsla(${hue}, 80%, 40%, 0.4); --tag-border-dark: hsla(${hue}, 60%, 50%, 0.5); --tag-text: hsla(${hue}, 90%, 25%, 1); --tag-text-dark: hsla(${hue}, 85%, 75%, 1);`
             : isInteractive
-              ? `background-color: transparent; border-color: var(--border); color: var(--muted-foreground);`
-              : `background-color: hsla(${hue}, 100%, 75%, 0.15); color: hsla(${hue}, 80%, 35%, 1);`,
+              ? `--tag-bg: transparent; --tag-bg-dark: transparent; --tag-border: var(--border); --tag-border-dark: var(--border); --tag-text: var(--muted-foreground); --tag-text-dark: var(--muted-foreground);`
+              : `--tag-bg: hsla(${hue}, 75%, 45%, 0.1); --tag-bg-dark: hsla(${hue}, 80%, 70%, 0.1); --tag-border: hsla(${hue}, 75%, 45%, 0.2); --tag-border-dark: hsla(${hue}, 80%, 70%, 0.2); --tag-text: hsl(${hue}, 75%, 45%); --tag-text-dark: hsl(${hue}, 80%, 70%);`,
     );
 </script>
 
 {#if isInteractive}
     <button
-        class="inline-flex items-center rounded-full border transition-all hover:opacity-80 cursor-pointer {sizeClasses}"
+        class="tag-badge inline-flex items-center rounded-full border transition-all hover:opacity-80 cursor-pointer {sizeClasses}"
         style={computedStyle}
         {onclick}
         type="button"
@@ -83,10 +84,37 @@
     </button>
 {:else}
     <span
-        class="inline-flex items-center rounded-full {sizeClasses}"
+        class="tag-badge inline-flex items-center rounded-full border {sizeClasses}"
         style={computedStyle}
     >
         <Hash size={iconSize} />
         {label}
     </span>
 {/if}
+
+<style>
+    /* Light mode (default) */
+    .tag-badge {
+        background-color: var(--tag-bg);
+        border-color: var(--tag-border, transparent);
+        color: var(--tag-text);
+    }
+
+    /* Dark mode */
+    :global(.dark) .tag-badge {
+        background-color: var(--tag-bg-dark, var(--tag-bg));
+        border-color: var(--tag-border-dark, var(--tag-border, transparent));
+        color: var(--tag-text-dark, var(--tag-text));
+    }
+
+    @media (prefers-color-scheme: dark) {
+        :global(:not(.light)) .tag-badge {
+            background-color: var(--tag-bg-dark, var(--tag-bg));
+            border-color: var(
+                --tag-border-dark,
+                var(--tag-border, transparent)
+            );
+            color: var(--tag-text-dark, var(--tag-text));
+        }
+    }
+</style>

@@ -23,6 +23,8 @@ use rusqlite::params;
 use rusqlite::OptionalExtension;
 use tauri::window::Color;
 use tauri::menu::Menu;
+use tiny_http::{Server, Response};
+use url::Url;
 
 mod db;
 use db::DbManager;
@@ -157,6 +159,9 @@ pub struct ContextRule {
 pub struct Context {
     pub id: String,
     pub name: String,
+    /// Optional description for AI context (tech stack, project info)
+    #[serde(default)]
+    pub description: Option<String>,
     pub rules: Vec<ContextRule>,
     #[serde(default)]
     pub last_used: Option<String>,
@@ -199,6 +204,42 @@ pub struct Settings {
     /// AI enhancement configuration
     #[serde(default)]
     pub ai_config: Option<AiConfig>,
+    /// Cloud sync configuration
+    #[serde(default)]
+    pub cloud_config: Option<CloudConfig>,
+}
+
+/// Cloud sync configuration
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_cloud_endpoint")]
+    pub endpoint: String,
+    #[serde(default)]
+    pub user_id: Option<String>,
+    #[serde(default)]
+    pub email: Option<String>,
+    /// Access token (stored in JSON for now, should ideally be in keychain)
+    #[serde(default)]
+    pub access_token: Option<String>,
+    /// Subscription tier: 'free', 'pro', 'enterprise'
+    #[serde(default)]
+    pub subscription_tier: Option<String>,
+    /// Subscription status: 'active', 'canceled', etc.
+    #[serde(default)]
+    pub subscription_status: Option<String>,
+    /// When the current billing period ends
+    #[serde(default)]
+    pub subscription_period_end: Option<String>,
+    /// Last sync timestamp
+    #[serde(default)]
+    pub last_sync_at: Option<String>,
+}
+
+fn default_cloud_endpoint() -> String {
+    "https://stashpad.org/api".to_string()
 }
 
 /// AI provider configuration for prompt enhancement
@@ -256,6 +297,7 @@ impl Default for Settings {
             default_context_last_used: None,
             autostart: false,
             ai_config: None,
+            cloud_config: None,
         }
     }
 }
@@ -559,6 +601,21 @@ fn validate_settings(mut settings: Settings) -> Settings {
         settings.paste_as_attachment_threshold = defaults.paste_as_attachment_threshold;
     }
     
+    // Ensure cloud_config exists with default endpoint if not present
+    if settings.cloud_config.is_none() {
+        settings.cloud_config = Some(CloudConfig {
+            enabled: false,
+            endpoint: default_cloud_endpoint(),
+            user_id: None,
+            email: None,
+            access_token: None,
+            subscription_tier: None,
+            subscription_status: None,
+            subscription_period_end: None,
+            last_sync_at: None,
+        });
+    }
+    
     settings
 }
 
@@ -662,36 +719,57 @@ fn remove_contexts_from_settings() {
     }
 }
 
-/// Apply window vibrancy effects based on the visual_effects_enabled setting.
-/// - None: Use OS defaults (effects enabled)
-/// - Some(true): Enable effects
-/// - Some(false): Disable effects (opaque background)
+/// Apply window vibrancy effects based on the visual_effects_enabled setting and theme.
+/// - enabled: None uses OS defaults, Some(true) enables effects, Some(false) disables
+/// - theme: Optional theme for Acrylic color ("dark", "light", "system") - Windows 10 only
 /// 
 /// Platform support:
-/// - Windows 11: Mica effect
-/// - Windows 10: Acrylic effect (fallback)
+/// - Windows 11: Mica effect (theme handled by OS)
+/// - Windows 10: Acrylic effect with theme-aware background color
 /// - macOS: Vibrancy with HudWindow material
 /// - Linux: No library support (compositor handles transparency)
-fn apply_window_effects_to_window(window: &tauri::WebviewWindow, enabled: Option<bool>) {
+fn apply_window_effects_to_window(window: &tauri::WebviewWindow, enabled: Option<bool>, theme: Option<&str>) {
     #[cfg(target_os = "linux")]
-    let _ = window;
+    {
+        let _ = window;
+        let _ = theme;
+    }
     let should_enable = enabled.unwrap_or(true);
     
     if should_enable {
         // Apply OS-specific vibrancy effects
         #[cfg(target_os = "windows")]
         {
-            // Try Mica first (Windows 11)
-            match apply_mica(window, Some(true)) {
+            // Determine if we should use dark or light colors based on theme
+            // "dark" -> dark colors, "light" -> light colors, "system" or None -> dark (default)
+            let is_dark = match theme {
+                Some("light") => false,
+                _ => true, // dark, system, or unknown defaults to dark
+            };
+            
+            // Choose Acrylic background color based on theme
+            // Dark: zinc-900 (18, 18, 18), Light: zinc-50 (249, 250, 251)
+            let acrylic_color = if is_dark {
+                (18, 18, 18, 200)
+            } else {
+                (249, 250, 251, 200)
+            };
+            
+            // Clear any existing effects first to ensure color change takes effect
+            let _ = clear_mica(window);
+            let _ = clear_acrylic(window);
+            
+            // Try Mica first (Windows 11) - Mica respects system theme automatically
+            match apply_mica(window, Some(is_dark)) {
                 Ok(_) => {
-                    println!("Applied Mica effect (Windows 11)");
+                    println!("Applied Mica effect (Windows 11, dark={})", is_dark);
                 }
                 Err(_) => {
                     // Mica not available (Windows 10 or earlier), try Acrylic
-                    println!("Mica not available, trying Acrylic (Windows 10)…");
-                    match apply_acrylic(window, Some((18, 18, 18, 200))) {
+                    println!("Mica not available, trying Acrylic (Windows 10, dark={})…", is_dark);
+                    match apply_acrylic(window, Some(acrylic_color)) {
                         Ok(_) => {
-                            println!("Applied Acrylic effect (Windows 10)");
+                            println!("Applied Acrylic effect (Windows 10, dark={})", is_dark);
                         }
                         Err(e) => {
                             println!("Failed to apply Acrylic effect: {:?}", e);
@@ -756,15 +834,16 @@ fn get_settings(state: State<Arc<SettingsState>>) -> Settings {
 #[tauri::command]
 
 fn save_settings(app: tauri::AppHandle, state: State<Arc<SettingsState>>, settings: Settings) {
-    println!("Saving settings: {:?}", settings);
+    println!("Saving settings");
 
     // Update global shortcuts
     use tauri_plugin_global_shortcut::GlobalShortcutExt;
     
     let mut current = state.settings.lock().unwrap();
     
-    // Check if visual effects setting changed
+    // Check if visual effects setting or theme changed
     let effects_changed = current.visual_effects_enabled != settings.visual_effects_enabled;
+    let theme_changed = current.theme != settings.theme;
     
     // Simple logic: Unregister known old/register new
     if let Some(old_shortcut) = current.shortcuts.get("global_toggle") {
@@ -786,12 +865,139 @@ fn save_settings(app: tauri::AppHandle, state: State<Arc<SettingsState>>, settin
     persist_settings_to_disk(&settings);
     drop(current); // Release lock before applying effects
     
-    // Apply window effects if setting changed
-    if effects_changed {
+    // Apply window effects if setting or theme changed
+    if effects_changed || theme_changed {
         if let Some(window) = app.get_webview_window("main") {
-            apply_window_effects_to_window(&window, settings.visual_effects_enabled);
+            apply_window_effects_to_window(
+                &window, 
+                settings.visual_effects_enabled,
+                settings.theme.as_deref()
+            );
         }
     }
+}
+
+#[tauri::command]
+async fn start_cloud_auth(
+    app: tauri::AppHandle,
+    settings_state: State<'_, Arc<SettingsState>>,
+) -> Result<CloudConfig, String> {
+    let (endpoint, _enabled) = {
+        let settings = settings_state.settings.lock().unwrap();
+        let config = settings.cloud_config.as_ref().ok_or("Cloud config missing")?;
+        (config.endpoint.clone(), config.enabled)
+    };
+
+    // 1. Start local server to listen for callback
+    let server = Server::http("127.0.0.1:11432").map_err(|e| e.to_string())?;
+    
+    // 2. Open browser to cloud auth
+    let auth_url = format!("{}/auth/github", endpoint.trim_end_matches('/'));
+    let _ = tauri_plugin_opener::OpenerExt::opener(&app).open_url(auth_url, None::<String>);
+
+    // 3. Wait for request (with a timeout of 5 minutes)
+    // In a real app, we'd use a thread or async task with a timeout.
+    // For simplicity in this scaffold, we'll block briefly or just take the first request.
+    
+    if let Some(request) = server.recv_timeout(Duration::from_secs(300)).map_err(|e| e.to_string())? {
+        let url_str = format!("http://localhost:11432{}", request.url());
+        let url = Url::parse(&url_str).map_err(|e| e.to_string())?;
+        
+        let mut token = None;
+        let mut user_id = None;
+        let mut email = None;
+        
+        for (key, value) in url.query_pairs() {
+            match key.as_ref() {
+                "token" => token = Some(value.into_owned()),
+                "userId" => user_id = Some(value.into_owned()),
+                "email" => email = Some(value.into_owned()),
+                _ => {}
+            }
+        }
+        
+        if let (Some(t), Some(uid), Some(e)) = (token, user_id, email) {
+            let mut settings = settings_state.settings.lock().unwrap();
+            let mut config = settings.cloud_config.clone().unwrap_or(CloudConfig {
+                enabled: false,
+                endpoint: default_cloud_endpoint(),
+                user_id: None,
+                email: None,
+                access_token: None,
+                subscription_tier: None,
+                subscription_status: None,
+                subscription_period_end: None,
+                last_sync_at: None,
+            });
+            
+            config.access_token = Some(t);
+            config.user_id = Some(uid);
+            config.email = Some(e);
+            config.enabled = true;
+            
+            settings.cloud_config = Some(config.clone());
+            persist_settings_to_disk(&settings);
+            
+            let response = Response::from_string("Authentication successful! You can close this window and return to Stashpad.")
+                .with_header(tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"text/plain"[..]).unwrap());
+            let _ = request.respond(response);
+            
+            Ok(config)
+        } else {
+            let response = Response::from_string("Authentication failed: Missing parameters.")
+                .with_status_code(400);
+            let _ = request.respond(response);
+            Err("Authentication failed: Missing parameters".into())
+        }
+    } else {
+        Err("Authentication timed out".into())
+    }
+}
+
+/// Fetch account info from cloud service and update local subscription status
+#[tauri::command]
+async fn fetch_cloud_account(
+    settings_state: State<'_, Arc<SettingsState>>,
+) -> Result<CloudConfig, String> {
+    let (endpoint, token) = {
+        let settings = settings_state.settings.lock().unwrap();
+        let config = settings.cloud_config.as_ref().ok_or("Cloud config missing")?;
+        let token = config.access_token.clone().ok_or("Not authenticated")?;
+        (config.endpoint.clone(), token)
+    };
+
+    let client = reqwest::Client::new();
+    let response = client
+        .get(format!("{}/account", endpoint.trim_end_matches('/')))
+        .header("Authorization", format!("Bearer {}", token))
+        .send()
+        .await
+        .map_err(|e| format!("Failed to fetch account: {}", e))?;
+
+    if response.status() == 401 {
+        return Err("Authentication expired. Please log in again.".into());
+    }
+
+    if !response.status().is_success() {
+        return Err(format!("Failed to fetch account: {}", response.status()));
+    }
+
+    let account: serde_json::Value = response.json().await
+        .map_err(|e| format!("Failed to parse account: {}", e))?;
+
+    // Update local config with subscription info
+    let mut settings = settings_state.settings.lock().unwrap();
+    if let Some(ref mut config) = settings.cloud_config {
+        config.subscription_tier = account["subscriptionTier"].as_str().map(|s| s.to_string());
+        config.subscription_status = account["subscriptionStatus"].as_str().map(|s| s.to_string());
+        config.subscription_period_end = account["subscriptionPeriodEnd"].as_str().map(|s| s.to_string());
+        
+        let updated_config = config.clone();
+        persist_settings_to_disk(&settings);
+        return Ok(updated_config);
+    }
+
+    Err("Cloud config not found".into())
 }
 
 // --- Context Commands ---
@@ -824,13 +1030,14 @@ fn save_contexts(state: State<Arc<DbState>>, contexts: Vec<Context>) {
         for ctx in &contexts {
             let rules_json = serde_json::to_string(&ctx.rules).unwrap_or_default();
             tx.execute(
-                "INSERT OR REPLACE INTO contexts (id, name, rules, last_used, updated_at, deleted) VALUES (?1, ?2, ?3, ?4, ?5, 0)",
+                "INSERT OR REPLACE INTO contexts (id, name, rules, last_used, updated_at, deleted, description) VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6)",
                 params![
                     ctx.id,
                     ctx.name,
                     rules_json,
                     ctx.last_used,
-                    SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
+                    SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs(),
+                    ctx.description
                 ],
             )?;
         }
@@ -1515,7 +1722,7 @@ fn read_file_for_preview(path: String) -> Result<FilePreviewData, String> {
 
 #[tauri::command]
 fn copy_to_clipboard(text: String) -> Result<(), String> {
-    println!("Copying to clipboard: {}", text);
+    println!("Copying to clipboard");
     let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
     clipboard.set_text(text).map_err(|e| e.to_string())?;
     Ok(())
@@ -1523,7 +1730,7 @@ fn copy_to_clipboard(text: String) -> Result<(), String> {
 
 #[tauri::command]
 fn start_drag(window: tauri::Window, text: String, files: Vec<String>) -> Result<(), String> {
-    println!("Starting drag: {} with files {:?}", text, files);
+    println!("Starting drag with {} files", files.len());
 
     let items = if !files.is_empty() {
         use std::path::PathBuf;
@@ -1811,6 +2018,7 @@ pub fn run() {
             // Apply initial window effects based on saved settings
             let settings = settings_state_for_setup.settings.lock().unwrap();
             let visual_effects_enabled = settings.visual_effects_enabled;
+            let theme = settings.theme.clone();
             drop(settings); // Release lock
 
             if let Some(window) = app.get_webview_window("main") {
@@ -1828,7 +2036,7 @@ pub fn run() {
                     let _ = app.set_menu(menu);
                 }
 
-                apply_window_effects_to_window(&window, visual_effects_enabled);
+                apply_window_effects_to_window(&window, visual_effects_enabled, theme.as_deref());
             }
 
             Ok(())
@@ -1852,6 +2060,7 @@ pub fn run() {
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, Some(vec![])))
         .plugin(tauri_plugin_global_shortcut::Builder::new().with_handler(move |app, _shortcut, event| {
@@ -1894,7 +2103,9 @@ pub fn run() {
             save_context,   // New
             delete_context, // New
             set_autostart,
-            get_autostart_enabled
+            get_autostart_enabled,
+            start_cloud_auth,
+            fetch_cloud_account
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

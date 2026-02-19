@@ -58,6 +58,7 @@
       allTags = $bindable([]),
       stripTagsOnCopy = true,
       aiConfig,
+      autoDetectedWindowTitle,
    } = $props<{
       transferMode: string;
       refreshTrigger: number;
@@ -69,7 +70,15 @@
       allTags?: string[];
       stripTagsOnCopy?: boolean;
       aiConfig?: AIConfig;
+      /** Window title from auto-detection (only set when auto-detection matched) */
+      autoDetectedWindowTitle?: string;
    }>();
+
+   // Derive the current context object for passing to StashCard
+   let currentContext = $derived(
+      contexts.find((c) => c.id === currentContextId) ??
+         contexts.find((c) => c.id === "default"),
+   );
 
    let stashes = $state<StashItem[]>([]);
    let effectiveMode = $state<"Drag" | "Copy">("Drag");
@@ -840,6 +849,8 @@
                            )}
                         availableTags={allTags}
                         {aiConfig}
+                        {currentContext}
+                        {autoDetectedWindowTitle}
                      />
                   {/if}
                </div>
@@ -912,6 +923,8 @@
                         onDelete={() => deleteStash(item.id)}
                         onUpdateContent={(content, files, enhancedContent) =>
                            updateContent(item, content, files, enhancedContent)}
+                        {currentContext}
+                        {autoDetectedWindowTitle}
                      />
                   </div>
                {/each}

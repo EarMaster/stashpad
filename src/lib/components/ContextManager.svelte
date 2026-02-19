@@ -118,6 +118,14 @@
         load();
     });
 
+    async function saveContext(context: Context) {
+        try {
+            await adapter.saveContext(context);
+        } catch (e) {
+            console.error("Failed to save context", e);
+        }
+    }
+
     async function addContext() {
         const newContext = {
             id: crypto.randomUUID(),
@@ -127,7 +135,7 @@
         };
         contexts = [...contexts, newContext];
         newlyCreatedContextId = newContext.id;
-        await saveContexts();
+        await saveContext(newContext);
     }
 
     async function removeContext(id: string) {
@@ -268,7 +276,7 @@
                                 count: stashCounts["default"] || 0,
                                 size: contextSizes["default"] || 0,
                             }}
-                            onSave={saveContexts}
+                            onSave={saveContext}
                             onExport={() => openExportDialog(defaultContext)}
                             onImport={() => openImportDialog(defaultContext)}
                             onSelect={onSelect
@@ -288,7 +296,7 @@
                                 count: stashCounts[context.id] || 0,
                                 size: contextSizes[context.id] || 0,
                             }}
-                            onSave={saveContexts}
+                            onSave={saveContext}
                             onDelete={(shift) => {
                                 if (shift) {
                                     removeContext(context.id);

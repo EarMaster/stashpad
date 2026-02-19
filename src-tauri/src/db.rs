@@ -34,10 +34,24 @@ impl DbManager {
                 rules TEXT NOT NULL,
                 last_used TEXT,
                 updated_at INTEGER, 
-                deleted BOOLEAN DEFAULT 0
+                deleted BOOLEAN DEFAULT 0,
+                description TEXT
             )",
             [],
         )?;
+
+        // Check/Migrate description column for contexts
+        let description_exists: bool = self.conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('contexts') WHERE name='description'",
+                [],
+                |row| row.get(0).map(|c: i32| c > 0),
+            )
+            .unwrap_or(false);
+
+        if !description_exists {
+            let _ = self.conn.execute("ALTER TABLE contexts ADD COLUMN description TEXT", []);
+        }
 
         // Stashes table
         self.conn.execute(
@@ -184,19 +198,13 @@ impl DbManager {
         println!("Migrating v1 files to attachments for {} stashes...", stashes_to_migrate.len());
         
         // Transaction for migration
-        // We need to use execute directly on self inside mutable methods, but here we only have &self.
-        // However, sqlite connection is interior mutable in wrapping structs... check signature.
-        // Connection is not interior mutable, but DbManager holds it. 
-        // Logic check: init_tables is &self, passing self.conn. 
-        // We can execute on self.conn.
-
         for (stash_id, files_str, created_at) in stashes_to_migrate {
              let files: Vec<String> = serde_json::from_str(&files_str).unwrap_or_default();
              
              for file_path in files {
                  let path = Path::new(&file_path);
                  if !path.exists() {
-                     continue; // Skip non-existent, or maybe we should keep record? Let's skip invalid.
+                     continue; // Skip non-existent
                  }
                  
                  let file_name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
@@ -239,13 +247,14 @@ impl DbManager {
         for ctx in contexts {
             let rules_json = serde_json::to_string(&ctx.rules).unwrap_or_default();
             tx.execute(
-                "INSERT OR IGNORE INTO contexts (id, name, rules, last_used, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+                "INSERT OR IGNORE INTO contexts (id, name, rules, last_used, updated_at, description) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                 params![
                     ctx.id,
                     ctx.name,
                     rules_json,
                     ctx.last_used,
-                    now_ts()
+                    now_ts(),
+                    ctx.description
                 ],
             )?;
         }
@@ -278,7 +287,7 @@ impl DbManager {
     // --- Context CRUD ---
 
     pub fn get_contexts(&self) -> Result<Vec<Context>> {
-        let mut stmt = self.conn.prepare("SELECT id, name, rules, last_used FROM contexts WHERE deleted = 0")?;
+        let mut stmt = self.conn.prepare("SELECT id, name, rules, last_used, description FROM contexts WHERE deleted = 0")?;
         let rows = stmt.query_map([], |row| {
             let rules_str: String = row.get(2)?;
             let rules: Vec<ContextRule> = serde_json::from_str(&rules_str).unwrap_or_default();
@@ -287,6 +296,7 @@ impl DbManager {
                 name: row.get(1)?,
                 rules,
                 last_used: row.get(3)?,
+                description: row.get(4)?,
             })
         })?;
 
@@ -307,13 +317,14 @@ impl DbManager {
         };
 
         self.conn.execute(
-            "INSERT OR REPLACE INTO contexts (id, name, rules, last_used, updated_at, deleted) VALUES (?1, ?2, ?3, ?4, ?5, 0)",
+            "INSERT OR REPLACE INTO contexts (id, name, rules, last_used, updated_at, deleted, description) VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6)",
             params![
                 ctx.id,
                 name,
                 rules_json,
                 ctx.last_used,
-                now_ts()
+                now_ts(),
+                ctx.description
             ],
         )?;
         Ok(())
@@ -361,7 +372,7 @@ impl DbManager {
             stashes.push(s?);
         }
 
-        // 2. Get all attachments (could be optimized with a JOIN, but separate query is cleaner for mapping)
+        // 2. Get all attachments
         let mut att_stmt = self.conn.prepare("SELECT id, stash_id, file_path, file_name, file_size, mime_type, syntax, created_at FROM attachments")?;
         
         let att_rows = att_stmt.query_map([], |row| {
@@ -399,8 +410,6 @@ impl DbManager {
         let files_json = serde_json::to_string(&stash.files).unwrap_or_default();
         
         // If position is NOT provided, we need to check if it's an update or insert
-        // If insert, default to end (max position + 1)
-        // If update, keep existing position
         
         let final_pos = if let Some(p) = position {
             p
@@ -548,6 +557,7 @@ mod tests {
                 }
             ],
             last_used: Some(chrono::Utc::now().to_rfc3339()),
+            description: Some("Test description".to_string()),
         };
         
         db.save_context(&test_context).expect("Failed to save context");
@@ -557,6 +567,7 @@ mod tests {
         
         assert!(saved.is_some(), "Context should be saved");
         assert_eq!(saved.unwrap().name, "Test Project");
+        assert_eq!(saved.unwrap().description, Some("Test description".to_string()));
     }
     
     #[test]
@@ -569,6 +580,7 @@ mod tests {
             name: "Modified Name".to_string(),  // Should be ignored
             rules: vec![],
             last_used: None,
+            description: None,
         };
         
         db.save_context(&modified_default).expect("Save should succeed");

@@ -20,6 +20,7 @@
     FilePreviewData,
     Attachment,
     AIConfig,
+    Context,
   } from "$lib/types";
   import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
   import { _, locale } from "$lib/i18n";
@@ -60,7 +61,7 @@
   import ActionButton from "./ActionButton.svelte";
   import TagBadge from "./TagBadge.svelte";
   import { isStashHovered } from "$lib/stores/drag-state.svelte";
-  import { aiService } from "$lib/services/ai-service";
+  import { aiService, type AIEnhanceContext } from "$lib/services/ai-service";
   import { tooltip } from "$lib/actions/tooltip";
 
   let {
@@ -78,6 +79,8 @@
     onUpdateContent,
     availableTags = [],
     aiConfig,
+    currentContext,
+    autoDetectedWindowTitle,
   } = $props<{
     item: StashItem;
     mode: "Drag" | "Copy";
@@ -97,6 +100,10 @@
     ) => void;
     availableTags?: string[];
     aiConfig?: AIConfig;
+    /** Current context object for AI enhancement */
+    currentContext?: Context;
+    /** Window title from auto-detection (only set when auto-detection matched) */
+    autoDetectedWindowTitle?: string;
   }>();
 
   const adapter = new DesktopStorageAdapter();
@@ -199,7 +206,20 @@
 
     isEnhancing = true;
     try {
-      const enhanced = await aiService.enhancePrompt(item.content, aiConfig);
+      // Build AI enhancement context from current project context
+      const enhanceContext: AIEnhanceContext | undefined = currentContext
+        ? {
+            contextName: currentContext.name,
+            contextDescription: currentContext.description,
+            windowTitle: autoDetectedWindowTitle,
+          }
+        : undefined;
+
+      const enhanced = await aiService.enhancePrompt(
+        item.content,
+        aiConfig,
+        enhanceContext,
+      );
       // Store enhanced version separately, keep original intact
       onUpdateEnhancedContent(enhanced);
       showEnhanced = true;

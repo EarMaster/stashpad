@@ -51,6 +51,8 @@
   } from "$lib/utils/format";
   import { locale } from "$lib/i18n";
   import { tooltip } from "$lib/actions/tooltip";
+  import { resizeImage } from "$lib/utils/files";
+  import { readFile } from "@tauri-apps/plugin-fs";
 
   let {
     onStash,
@@ -65,6 +67,7 @@
     autoFocus = false,
     availableTags = [],
     pasteAsAttachmentThreshold = 8,
+    resizeImages = true,
   } = $props<{
     onStash?: (stashId?: string) => void;
     currentContextId?: string;
@@ -81,6 +84,7 @@
     availableTags?: string[];
     /** Number of lines before pasted text becomes an attachment. 0 = ask user */
     pasteAsAttachmentThreshold?: number;
+    resizeImages?: boolean;
   }>();
 
   // Generate or use existing stash ID for file storage organization
@@ -165,14 +169,85 @@
       const paths = event.payload.paths;
       for (const path of paths) {
         try {
-          const attachment = await adapter.saveAssetFromPath(
-            path,
-            currentContextId,
-            stashId,
-          );
-          files = [...files, attachment];
-          // Track added file for cleanup on cancel
-          addedFilePaths = [...addedFilePaths, attachment.filePath];
+          // Check if it's an image and we need to resize
+          const isImage = /\.(jpg|jpeg|png|webp|gif|bmp)$/i.test(path);
+          if (resizeImages && isImage) {
+            try {
+              // Read the file manually to resize it
+              const data = await readFile(path);
+              const blob = new Blob([data], { type: "image/jpeg" }); // mime type guess, resizeImage handles check
+
+              // resizeImage expects File or Blob.
+              // We need to name it correct so it can detect type from name if blob type is generic?
+              // Actually resizeImage checks file.type.
+              // Let's try to get mime from extension or just pass a File object
+              const fileName = path.split(/[\\/]/).pop() || "image.png";
+              // Simple mime mapping for the file creation
+              const ext = fileName.split(".").pop()?.toLowerCase();
+              let mime = "application/octet-stream";
+              if (ext === "png") mime = "image/png";
+              else if (ext === "jpg" || ext === "jpeg") mime = "image/jpeg";
+              else if (ext === "webp") mime = "image/webp";
+              else if (ext === "gif") mime = "image/gif";
+
+              const originalFile = new File([data], fileName, { type: mime });
+              const resizedBlob = await resizeImage(originalFile);
+
+              // If it was resized, it returns a Blob. If not, it returns original File.
+              // We need to save it.
+              // If it's the original file, we can use saveAssetFromPath (more efficient as it might copy/move?)
+              // BUT saveAssetFromPath invokes rust which reads file again.
+              // If we already read it, might as well use saveAsset.
+              // Actually, if resizeImage returns the original object, we can strictly check reference.
+
+              if (resizedBlob === originalFile) {
+                // No resize needed, use efficient path method
+                const attachment = await adapter.saveAssetFromPath(
+                  path,
+                  currentContextId,
+                  stashId,
+                );
+                files = [...files, attachment];
+                addedFilePaths = [...addedFilePaths, attachment.filePath];
+              } else {
+                // Resized, save the new blob
+                // Need to convert Blob to File
+                const newFile = new File([resizedBlob], fileName, {
+                  type: resizedBlob.type,
+                  lastModified: Date.now(),
+                });
+
+                const attachment = await adapter.saveAsset(
+                  newFile,
+                  currentContextId,
+                  stashId,
+                );
+                files = [...files, attachment];
+                addedFilePaths = [...addedFilePaths, attachment.filePath];
+              }
+            } catch (resizeErr) {
+              console.warn(
+                "Failed to resize image, falling back to original",
+                resizeErr,
+              );
+              const attachment = await adapter.saveAssetFromPath(
+                path,
+                currentContextId,
+                stashId,
+              );
+              files = [...files, attachment];
+              addedFilePaths = [...addedFilePaths, attachment.filePath];
+            }
+          } else {
+            const attachment = await adapter.saveAssetFromPath(
+              path,
+              currentContextId,
+              stashId,
+            );
+            files = [...files, attachment];
+            // Track added file for cleanup on cancel
+            addedFilePaths = [...addedFilePaths, attachment.filePath];
+          }
         } catch (err) {
           console.error("Failed to save dropped asset", err);
         }
@@ -317,8 +392,24 @@
       for (let i = 0; i < clipboardData.files.length; i++) {
         const file = clipboardData.files[i];
         try {
+          let fileToSave = file;
+
+          if (resizeImages && file.type.startsWith("image/")) {
+            try {
+              const resizedBlob = await resizeImage(file);
+              if (resizedBlob !== file) {
+                fileToSave = new File([resizedBlob], file.name, {
+                  type: resizedBlob.type,
+                  lastModified: Date.now(),
+                });
+              }
+            } catch (e) {
+              console.warn("Failed to resize pasted image", e);
+            }
+          }
+
           const attachment = await adapter.saveAsset(
-            file,
+            fileToSave,
             currentContextId,
             stashId,
           );

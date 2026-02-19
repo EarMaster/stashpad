@@ -27,13 +27,16 @@
         "default": "Default",
         "unknown": "Unknown",
         "close": "Close",
-        "minimize": "Minimize"
+        "minimize": "Minimize",
+        "current": "Current",
+        "imported": "Imported"
     },
     "header": {
         "autoContext": "Auto Context",
         "manualContext": "Manual Context",
         "settings": "Settings",
-        "checking": "Checking…"
+        "settings": "Settings",
+        "calculating": "Calculating..."
     },
     "settings": {
         "title": "Settings",
@@ -151,6 +154,25 @@
             "testConnection": "Test Connection",
             "testSuccess": "Connection successful!",
             "testFailed": "Connection failed: {error}"
+        },
+        "cloudSync": {
+            "title": "Cloud Sync",
+            "enable": {
+                "label": "Enable Cloud Sync",
+                "description": "Synchronize your stashes and contexts across devices"
+            },
+            "endpoint": {
+                "label": "API Endpoint",
+                "description": "The root API endpoint for the cloud service"
+            },
+            "auth": {
+                "login": "Login with GitHub",
+                "logout": "Logout",
+                "loggedInAs": "Logged in as {email}",
+                "status": "Status",
+                "authenticated": "Authenticated",
+                "notAuthenticated": "Not Authenticated"
+            }
         }
     },
     "contexts": {
@@ -169,6 +191,10 @@
         "autoSwitchRules": "Auto-Switch Rules",
         "noRules": "No rules defined. This context will only be active if selected manually.",
         "noContexts": "No custom contexts defined. Stashes will go to \"Default\".",
+        "description": {
+            "label": "Description",
+            "placeholder": "Describe the project. Provide information about your project, your tech stack, conventions, etc.. This will be especially helpful if you use AI enhancement."
+        },
         "export": "Export",
         "exportContext": "Export all stashes as Markdown file",
         "exportTitle": "Export Context as Markdown",
@@ -187,19 +213,22 @@
         "import": "Import",
         "importContext": "Import stashes from file",
         "importDialog": {
-            "title": "Import Stashes",
-            "selectFile": "Select File",
-            "selectFileDesc": "Choose a Stashpad export file to import",
+            "title": "Import Context",
             "selectStashes": "Select stashes to import",
-            "supportedFormats": "Supports .md and .zip files exported from Stashpad",
+            "selectFile": "Select Export File",
+            "selectFileDesc": "Import stashes from a Stashpad export file (.md or .zip)",
+            "supportedFormats": "Supports .md and .zip files",
             "chooseFile": "Choose File",
-            "parsing": "Parsing…",
-            "import": "Import",
-            "noStashesFound": "No stashes found in file",
-            "duplicate": "Duplicate",
-            "duplicateTooltip": "This stash may already exist in your queue",
-            "duplicatesFound": "{count} potential duplicates found",
-            "dropToImport": "or drop file here"
+            "parsing": "Parsing...",
+            "dropToImport": "or drop file here to import",
+            "duplicatesFound": "{count} duplicates found",
+            "duplicateTooltip": "This stash appears to be a duplicate of an existing one",
+            "noStashesFound": "No stashes found in this file.",
+            "import": "Import Selected",
+            "selectedCount": "{count} stashes selected",
+            "conflictTitle": "Metadata Conflict",
+            "conflictDescription": " The imported context has different metadata than your current context. Please choose which values to keep.",
+            "confirmImport": "Confirm Import"
         },
         "rules": {
             "process": "Process Name",

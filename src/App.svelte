@@ -16,6 +16,7 @@
 
 <script lang="ts">
    import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
+   import { CloudSyncService, type SyncStatus } from "$lib/services/cloud-sync";
    import { _ } from "$lib/i18n";
    import type { Settings, StashItem, Context, Attachment } from "$lib/types";
    import Header from "$lib/components/Header.svelte";
@@ -36,6 +37,7 @@
    let movingStash = $state<StashItem | null>(null);
    let newlyAddedStashId = $state<string | null>(null);
    let allTags = $state<string[]>([]);
+   let autoDetectedWindowTitle = $state<string | undefined>(undefined);
 
    // Draft state persistence
    let editorDraft = $state("");
@@ -44,7 +46,12 @@
    let showExitConfirmation = $state(false);
    let isWin10 = $state(false);
 
+   // Cloud sync status
+   let syncStatus = $state<SyncStatus>("idle");
+
    const appWindow = getCurrentWindow();
+   const adapter = new DesktopStorageAdapter();
+   const cloudSync = new CloudSyncService(adapter);
 
    onMount(() => {
       adapter.isWindows10().then((v) => (isWin10 = v));
@@ -68,9 +75,20 @@
          5 * 60 * 1000,
       ); // 5 minutes
 
+      // Listen to sync status changes
+      const unsubscribeSync = cloudSync.addListener((status) => {
+         syncStatus = status;
+         if (status === "success") {
+            // Refresh queue after successful sync to show server changes
+            refreshTrigger++;
+         }
+      });
+
       return () => {
          unlisten.then((f) => f());
          clearInterval(cleanupInterval);
+         unsubscribeSync();
+         cloudSync.dispose();
       };
    });
 
@@ -86,8 +104,6 @@
 
    // Centralized contexts state
    let contexts = $state<Context[]>([]);
-
-   const adapter = new DesktopStorageAdapter();
 
    let isGlass = $derived(
       settings.visualEffectsEnabled ??
@@ -302,6 +318,9 @@
          settings.activeContextId = "default";
          adapter.saveSettings(settings);
       }
+
+      // Initialize cloud sync with current settings
+      cloudSync.initialize(settings);
    }
 
    async function loadContexts() {
@@ -346,9 +365,16 @@
       });
    });
 
+   // Update cloud sync when settings change
+   $effect(() => {
+      cloudSync.updateSettings(settings);
+   });
+
    function handleStash(id?: string) {
       if (id) newlyAddedStashId = id;
       refreshTrigger++;
+      // Trigger cloud sync after local save (debounced)
+      cloudSync.triggerSync();
    }
 
    $effect(() => {
@@ -431,6 +457,7 @@
          {settings}
          {contexts}
          bind:currentContextId
+         bind:autoDetectedWindowTitle
          onOpenContextSwitcher={() => {
             contextSelectorOpen = true;
             isCycling = false;
@@ -447,6 +474,7 @@
                availableTags={allTags}
                pasteAsAttachmentThreshold={settings.pasteAsAttachmentThreshold ??
                   8}
+               resizeImages={settings.resizeImages ?? true}
             />
          </div>
 
@@ -464,6 +492,7 @@
             bind:allTags
             stripTagsOnCopy={settings.stripTagsOnCopy ?? true}
             aiConfig={settings.aiConfig}
+            {autoDetectedWindowTitle}
          />
       </div>
    {:else if view === "Settings"}

@@ -13,6 +13,7 @@
     import { getRelativeTime } from "$lib/utils/date";
     import { formatBytes } from "$lib/utils/format";
     import { Download, FileArchive, Square, CheckSquare } from "lucide-svelte";
+    import { dump } from "js-yaml";
 
     let {
         open = $bindable(false),
@@ -155,8 +156,27 @@
      * Build markdown content from selected stashes
      * @param filenameMap - Optional map of (stashId + fileName) -> uniqueFileName for renamed attachments in ZIPs
      */
+
+    /**
+     * Build markdown content from selected stashes
+     * @param filenameMap - Optional map of (stashId + fileName) -> uniqueFileName for renamed attachments in ZIPs
+     */
     function buildMarkdownContent(filenameMap?: Map<string, string>): string {
         const lines: string[] = [];
+
+        // Create metadata object
+        const metadata = {
+            name: context.name,
+            description: context.description || "",
+            rules: context.rules || [],
+        };
+
+        // Add YAML frontmatter
+        lines.push("---");
+        lines.push(dump(metadata).trim());
+        lines.push("---");
+        lines.push("");
+
         lines.push(`# ${context.name}`);
         lines.push("");
 

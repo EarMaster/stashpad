@@ -13,7 +13,7 @@
 // See the GNU Affero General Public License for more details.
 
 import { invoke } from '@tauri-apps/api/core';
-import type { IStorageService, StashItem, AppContext, Settings, FilePreviewData, Context, Attachment } from '../types';
+import type { IStorageService, StashItem, AppContext, Settings, FilePreviewData, Context, Attachment, CloudConfig } from '../types';
 
 export class DesktopStorageAdapter implements IStorageService {
     async saveStash(stash: StashItem, options?: { invertPosition?: boolean }): Promise<void> {
@@ -143,6 +143,14 @@ export class DesktopStorageAdapter implements IStorageService {
 
     async getAutostartEnabled(): Promise<boolean> {
         return await invoke('get_autostart_enabled');
+    }
+
+    async startCloudAuth(): Promise<CloudConfig> {
+        return await invoke('start_cloud_auth');
+    }
+
+    async fetchCloudAccount(): Promise<CloudConfig> {
+        return await invoke('fetch_cloud_account');
     }
 }
 

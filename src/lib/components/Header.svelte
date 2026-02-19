@@ -38,6 +38,7 @@
     contexts,
     currentContextId = $bindable(),
     onOpenContextSwitcher,
+    autoDetectedWindowTitle = $bindable(),
   } = $props<{
     transferMode: string;
     onOpenSettings: () => void;
@@ -45,29 +46,46 @@
     contexts: Context[];
     currentContextId: string;
     onOpenContextSwitcher: () => void;
+    /** Window title - only set when auto-detection matched a context */
+    autoDetectedWindowTitle?: string;
   }>();
 
   const adapter = new DesktopStorageAdapter();
 
   function updateEffectiveContext() {
     if (settings.autoContextDetection) {
-      const detectedId = contextInfo.detectedContextId || "default";
-      currentContextId = detectedId;
+      // Only switch context if Auto Detection found an actual match.
+      // If no match (undefined), keep the last selected context.
+      if (contextInfo.detectedContextId) {
+        const detectedId = contextInfo.detectedContextId;
+        currentContextId = detectedId;
 
-      // Persist the detected context to settings so it's restored on app restart
-      if (settings.activeContextId !== detectedId) {
-        settings.activeContextId = detectedId;
-        adapter.saveSettings(settings);
+        // Expose window title for AI enhancement when auto-detection matched
+        autoDetectedWindowTitle = contextInfo.windowTitle;
 
-        // Update lastUsed timestamp for the detected context
-        const ctx = contexts.find((c) => c.id === detectedId);
-        if (ctx) {
-          ctx.lastUsed = new Date().toISOString();
-          adapter.saveContext(ctx);
+        // Persist the detected context to settings so it's restored on app restart
+        if (settings.activeContextId !== detectedId) {
+          settings.activeContextId = detectedId;
+          adapter.saveSettings(settings);
+
+          // Update lastUsed timestamp for the detected context
+          const ctx = contexts.find((c) => c.id === detectedId);
+          if (ctx) {
+            ctx.lastUsed = new Date().toISOString();
+            adapter.saveContext(ctx);
+          }
         }
+      } else {
+        // No match detected: keep the current context (don't switch)
+        // Use the already set activeContextId or default if none is set yet
+        currentContextId = settings.activeContextId || "default";
+        // Clear window title when no auto-detection match
+        autoDetectedWindowTitle = undefined;
       }
     } else {
       currentContextId = settings.activeContextId || "default";
+      // Auto-detection is disabled, so don't expose window title
+      autoDetectedWindowTitle = undefined;
     }
   }
 
