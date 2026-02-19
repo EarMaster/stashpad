@@ -231,7 +231,7 @@ export class CloudSyncService {
                     contextId: stash.contextId || null,
                     content: stash.content,
                     enhancedContent: stash.enhancedContent || null,
-                    completed: stash.completed,
+                    completed: !!stash.completed,
                     completedAt: stash.completedAt || null,
                     createdAt: stash.createdAt,
                     updatedAt: stash.updatedAt || stash.createdAt,

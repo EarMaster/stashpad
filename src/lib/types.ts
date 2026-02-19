@@ -34,6 +34,7 @@ export interface StashItem {
     contextId?: string;
     completed?: boolean;
     completedAt?: string; // ISO Date string
+    updatedAt?: string; // ISO Date string
     isDndShadowItem?: boolean; // Added by svelte-dnd-action during drag operations
 }
 
