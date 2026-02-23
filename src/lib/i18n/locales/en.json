@@ -255,6 +255,7 @@
         "noContextsFound": "No contexts found",
         "autoContextDetection": "Auto Context Detection",
         "manageContexts": "Manage Contexts…",
+        "createContext": "Create \"{name}\"",
         "holdShiftToCopy": "Hold Shift to Copy instead of Move",
         "alwaysThereForYou": "Always here for you…",
         "time": {

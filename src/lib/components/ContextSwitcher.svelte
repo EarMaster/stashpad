@@ -17,7 +17,7 @@
 <script lang="ts">
     import type { Context } from "$lib/types";
     import { _, date as formatDate } from "$lib/i18n";
-    import { Search, ArrowDownUp, Clock } from "lucide-svelte";
+    import { Search, ArrowDownUp, Clock, Plus } from "lucide-svelte";
     import fuzzysort from "fuzzysort";
     import { getRelativeTime } from "$lib/utils/date";
     import { tooltip } from "$lib/actions/tooltip";
@@ -30,6 +30,7 @@
         title = "",
         stashCounts = {},
         onSelect,
+        onCreate,
         onAutoContextToggle,
         onManageContexts,
         onClose,
@@ -41,6 +42,7 @@
         title?: string;
         stashCounts?: Record<string, number>;
         onSelect: (context: Context, shiftKey: boolean) => void;
+        onCreate?: (name: string) => void;
         onAutoContextToggle?: (enabled: boolean) => void;
         onManageContexts?: () => void;
         onClose: () => void;
@@ -86,28 +88,45 @@
         });
     });
 
+    // Show a "Create" option when the search query doesn't exactly match any context
+    let showCreateOption = $derived(
+        searchQuery.trim().length > 0 &&
+            onCreate !== undefined &&
+            !contexts.some(
+                (c) =>
+                    c.name.toLowerCase() === searchQuery.trim().toLowerCase(),
+            ),
+    );
+
+    // Total navigable items: contexts + optional create row
+    let totalItems = $derived(
+        displayedContexts.length + (showCreateOption ? 1 : 0),
+    );
+
     $effect(() => {
-        // Reset index if list changes drastically?
-        // Or keep it clamped.
-        if (selectedIndex >= displayedContexts.length) {
-            selectedIndex = Math.max(0, displayedContexts.length - 1);
+        // Keep selectedIndex clamped within navigable items
+        if (selectedIndex >= totalItems) {
+            selectedIndex = Math.max(0, totalItems - 1);
         }
     });
 
     // Public API for parent
     export function next() {
-        if (displayedContexts.length === 0) return;
-        selectedIndex = (selectedIndex + 1) % displayedContexts.length;
+        if (totalItems === 0) return;
+        selectedIndex = (selectedIndex + 1) % totalItems;
     }
 
     export function prev() {
-        if (displayedContexts.length === 0) return;
-        selectedIndex =
-            (selectedIndex - 1 + displayedContexts.length) %
-            displayedContexts.length;
+        if (totalItems === 0) return;
+        selectedIndex = (selectedIndex - 1 + totalItems) % totalItems;
     }
 
     export function confirm() {
+        // If the create-row is selected, trigger onCreate
+        if (showCreateOption && selectedIndex === displayedContexts.length) {
+            onCreate?.(searchQuery.trim());
+            return;
+        }
         const item = displayedContexts[selectedIndex];
         if (item) attemptSelection(item);
     }
@@ -263,7 +282,26 @@
                     </div>
                 </button>
             {/each}
-            {#if displayedContexts.length === 0}
+            {#if showCreateOption}
+                {@const isCreateSelected =
+                    selectedIndex === displayedContexts.length}
+                <button
+                    class="w-full text-left px-4 py-2 text-sm flex items-center gap-2 transition-colors {isCreateSelected
+                        ? 'bg-primary/20 text-foreground'
+                        : 'text-muted-foreground hover:text-foreground'}"
+                    onclick={() => onCreate?.(searchQuery.trim())}
+                    onmouseenter={() =>
+                        (selectedIndex = displayedContexts.length)}
+                >
+                    <Plus size={14} class="shrink-0" />
+                    <span
+                        >{$_("contextSwitcher.createContext", {
+                            values: { name: searchQuery.trim() },
+                        })}</span
+                    >
+                </button>
+            {/if}
+            {#if displayedContexts.length === 0 && !showCreateOption}
                 <div class="p-4 text-center text-sm text-muted-foreground">
                     {$_("contextSwitcher.noContextsFound")}
                 </div>

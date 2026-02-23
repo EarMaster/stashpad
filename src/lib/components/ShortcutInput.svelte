@@ -223,6 +223,18 @@
             if (key.length === 1) {
                 // Single character - use uppercase for letters
                 mappedKey = key.toUpperCase();
+            } else if (key === "Dead") {
+                // On macOS, dead keys (e.g., Alt+N for ˜) report "Dead"
+                // Fall back to event.code to get the physical key
+                const codeMatch = code.match(/^Key([A-Z])$/);
+                const digitMatch = code.match(/^Digit([0-9])$/);
+                if (codeMatch) {
+                    mappedKey = codeMatch[1]; // e.g., "KeyN" → "N"
+                } else if (digitMatch) {
+                    mappedKey = digitMatch[1]; // e.g., "Digit1" → "1"
+                } else {
+                    mappedKey = code; // Use raw code as last resort
+                }
             } else {
                 // Unknown key, use as-is
                 mappedKey = key;

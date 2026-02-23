@@ -249,6 +249,7 @@
         "noContextsFound": "Keine Kontexte gefunden",
         "autoContextDetection": "Automatische Kontexterkennung",
         "manageContexts": "Kontexte verwalten…",
+        "createContext": "Erstelle \"{name}\"",
         "holdShiftToCopy": "Umschalt halten zum Kopieren statt Verschieben",
         "alwaysThereForYou": "Immer für dich da…",
         "time": {

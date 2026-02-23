@@ -728,11 +728,11 @@ fn remove_contexts_from_settings() {
 /// - Windows 10: Acrylic effect with theme-aware background color
 /// - macOS: Vibrancy with HudWindow material
 /// - Linux: No library support (compositor handles transparency)
-fn apply_window_effects_to_window(window: &tauri::WebviewWindow, enabled: Option<bool>, theme: Option<&str>) {
+fn apply_window_effects_to_window(window: &tauri::WebviewWindow, enabled: Option<bool>, _theme: Option<&str>) {
     #[cfg(target_os = "linux")]
     {
         let _ = window;
-        let _ = theme;
+        let _ = _theme;
     }
     let should_enable = enabled.unwrap_or(true);
     
@@ -742,7 +742,7 @@ fn apply_window_effects_to_window(window: &tauri::WebviewWindow, enabled: Option
         {
             // Determine if we should use dark or light colors based on theme
             // "dark" -> dark colors, "light" -> light colors, "system" or None -> dark (default)
-            let is_dark = match theme {
+            let is_dark = match _theme {
                 Some("light") => false,
                 _ => true, // dark, system, or unknown defaults to dark
             };
@@ -2070,9 +2070,25 @@ pub fn run() {
 
              if event.state == ShortcutState::Pressed {
                  if let Some(window) = app.get_webview_window("main") {
-                        if window.is_visible().unwrap_or(false) && window.is_focused().unwrap_or(false) {
-                            let _ = window.hide();
+                        let is_shown = window.is_visible().unwrap_or(false)
+                            && window.is_focused().unwrap_or(false)
+                            && !window.is_minimized().unwrap_or(false);
+                        if is_shown {
+                            // On macOS, minimize instead of hide to stay in Cmd+Tab and dock
+                            #[cfg(target_os = "macos")]
+                            {
+                                let _ = window.minimize();
+                            }
+                            #[cfg(not(target_os = "macos"))]
+                            {
+                                let _ = window.hide();
+                            }
                         } else {
+                            // Restore: unminimize on macOS, show on all platforms
+                            #[cfg(target_os = "macos")]
+                            {
+                                let _ = window.unminimize();
+                            }
                             let _ = window.show();
                             let _ = window.set_focus();
                         }

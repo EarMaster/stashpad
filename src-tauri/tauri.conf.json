@@ -22,7 +22,7 @@
         "dragDropEnabled": true,
         "decorations": false,
         "transparent": false,
-        "shadow": false,
+        "shadow": true,
         "windowEffects": {
           "effects": [
             "blur"

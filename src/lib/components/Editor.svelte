@@ -667,7 +667,11 @@
       }
     }
 
-    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+    // On macOS, use Cmd+Enter (metaKey); on Windows/Linux, use Ctrl+Enter (ctrlKey)
+    const isMac = navigator.platform.includes("Mac");
+    const isSaveShortcut = isMac ? e.metaKey : e.ctrlKey;
+    if (e.key === "Enter" && isSaveShortcut) {
+      e.preventDefault();
       save(e);
     }
     if (e.key === "Escape" && onCancel) {

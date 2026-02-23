@@ -7,7 +7,12 @@
     import { _, locale } from "$lib/i18n";
     import { Dialog } from "bits-ui";
     import { save } from "@tauri-apps/plugin-dialog";
-    import { writeTextFile, readFile, stat } from "@tauri-apps/plugin-fs";
+    import {
+        writeTextFile,
+        writeFile,
+        readFile,
+        stat,
+    } from "@tauri-apps/plugin-fs";
     import JSZip from "jszip";
     import type { Context, StashItem } from "$lib/types";
     import { getRelativeTime } from "$lib/utils/date";
@@ -456,8 +461,6 @@
         });
 
         if (filePath) {
-            // Write zip file using Tauri fs
-            const { writeFile } = await import("@tauri-apps/plugin-fs");
             await writeFile(filePath, zipBlob);
             handleClose();
         }

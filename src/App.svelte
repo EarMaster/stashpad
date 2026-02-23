@@ -431,6 +431,17 @@
          mode={movingStash ? "move" : "switch"}
          title={movingStash ? "Move Stash to…" : "Switch Context"}
          onSelect={(ctx, shift) => selectContext(ctx.id, shift)}
+         onCreate={async (name) => {
+            const newContext = {
+               id: crypto.randomUUID(),
+               name,
+               rules: [],
+               lastUsed: new Date().toISOString(),
+            };
+            await adapter.saveContext(newContext);
+            contexts = [...contexts, newContext];
+            selectContext(newContext.id);
+         }}
          onAutoContextToggle={(enabled) => {
             settings.autoContextDetection = enabled;
             adapter.saveSettings(settings); // Immediate save
