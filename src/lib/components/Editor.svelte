@@ -38,7 +38,7 @@
   import ConfirmationDialog from "./ConfirmationDialog.svelte";
   import Tooltip from "./Tooltip.svelte";
   import { fade } from "svelte/transition";
-  import { convertFileSrc } from "@tauri-apps/api/core";
+  import { convertFileSrc, invoke } from "@tauri-apps/api/core";
   import { listen, type UnlistenFn } from "@tauri-apps/api/event";
   import { onMount, onDestroy, untrack } from "svelte";
   import { findStashAtPosition } from "$lib/stores/drag-state.svelte";
@@ -134,6 +134,19 @@
   // Clear confirmation dialog state
   let clearConfirmDialogOpen = $state(false);
 
+  // Track Shift key state for paste override (ClipboardEvent doesn't expose shiftKey).
+  // Reset on blur to prevent state from getting stuck when the window loses focus.
+  let isShiftPressed = false;
+  function handleShiftDown(e: KeyboardEvent) {
+    if (e.key === "Shift") isShiftPressed = true;
+  }
+  function handleShiftUp(e: KeyboardEvent) {
+    if (e.key === "Shift") isShiftPressed = false;
+  }
+  function handleBlurReset() {
+    isShiftPressed = false;
+  }
+
   const adapter = new DesktopStorageAdapter();
 
   // Tauri native drag-drop event listeners
@@ -142,6 +155,11 @@
   let unlistenLeave: UnlistenFn | null = null;
 
   onMount(async () => {
+    // Track modifier key state for paste override
+    window.addEventListener("keydown", handleShiftDown);
+    window.addEventListener("keyup", handleShiftUp);
+    window.addEventListener("blur", handleBlurReset);
+
     // Listen for Tauri's native drag-drop events
     unlistenEnter = await listen("tauri://drag-enter", () => {
       dragOver = true;
@@ -256,6 +274,9 @@
   });
 
   onDestroy(() => {
+    window.removeEventListener("keydown", handleShiftDown);
+    window.removeEventListener("keyup", handleShiftUp);
+    window.removeEventListener("blur", handleBlurReset);
     unlistenEnter?.();
     unlistenLeave?.();
     unlistenDrop?.();
@@ -386,8 +407,11 @@
     const clipboardData = e.clipboardData;
     if (!clipboardData) return;
 
-    // Check for files first
-    if (clipboardData.files && clipboardData.files.length > 0) {
+    // Shift override: force inline paste, skip attachment conversion
+    const forceInline = isShiftPressed;
+
+    // Check for files first (skip when Shift is held to force inline paste)
+    if (!forceInline && clipboardData.files && clipboardData.files.length > 0) {
       e.preventDefault();
       for (let i = 0; i < clipboardData.files.length; i++) {
         const file = clipboardData.files[i];
@@ -426,6 +450,9 @@
     // Check for text
     const pastedText = clipboardData.getData("text/plain");
     if (!pastedText) return;
+
+    // When Shift is held, always paste as inline text
+    if (forceInline) return;
 
     const lineCount = pastedText.split("\n").length;
 
@@ -674,6 +701,37 @@
       e.preventDefault();
       save(e);
     }
+
+    // Shift+Paste override: Cmd+Shift+V (macOS) / Ctrl+Shift+V (other)
+    // On macOS, Cmd+Shift+V is intercepted by the system ("Paste and Match Style")
+    // and never fires a JavaScript paste event, so we handle it here explicitly.
+    // Uses Tauri's read_clipboard_text to avoid navigator.clipboard.readText()
+    // which triggers a macOS permission prompt / context menu.
+    const isPasteModifier = isMac ? e.metaKey : e.ctrlKey;
+    if (e.key === "v" && isPasteModifier && e.shiftKey) {
+      e.preventDefault();
+      invoke<string>("read_clipboard_text")
+        .then((text) => {
+          if (!text || !textareaRef) return;
+          const start = textareaRef.selectionStart;
+          const end = textareaRef.selectionEnd;
+          const before = content.slice(0, start);
+          const after = content.slice(end);
+          content = before + text + after;
+
+          // Restore cursor position after the inserted text
+          const newPos = start + text.length;
+          setTimeout(() => {
+            textareaRef?.focus();
+            textareaRef?.setSelectionRange(newPos, newPos);
+          }, 0);
+        })
+        .catch((err) => {
+          console.error("Failed to read clipboard text:", err);
+        });
+      return;
+    }
+
     if (e.key === "Escape" && onCancel) {
       handleCancel();
     }

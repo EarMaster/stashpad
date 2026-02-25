@@ -19,6 +19,7 @@
     import ActionButton from "./ActionButton.svelte";
     import { tooltip } from "$lib/actions/tooltip";
     import marked from "$lib/utils/markdown";
+    import { externalLinks } from "$lib/actions/externalLinks";
     import { tick } from "svelte";
 
     let {
@@ -189,6 +190,7 @@
                 <!-- svelte-ignore a11y_no_static_element_interactions -->
                 <div
                     class="prose dark:prose-invert prose-xs max-w-none text-xs min-h-[40px] p-2 rounded-md hover:bg-muted/30 cursor-text border border-transparent hover:border-border/50 transition-colors"
+                    use:externalLinks
                     onclick={focusDescription}
                 >
                     {#if context.description}

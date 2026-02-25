@@ -133,8 +133,9 @@
 
     // Handle Alt+A for auto context detection toggle
     // Navigation keys (arrows, Enter, Escape) are handled by App.svelte
+    // Note: On macOS, Option+A produces "å" instead of "a", so we check both
     function handleKeydown(e: KeyboardEvent) {
-        if (e.key === "a" && e.altKey && mode === "switch") {
+        if ((e.key === "a" || e.key === "å") && e.altKey && mode === "switch") {
             e.preventDefault();
             const newState = !autoContextDetection;
             onAutoContextToggle?.(newState);
@@ -184,6 +185,13 @@
                     placeholder={$_("contextSwitcher.searchPlaceholder")}
                     bind:value={searchQuery}
                     onkeydown={(e) => {
+                        // On macOS, Option+A produces "å" — prevent it from
+                        // being inserted and let the window handler toggle the
+                        // auto-context-detection setting instead.
+                        if ((e.key === "a" || e.key === "å") && e.altKey) {
+                            e.preventDefault();
+                            return;
+                        }
                         if (
                             [
                                 "ArrowUp",
@@ -191,7 +199,6 @@
                                 "Enter",
                                 "Escape",
                             ].includes(e.key) ||
-                            (e.key === "a" && e.altKey) ||
                             e.ctrlKey ||
                             e.metaKey
                         ) {
@@ -334,7 +341,9 @@
                         >
                     </label>
                     <span class="text-[10px] text-muted-foreground/50 font-mono"
-                        >Alt+A</span
+                        >{navigator.platform.includes("Mac")
+                            ? "⌥A"
+                            : "Alt+A"}</span
                     >
                 </div>
 

@@ -63,6 +63,7 @@
   import { isStashHovered } from "$lib/stores/drag-state.svelte";
   import { aiService, type AIEnhanceContext } from "$lib/services/ai-service";
   import { tooltip } from "$lib/actions/tooltip";
+  import { externalLinks } from "$lib/actions/externalLinks";
 
   let {
     item,
@@ -534,6 +535,7 @@
           class="prose dark:prose-invert prose-xs max-w-none text-sm text-foreground/90 leading-relaxed font-sans {item.completed
             ? 'line-through text-muted-foreground/70'
             : ''}"
+          use:externalLinks
           ondblclick={handleDoubleClick}
           role="presentation"
         >

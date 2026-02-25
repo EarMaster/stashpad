@@ -262,45 +262,65 @@
     }
 
     /**
-     * Handles keydown events.
-     * When not recording: Enter/Space activates recording mode.
-     * When recording: captures the shortcut or Escape cancels.
+     * Handles keydown on the button for keyboard activation only.
+     * Enter/Space starts recording mode (keyboard accessibility).
      */
-    function handleKeyDown(event: KeyboardEvent) {
-        if (!isRecording) {
-            // Not recording - check for activation keys
-            if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                event.stopPropagation();
-                isRecording = true;
-            }
-            // Allow Tab and other navigation keys to work normally
-            return;
+    function handleActivationKeyDown(event: KeyboardEvent) {
+        if (isRecording) return; // Handled by the window capture listener
+        if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            isRecording = true;
         }
-
-        // Recording mode - capture the shortcut
-        event.preventDefault();
-        event.stopPropagation();
-
-        // Escape cancels recording without changing the value
-        if (event.key === "Escape") {
-            isRecording = false;
-            return;
-        }
-
-        // Try to build a shortcut from this event
-        const shortcut = eventToShortcut(event);
-
-        if (shortcut) {
-            // Valid shortcut recorded
-            isRecording = false;
-
-            // Notify parent of change
-            if (onchange) {
-                onchange(shortcut);
-            }
-        }
+        // Allow Tab and other navigation keys to work normally
     }
+
+    /**
+     * Global capture-phase keydown listener, active only while recording.
+     *
+     * We attach this to `window` rather than the button because on macOS
+     * clicking a <button> may not give it keyboard focus, so keydown events
+     * target the document body instead of the button. A window capture-phase
+     * listener fires before any other handler (including the global
+     * <svelte:window onkeydown> in App.svelte), letting us fully block
+     * the event via stopImmediatePropagation().
+     */
+    $effect(() => {
+        if (!isRecording) return;
+
+        function handleRecordingKeyDown(event: KeyboardEvent) {
+            // Fully block the event from reaching any other handler
+            event.preventDefault();
+            event.stopPropagation();
+            event.stopImmediatePropagation();
+
+            // Escape cancels recording without changing the value
+            if (event.key === "Escape") {
+                isRecording = false;
+                return;
+            }
+
+            // Try to build a shortcut from this event
+            const shortcut = eventToShortcut(event);
+
+            if (shortcut) {
+                // Valid shortcut recorded
+                isRecording = false;
+
+                // Notify parent of change
+                if (onchange) {
+                    onchange(shortcut);
+                }
+            }
+        }
+
+        window.addEventListener("keydown", handleRecordingKeyDown, {
+            capture: true,
+        });
+        return () =>
+            window.removeEventListener("keydown", handleRecordingKeyDown, {
+                capture: true,
+            });
+    });
 
     /**
      * Handles click on the input (activates recording).
@@ -339,7 +359,7 @@
         class:empty={!value}
         onclick={handleClick}
         onblur={handleBlur}
-        onkeydown={handleKeyDown}
+        onkeydown={handleActivationKeyDown}
         aria-label={$_("shortcutInput.ariaLabel")}
     >
         {#if isRecording}

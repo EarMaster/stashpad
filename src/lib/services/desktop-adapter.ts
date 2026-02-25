@@ -152,5 +152,21 @@ export class DesktopStorageAdapter implements IStorageService {
     async fetchCloudAccount(): Promise<CloudConfig> {
         return await invoke('fetch_cloud_account');
     }
+
+    /**
+     * Checks if the app has macOS Screen Recording permission.
+     * Returns true on non-macOS platforms where this permission is not needed.
+     */
+    async checkScreenRecordingPermission(): Promise<boolean> {
+        return await invoke('check_screen_recording_permission');
+    }
+
+    /**
+     * Opens macOS System Settings to the Screen Recording permission pane.
+     * No-op on non-macOS platforms.
+     */
+    async openMacosScreenRecordingSettings(): Promise<void> {
+        await invoke('open_macos_screen_recording_settings');
+    }
 }
 

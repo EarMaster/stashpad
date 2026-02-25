@@ -25,6 +25,7 @@
       ]
     },
     "shell:default",
+    "opener:default",
     "window-state:default",
     "core:window:allow-minimize",
     "core:window:allow-close",

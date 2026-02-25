@@ -20,6 +20,7 @@
   import { _ } from "$lib/i18n";
   import { onMount } from "svelte";
   import { getCurrentWindow } from "@tauri-apps/api/window";
+  import { Settings as SettingsIcon, Minus, X } from "lucide-svelte";
   import logoIcon from "../../../assets/stashpad/Icon-Darkmode.svg";
   import logoIconLight from "../../../assets/stashpad/Icon.svg";
   import logoTypo from "../../../assets/stashpad/Typo.svg";
@@ -175,7 +176,7 @@
       title={$_("header.settings")}
       use:tooltip
     >
-      ⚙️
+      <SettingsIcon size={16} />
     </button>
     <div class="w-px h-4 bg-border mx-1"></div>
     <button
@@ -184,7 +185,7 @@
       title={$_("common.minimize")}
       use:tooltip
     >
-      ─
+      <Minus size={16} />
     </button>
     <button
       class="p-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-md transition-colors pointer-events-auto"
@@ -192,7 +193,7 @@
       title={$_("common.close")}
       use:tooltip
     >
-      ✕
+      <X size={16} />
     </button>
   </div>
 </header>

@@ -1728,6 +1728,16 @@ fn copy_to_clipboard(text: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Reads text content from the system clipboard.
+///
+/// Used by the Shift+Paste override on macOS where
+/// `navigator.clipboard.readText()` triggers a permission prompt.
+#[tauri::command]
+fn read_clipboard_text() -> Result<String, String> {
+    let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
+    clipboard.get_text().map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 fn start_drag(window: tauri::Window, text: String, files: Vec<String>) -> Result<(), String> {
     println!("Starting drag with {} files", files.len());
@@ -1825,6 +1835,38 @@ fn show_in_folder(path: String) {
                 .arg(parent)
                 .spawn();
         }
+    }
+}
+
+/// Checks if the app has macOS Screen Recording permission.
+/// This is required for `active-win-pos-rs` to read window titles.
+/// Returns `true` on non-macOS platforms (permission not needed).
+#[tauri::command]
+fn check_screen_recording_permission() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        // Use FFI to call CGPreflightScreenCaptureAccess from CoreGraphics
+        extern "C" {
+            fn CGPreflightScreenCaptureAccess() -> bool;
+        }
+        // Safety: This is a well-known CoreGraphics API that returns a simple bool
+        unsafe { CGPreflightScreenCaptureAccess() }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        true // Permission not required on other platforms
+    }
+}
+
+/// Opens macOS System Settings to the Screen Recording permission pane.
+/// No-op on non-macOS platforms.
+#[tauri::command]
+fn open_macos_screen_recording_settings() {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("open")
+            .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
+            .spawn();
     }
 }
 
@@ -2110,6 +2152,7 @@ pub fn run() {
             read_file_for_preview,
             show_in_folder,
             copy_to_clipboard,
+            read_clipboard_text,
             start_drag,
             get_settings,
             save_settings,
@@ -2121,7 +2164,9 @@ pub fn run() {
             set_autostart,
             get_autostart_enabled,
             start_cloud_auth,
-            fetch_cloud_account
+            fetch_cloud_account,
+            check_screen_recording_permission,
+            open_macos_screen_recording_settings
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

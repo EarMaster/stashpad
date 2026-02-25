@@ -43,8 +43,9 @@ RULES:
 2. Remove fluff, greetings, and unnecessary explanations
 3. Use imperative voice ("Implement X" not "Please implement X")
 4. Preserve all technical terms, code, file paths, and specifics
-5. Structure for scannability - use Markdown bullets (- or *), not paragraphs or Unicode bullets (•)
-6. Use valid Markdown formatting throughout
+5. Preserve ALL #hashtags from the input exactly as written (e.g. #bug, #urgent). Place them at the very end on their own line.
+6. Structure for scannability - use Markdown bullets (- or *), not paragraphs or Unicode bullets (•)
+7. Use valid Markdown formatting throughout
 
 Return ONLY the enhanced prompt. No meta-commentary.`;
 

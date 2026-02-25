@@ -48,7 +48,10 @@
             "title": "Allgemein",
             "autoContextDetection": {
                 "label": "Automatische Kontexterkennung",
-                "description": "Automatisch den Stash-Kontext basierend auf dem aktiven Fenster wechseln"
+                "description": "Automatisch den Stash-Kontext basierend auf dem aktiven Fenster wechseln",
+                "macPermissionWarning": "Erfordert die Berechtigung \"Bildschirmaufnahme\" auf macOS",
+                "grantPermission": "Berechtigung erteilen",
+                "restartNote": "Nach dem Erteilen der Berechtigung Stashpad neu starten."
             },
             "language": {
                 "label": "Sprache",
@@ -72,6 +75,7 @@
                 "label": "Als Anhang einfügen",
                 "description": "Anzahl Zeilen, ab der eingefügter Text als Anhang gespeichert wird",
                 "zeroNote": "Auf 0 setzen, um immer nachzufragen",
+                "shiftModifier": "Shift halten beim Einfügen, um immer als Text einzufügen",
                 "unit": "Zeilen"
             },
             "autostart": {

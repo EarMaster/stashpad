@@ -37,6 +37,7 @@
   import { Eye, EyeOff, Loader2 } from "lucide-svelte";
   import TagBadge from "./TagBadge.svelte";
   import { tooltip } from "$lib/actions/tooltip";
+  import { openUrl } from "@tauri-apps/plugin-opener";
 
   let {
     settings = $bindable(),
@@ -90,8 +91,22 @@
 
   let isWin10 = $state(false);
 
+  // macOS Screen Recording permission state
+  const isMac = navigator.platform.includes("Mac");
+  let hasScreenRecordingPermission = $state(true);
+
   onMount(async () => {
     isWin10 = await adapter.isWindows10();
+
+    // Check macOS Screen Recording permission on mount
+    if (isMac) {
+      try {
+        hasScreenRecordingPermission =
+          await adapter.checkScreenRecordingPermission();
+      } catch (e) {
+        console.error("Failed to check screen recording permission:", e);
+      }
+    }
 
     // Load current autostart status
     try {
@@ -104,6 +119,17 @@
       console.error("Failed to get autostart status:", e);
     }
   });
+
+  /**
+   * Opens macOS System Settings to grant Screen Recording permission.
+   */
+  async function handleGrantScreenRecordingPermission() {
+    try {
+      await adapter.openMacosScreenRecordingSettings();
+    } catch (e) {
+      console.error("Failed to open screen recording settings:", e);
+    }
+  }
 
   // AI Enhancement state
   let showApiKey = $state(false);
@@ -196,7 +222,9 @@
     const endpoint =
       settings.cloudConfig?.endpoint || "https://stashpad.org/api";
     const baseUrl = endpoint.replace(/\/api$/, "");
-    window.open(`${baseUrl}/account`, "_blank");
+    openUrl(`${baseUrl}/account`).catch((err) => {
+      console.error("Failed to open account portal:", err);
+    });
   }
 
   // Link code entry for manual device linking
@@ -305,6 +333,33 @@
             ></div>
           </label>
         </div>
+
+        {#if isMac && settings.autoContextDetection && !hasScreenRecordingPermission}
+          <!-- macOS Screen Recording Permission Warning -->
+          <div
+            class="flex items-start gap-3 p-3 rounded-lg border border-amber-500/30 bg-amber-500/10 ml-4"
+            transition:fade={{ duration: 150 }}
+          >
+            <span class="text-amber-500 text-lg shrink-0 mt-0.5">⚠️</span>
+            <div class="flex-1 space-y-1.5">
+              <div class="text-xs font-medium text-amber-500">
+                {$_(
+                  "settings.general.autoContextDetection.macPermissionWarning",
+                )}
+              </div>
+              <div class="text-[10px] text-muted-foreground/80 italic">
+                {$_("settings.general.autoContextDetection.restartNote")}
+              </div>
+              <button
+                class="inline-flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium bg-amber-500/20 text-amber-500 hover:bg-amber-500/30 transition-colors"
+                onclick={handleGrantScreenRecordingPermission}
+              >
+                {$_("settings.general.autoContextDetection.grantPermission")}
+                <span class="text-[10px]">→</span>
+              </button>
+            </div>
+          </div>
+        {/if}
 
         <button
           class="w-full flex items-center justify-between p-3 rounded-lg border border-border bg-card hover:bg-muted/50 transition-colors group"
@@ -597,6 +652,9 @@
             </div>
             <div class="text-[10px] text-muted-foreground/80 mt-1 italic">
               {$_("settings.general.pasteAsAttachment.zeroNote")}
+            </div>
+            <div class="text-[10px] text-muted-foreground/80 mt-1 italic">
+              {$_("settings.general.pasteAsAttachment.shiftModifier")}
             </div>
           </div>
           <div class="flex items-center gap-3">

@@ -71,6 +71,7 @@
     "@tauri-apps/plugin-autostart": "^2.5.1",
     "@tauri-apps/plugin-dialog": "^2.4.2",
     "@tauri-apps/plugin-fs": "^2.4.4",
+    "@tauri-apps/plugin-opener": "^2.5.3",
     "@thisux/sveltednd": "^0.0.20",
     "bits-ui": "^2.14.4",
     "clsx": "^2.1.1",

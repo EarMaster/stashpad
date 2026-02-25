@@ -39,6 +39,7 @@
     import { formatBytes } from "$lib/utils/format";
     import { locale } from "$lib/i18n";
     import { tooltip } from "$lib/actions/tooltip";
+    import { externalLinks } from "$lib/actions/externalLinks";
 
     let {
         open = $bindable(false),
@@ -455,6 +456,7 @@
                                 <!-- Rendered Markdown -->
                                 <div
                                     class="w-full h-full max-h-[calc(90vh-12rem)] overflow-auto bg-muted/50 rounded-lg p-6 prose prose-sm dark:prose-invert max-w-none border border-border"
+                                    use:externalLinks
                                 >
                                     {@html highlightedContent}
                                 </div>

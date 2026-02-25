@@ -223,3 +223,19 @@
 .dark .ai-tag {
   --tag-color: hsl(var(--tag-hue, 270) 80% 70%);
 }
+
+/* External links in prose containers: Cmd/Ctrl+Click to open */
+.prose a[href^="http://"],
+.prose a[href^="https://"] {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: default;
+  opacity: 0.85;
+  transition: opacity 0.15s ease;
+}
+
+.prose a[href^="http://"]:hover,
+.prose a[href^="https://"]:hover {
+  opacity: 1;
+}
