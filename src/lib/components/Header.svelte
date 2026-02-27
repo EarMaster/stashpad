@@ -143,7 +143,9 @@
       <button
         class="flex items-center gap-1.5 text-sm font-medium text-foreground hover:bg-muted/50 rounded -ml-1 py-0.5 px-1 transition-colors text-left pointer-events-auto"
         onclick={onOpenContextSwitcher}
-        title={contextInfo.windowTitle}
+        title={settings.autoContextDetection
+          ? contextInfo.windowTitle
+          : $_("contextSwitcher.selectContext")}
         use:tooltip
       >
         <span class="truncate max-w-[150px] lg:max-w-[200px]">

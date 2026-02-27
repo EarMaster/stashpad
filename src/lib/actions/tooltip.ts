@@ -41,18 +41,52 @@ export function tooltip(
     let arrowEl: HTMLDivElement | null = null;
     let showTimeout: ReturnType<typeof setTimeout> | null = null;
     let title = "";
+    let observer: MutationObserver | null = null;
 
     // Store and clear the title to prevent native tooltip
-    function init() {
+    function updateTitle() {
         const titleAttr = element.getAttribute("title");
-        if (titleAttr) {
+        if (titleAttr && titleAttr !== "") {
             title = titleAttr;
             element.removeAttribute("title");
             // Also set to empty to ensure native tooltip doesn't show
             element.setAttribute("title", "");
             // Then remove it completely
-            setTimeout(() => element.removeAttribute("title"), 0);
+            setTimeout(() => {
+                if (element.getAttribute("title") === "") {
+                    element.removeAttribute("title");
+                }
+            }, 0);
+        } else if (titleAttr === "") {
+            // Already handled or empty
+        } else {
+            // Title removed completely
+            title = "";
         }
+    }
+
+    // Initialize observer to watch for title changes
+    function initObserver() {
+        observer = new MutationObserver((mutations) => {
+            for (const mutation of mutations) {
+                if (mutation.attributeName === "title") {
+                    const newTitle = element.getAttribute("title");
+                    // Only update if it's not the empty/hidden title we just set
+                    if (newTitle !== null && newTitle !== "") {
+                        updateTitle();
+                        // If tooltip is already showing, update its content
+                        if (tooltipEl) {
+                            tooltipEl.textContent = title;
+                            // Re-append arrow
+                            if (arrowEl) tooltipEl.appendChild(arrowEl);
+                            positionTooltip();
+                        }
+                    }
+                }
+            }
+        });
+
+        observer.observe(element, { attributes: true, attributeFilter: ["title"] });
     }
 
     // Create tooltip element
@@ -199,7 +233,8 @@ export function tooltip(
     }
 
     // Initialize
-    init();
+    updateTitle();
+    initObserver();
 
     // Event listeners
     element.addEventListener("mouseenter", show);
@@ -210,6 +245,7 @@ export function tooltip(
     return {
         destroy() {
             hide();
+            if (observer) observer.disconnect();
             element.removeEventListener("mouseenter", show);
             element.removeEventListener("mouseleave", hide);
             element.removeEventListener("focus", show);

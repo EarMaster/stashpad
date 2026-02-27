@@ -168,5 +168,19 @@ export class DesktopStorageAdapter implements IStorageService {
     async openMacosScreenRecordingSettings(): Promise<void> {
         await invoke('open_macos_screen_recording_settings');
     }
+
+    // Apple Intelligence
+    async checkAppleIntelligenceAvailable(): Promise<boolean> {
+        try {
+            return await invoke<boolean>('check_apple_intelligence_available');
+        } catch (e) {
+            console.error('Failed to check Apple Intelligence availability:', e);
+            return false;
+        }
+    }
+
+    async appleIntelligenceEnhance(content: string, systemPrompt: string): Promise<string> {
+        return invoke<string>('apple_intelligence_enhance', { content, systemPrompt });
+    }
 }
 

@@ -29,13 +29,14 @@
         "close": "Close",
         "minimize": "Minimize",
         "current": "Current",
-        "imported": "Imported"
+        "imported": "Imported",
+        "select": "Select…"
     },
     "header": {
         "autoContext": "Auto Context",
         "manualContext": "Manual Context",
         "settings": "Settings",
-        "settings": "Settings",
+        "checking": "Checking...",
         "calculating": "Calculating..."
     },
     "settings": {
@@ -154,6 +155,9 @@
             "model": {
                 "label": "Model",
                 "description": "Model name to use for enhancement"
+            },
+            "appleIntelligence": {
+                "info": "Apple Intelligence runs entirely on-device. Your data never leaves your Mac, and no API key or internet connection is required for enhancement."
             },
             "testConnection": "Test Connection",
             "testSuccess": "Connection successful!",

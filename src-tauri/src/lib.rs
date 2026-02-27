@@ -1074,8 +1074,8 @@ fn get_previous_app_info(state: State<Arc<Mutex<TrackerState>>>) -> AppContext {
         app_ctx
     } else {
         AppContext {
-            window_title: "Unknown".into(),
-            process_name: "Unknown".into(),
+            window_title: "".into(),
+            process_name: "".into(),
             detected_context_id: None,
         }
     }
@@ -1932,6 +1932,42 @@ fn get_autostart_enabled(app: tauri::AppHandle) -> Result<bool, String> {
     autostart_manager.is_enabled().map_err(|e| format!("Failed to check autostart status: {}", e))
 }
 
+#[tauri::command]
+fn check_apple_intelligence_available() -> Result<bool, String> {
+    #[cfg(target_os = "macos")]
+    {
+        use fm_rs::SystemLanguageModel;
+        let model = SystemLanguageModel::new().map_err(|e| e.to_string())?;
+        match model.ensure_available() {
+            Ok(_) => Ok(true),
+            Err(_) => Ok(false),
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Ok(false)
+    }
+}
+
+#[tauri::command]
+fn apple_intelligence_enhance(content: String, system_prompt: String) -> Result<String, String> {
+    #[cfg(target_os = "macos")]
+    {
+        use fm_rs::{SystemLanguageModel, Session, GenerationOptions};
+        let model = SystemLanguageModel::new().map_err(|e| e.to_string())?;
+        let session = Session::with_instructions(&model, &system_prompt).map_err(|e| e.to_string())?;
+        let response = session.respond(&content, &GenerationOptions::default()).map_err(|e| e.to_string())?;
+        Ok(response.content().to_string())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = content;
+        let _ = system_prompt;
+        Err("Apple Intelligence is only available on macOS".into())
+    }
+}
+
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // 0. init devtools
@@ -2166,7 +2202,9 @@ pub fn run() {
             start_cloud_auth,
             fetch_cloud_account,
             check_screen_recording_permission,
-            open_macos_screen_recording_settings
+            open_macos_screen_recording_settings,
+            check_apple_intelligence_available,
+            apple_intelligence_enhance
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

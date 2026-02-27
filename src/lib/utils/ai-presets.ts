@@ -20,6 +20,12 @@ import type { AIProviderPreset } from '$lib/types';
  */
 export const AI_PROVIDER_PRESETS: AIProviderPreset[] = [
     {
+        id: 'apple-intelligence',
+        name: 'Apple Intelligence',
+        endpoint: '',
+        defaultModel: '',
+    },
+    {
         id: 'openai',
         name: 'OpenAI',
         endpoint: 'https://api.openai.com/v1',
@@ -68,6 +74,15 @@ export const AI_PROVIDER_PRESETS: AIProviderPreset[] = [
         defaultModel: '',
     },
 ];
+
+/**
+ * Check if a preset ID refers to the Apple Intelligence preset
+ * @param id - The preset ID to check
+ * @returns True if the ID is apple-intelligence
+ */
+export function isAppleIntelligencePreset(id?: string): boolean {
+    return id === 'apple-intelligence';
+}
 
 /**
  * Get a provider preset by its ID.

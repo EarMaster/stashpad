@@ -32,9 +32,10 @@
     AI_PROVIDER_PRESETS,
     getPresetById,
     getDefaultAIConfig,
+    isAppleIntelligencePreset,
   } from "$lib/utils/ai-presets";
   import { aiService } from "$lib/services/ai-service";
-  import { Eye, EyeOff, Loader2 } from "lucide-svelte";
+  import { Eye, EyeOff, Loader2, Sparkles, Check, X } from "lucide-svelte";
   import TagBadge from "./TagBadge.svelte";
   import { tooltip } from "$lib/actions/tooltip";
   import { openUrl } from "@tauri-apps/plugin-opener";
@@ -139,10 +140,38 @@
     message: string;
   } | null>(null);
 
+  // Apple Intelligence availability state
+  let appleIntelligenceAvailable = $state(false);
+
   // Initialize aiConfig if not present
   $effect(() => {
     if (!settings.aiConfig) {
       settings.aiConfig = getDefaultAIConfig();
+    }
+  });
+
+  onMount(async () => {
+    // Check if Apple Intelligence is available on this machine
+    try {
+      appleIntelligenceAvailable =
+        await adapter.checkAppleIntelligenceAvailable();
+
+      // If the user previously selected Apple Intelligence and it's no longer available
+      if (
+        settings.aiConfig &&
+        isAppleIntelligencePreset(settings.aiConfig.presetId) &&
+        !appleIntelligenceAvailable
+      ) {
+        settings.aiConfig.presetId = "openai"; // fallback
+        const preset = getPresetById("openai");
+        if (preset) {
+          settings.aiConfig.endpoint = preset.endpoint;
+          settings.aiConfig.model = preset.defaultModel;
+        }
+        save();
+      }
+    } catch (e) {
+      console.error("Failed to check Apple Intelligence availability:", e);
     }
   });
 
@@ -1054,148 +1083,164 @@
               value={settings.aiConfig?.presetId ?? ""}
               onchange={(e) => handlePresetChange(e.currentTarget.value)}
             >
-              <option value="">Select...</option>
+              <option value="" disabled>{$_("common.select")}</option>
               {#each AI_PROVIDER_PRESETS as preset}
-                <option value={preset.id}>
-                  {preset.id === "custom"
-                    ? $_("settings.aiEnhancement.provider.custom")
-                    : preset.name}
-                </option>
+                <!-- Only show Apple Intelligence preset if available -->
+                {#if !isAppleIntelligencePreset(preset.id) || appleIntelligenceAvailable}
+                  <option value={preset.id}>
+                    {preset.id === "custom"
+                      ? $_("settings.aiEnhancement.provider.custom")
+                      : preset.name}
+                  </option>
+                {/if}
               {/each}
             </select>
           </div>
 
-          <!-- API Endpoint -->
-          <div
-            class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
-            transition:fade={{ duration: 150 }}
-          >
-            <div class="space-y-0.5 flex-1 mr-4">
-              <div class="text-sm font-medium">
-                {$_("settings.aiEnhancement.endpoint.label")}
-              </div>
-              <div class="text-xs text-muted-foreground">
-                {$_("settings.aiEnhancement.endpoint.description")}
+          {#if isAppleIntelligencePreset(settings.aiConfig?.presetId)}
+            <!-- Apple Intelligence Info Note -->
+            <div
+              class="flex items-center gap-3 p-4 rounded-lg bg-primary/10 border border-primary/20 text-primary"
+              transition:fade={{ duration: 150 }}
+            >
+              <Sparkles class="w-5 h-5 flex-shrink-0" />
+              <div class="text-sm">
+                {$_("settings.aiEnhancement.appleIntelligence.info")}
               </div>
             </div>
-            <input
-              type="text"
-              class="w-64 rounded-md border border-border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors"
-              placeholder="https://api.openai.com/v1"
-              value={settings.aiConfig?.endpoint ?? ""}
-              oninput={(e) => {
-                if (settings.aiConfig) {
-                  settings.aiConfig.endpoint = e.currentTarget.value;
-                  connectionTestResult = null;
-                  save();
-                }
-              }}
-            />
-          </div>
-
-          <!-- API Key -->
-          <div
-            class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
-            transition:fade={{ duration: 150 }}
-          >
-            <div class="space-y-0.5 flex-1 mr-4">
-              <div class="text-sm font-medium">
-                {$_("settings.aiEnhancement.apiKey.label")}
+          {:else}
+            <!-- API Endpoint -->
+            <div
+              class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
+              transition:fade={{ duration: 150 }}
+            >
+              <div class="space-y-0.5 flex-1 mr-4">
+                <div class="text-sm font-medium">
+                  {$_("settings.aiEnhancement.endpoint.label")}
+                </div>
+                <div class="text-xs text-muted-foreground">
+                  {$_("settings.aiEnhancement.endpoint.description")}
+                </div>
               </div>
-              <div class="text-xs text-muted-foreground">
-                {$_("settings.aiEnhancement.apiKey.description")}
-              </div>
-            </div>
-            <div class="flex items-center gap-2">
               <input
-                type={showApiKey ? "text" : "password"}
-                class="w-52 rounded-md border border-border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors font-mono"
-                placeholder="sk-..."
-                value={settings.aiConfig?.apiKey ?? ""}
+                type="text"
+                class="w-64 rounded-md border border-border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors"
+                placeholder="https://api.openai.com/v1"
+                value={settings.aiConfig?.endpoint ?? ""}
                 oninput={(e) => {
                   if (settings.aiConfig) {
-                    settings.aiConfig.apiKey = e.currentTarget.value;
+                    settings.aiConfig.endpoint = e.currentTarget.value;
                     connectionTestResult = null;
                     save();
                   }
                 }}
               />
+            </div>
+
+            <!-- API Key -->
+            <div
+              class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
+              transition:fade={{ duration: 150 }}
+            >
+              <div class="space-y-0.5 flex-1 mr-4">
+                <div class="text-sm font-medium">
+                  {$_("settings.aiEnhancement.apiKey.label")}
+                </div>
+                <div class="text-xs text-muted-foreground">
+                  {$_("settings.aiEnhancement.apiKey.description")}
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <input
+                  type={showApiKey ? "text" : "password"}
+                  class="w-52 rounded-md border border-border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors font-mono"
+                  placeholder="sk-..."
+                  value={settings.aiConfig?.apiKey ?? ""}
+                  oninput={(e) => {
+                    if (settings.aiConfig) {
+                      settings.aiConfig.apiKey = e.currentTarget.value;
+                      connectionTestResult = null;
+                      save();
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  class="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                  onclick={() => (showApiKey = !showApiKey)}
+                  title={showApiKey
+                    ? $_("settings.aiEnhancement.apiKey.hide")
+                    : $_("settings.aiEnhancement.apiKey.show")}
+                  use:tooltip
+                >
+                  {#if showApiKey}
+                    <EyeOff size={16} />
+                  {:else}
+                    <Eye size={16} />
+                  {/if}
+                </button>
+              </div>
+            </div>
+
+            <!-- Model Name -->
+            <div
+              class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
+              transition:fade={{ duration: 150 }}
+            >
+              <div class="space-y-0.5 flex-1 mr-4">
+                <div class="text-sm font-medium">
+                  {$_("settings.aiEnhancement.model.label")}
+                </div>
+                <div class="text-xs text-muted-foreground">
+                  {$_("settings.aiEnhancement.model.description")}
+                </div>
+              </div>
+              <input
+                type="text"
+                class="w-64 rounded-md border border-border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors"
+                placeholder="gpt-4o-mini"
+                value={settings.aiConfig?.model ?? ""}
+                oninput={(e) => {
+                  if (settings.aiConfig) {
+                    settings.aiConfig.model = e.currentTarget.value;
+                    connectionTestResult = null;
+                    save();
+                  }
+                }}
+              />
+            </div>
+
+            <!-- Test Connection -->
+            <div
+              class="flex items-center justify-end gap-3 p-3"
+              transition:fade={{ duration: 150 }}
+            >
+              {#if connectionTestResult}
+                <span
+                  class="text-xs {connectionTestResult.success
+                    ? 'text-green-500'
+                    : 'text-destructive'}"
+                  transition:fade
+                >
+                  {connectionTestResult.message}
+                </span>
+              {/if}
               <button
                 type="button"
-                class="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                onclick={() => (showApiKey = !showApiKey)}
-                title={showApiKey
-                  ? $_("settings.aiEnhancement.apiKey.hide")
-                  : $_("settings.aiEnhancement.apiKey.show")}
-                use:tooltip
+                class="inline-flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                onclick={handleTestConnection}
+                disabled={testingConnection ||
+                  !settings.aiConfig?.endpoint ||
+                  !settings.aiConfig?.apiKey ||
+                  !settings.aiConfig?.model}
               >
-                {#if showApiKey}
-                  <EyeOff size={16} />
-                {:else}
-                  <Eye size={16} />
+                {#if testingConnection}
+                  <Loader2 size={14} class="animate-spin" />
                 {/if}
+                {$_("settings.aiEnhancement.testConnection")}
               </button>
             </div>
-          </div>
-
-          <!-- Model -->
-          <div
-            class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
-            transition:fade={{ duration: 150 }}
-          >
-            <div class="space-y-0.5 flex-1 mr-4">
-              <div class="text-sm font-medium">
-                {$_("settings.aiEnhancement.model.label")}
-              </div>
-              <div class="text-xs text-muted-foreground">
-                {$_("settings.aiEnhancement.model.description")}
-              </div>
-            </div>
-            <input
-              type="text"
-              class="w-64 rounded-md border border-border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors font-mono"
-              placeholder="gpt-4o-mini"
-              value={settings.aiConfig?.model ?? ""}
-              oninput={(e) => {
-                if (settings.aiConfig) {
-                  settings.aiConfig.model = e.currentTarget.value;
-                  connectionTestResult = null;
-                  save();
-                }
-              }}
-            />
-          </div>
-
-          <!-- Test Connection -->
-          <div
-            class="flex items-center justify-end gap-3 p-3"
-            transition:fade={{ duration: 150 }}
-          >
-            {#if connectionTestResult}
-              <span
-                class="text-xs {connectionTestResult.success
-                  ? 'text-green-500'
-                  : 'text-destructive'}"
-                transition:fade
-              >
-                {connectionTestResult.message}
-              </span>
-            {/if}
-            <button
-              type="button"
-              class="inline-flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              onclick={handleTestConnection}
-              disabled={testingConnection ||
-                !settings.aiConfig?.endpoint ||
-                !settings.aiConfig?.apiKey ||
-                !settings.aiConfig?.model}
-            >
-              {#if testingConnection}
-                <Loader2 size={14} class="animate-spin" />
-              {/if}
-              {$_("settings.aiEnhancement.testConnection")}
-            </button>
-          </div>
+          {/if}
         {/if}
       </section>
 

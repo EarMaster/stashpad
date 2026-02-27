@@ -27,7 +27,8 @@
         "default": "Standard",
         "unknown": "Unbekannt",
         "close": "Schließen",
-        "minimize": "Minimieren"
+        "minimize": "Minimieren",
+        "select": "Auswählen…"
     },
     "header": {
         "autoContext": "Automatischer Kontext",
@@ -151,6 +152,9 @@
             "model": {
                 "label": "Modell",
                 "description": "Modellname für die Verbesserung"
+            },
+            "appleIntelligence": {
+                "info": "Apple Intelligence läuft vollständig auf Ihrem Gerät. Ihre Daten verlassen niemals Ihren Mac, und es ist kein API-Schlüssel oder eine Internetverbindung für die Verbesserung erforderlich."
             },
             "testConnection": "Verbindung testen",
             "testSuccess": "Verbindung erfolgreich!",

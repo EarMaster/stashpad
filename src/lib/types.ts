@@ -178,6 +178,10 @@ export interface IStorageService {
     startCloudAuth(): Promise<CloudConfig>;
     /** Fetch account info from cloud and update local subscription status */
     fetchCloudAccount(): Promise<CloudConfig>;
+
+    // Apple Intelligence
+    checkAppleIntelligenceAvailable(): Promise<boolean>;
+    appleIntelligenceEnhance(content: string, systemPrompt: string): Promise<string>;
 }
 
 /**

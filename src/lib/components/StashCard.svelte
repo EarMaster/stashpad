@@ -62,6 +62,7 @@
   import TagBadge from "./TagBadge.svelte";
   import { isStashHovered } from "$lib/stores/drag-state.svelte";
   import { aiService, type AIEnhanceContext } from "$lib/services/ai-service";
+  import { isAppleIntelligencePreset } from "$lib/utils/ai-presets";
   import { tooltip } from "$lib/actions/tooltip";
   import { externalLinks } from "$lib/actions/externalLinks";
 
@@ -132,10 +133,11 @@
   let showEnhanced = $state(true);
 
   // Check if AI enhancement is available (API key is optional for local LLMs)
+  // For Apple Intelligence, endpoint and model are not required
   let canEnhance = $derived(
     aiConfig?.enabled &&
-      aiConfig?.endpoint &&
-      aiConfig?.model &&
+      (isAppleIntelligencePreset(aiConfig?.presetId) ||
+        (aiConfig?.endpoint && aiConfig?.model)) &&
       !item.completed &&
       item.content.trim().length > 0,
   );
@@ -153,7 +155,7 @@
   // Extract unique tags from content
   let stashTags = $derived(() => {
     const matches = item.content.match(/#[\w-]+/g);
-    return matches ? [...new Set(matches)] : [];
+    return (matches ? [...new Set(matches)] : []) as string[];
   });
 
   $effect(() => {
@@ -172,7 +174,10 @@
     const shouldStrip = stripTagsOnCopy ? !invert : invert;
 
     if (shouldStrip) {
-      content = content.replace(/#[\w-]+/g, "").trim();
+      content = content
+        .replace(/TAGS:[\s\S]*$/, "")
+        .replace(/#[\w-]+/g, "")
+        .trim();
     }
 
     const text =

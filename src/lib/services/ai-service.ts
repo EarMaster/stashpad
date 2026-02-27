@@ -13,6 +13,10 @@
 // See the GNU Affero General Public License for more details.
 
 import type { AIConfig } from '$lib/types';
+import { DesktopStorageAdapter } from '$lib/services/desktop-adapter';
+import { isAppleIntelligencePreset } from '$lib/utils/ai-presets';
+
+const adapter = new DesktopStorageAdapter();
 
 /**
  * Context information to inject into AI enhancement prompts.
@@ -33,21 +37,27 @@ export interface AIEnhanceContext {
  */
 const BASE_SYSTEM_PROMPT = `You are an expert prompt engineer. Transform raw notes into clear, structured AI agent prompts.
 
-OUTPUT FORMAT:
-- Start with a single ACTION line (imperative verb + clear objective)
-- Add CONTEXT bullet points only if essential (max 3)
-- End with CONSTRAINTS if there are specific requirements
+OUTPUT FORMAT TEMPLATE:
+ACTION: <Short, imperative action line>
+CONTEXT: 
+- <Essential context item 1> (Max 3, omit section if none)
+CONSTRAINTS: 
+- <Specific requirement 1> (Omit section if none)
+TAGS: <Only hashtags present in original input, space-separated. Omit section entirely if none.>
 
 RULES:
-1. Be extremely concise - every word must add value
-2. Remove fluff, greetings, and unnecessary explanations
-3. Use imperative voice ("Implement X" not "Please implement X")
-4. Preserve all technical terms, code, file paths, and specifics
-5. Preserve ALL #hashtags from the input exactly as written (e.g. #bug, #urgent). Place them at the very end on their own line.
-6. Structure for scannability - use Markdown bullets (- or *), not paragraphs or Unicode bullets (•)
-7. Use valid Markdown formatting throughout
+1. Be extremely concise - every word must add value.
+2. Remove fluff, greetings, and unnecessary explanations.
+3. Use imperative voice ("Implement X" not "Please implement X").
+4. Preserve all technical terms, code, file paths, and specifics EXACTLY.
+5. HASHTAGS (#): ONLY preserve hashtags that were in the ORIGINAL input. DO NOT suggest or add NEW hashtags.
+6. If no hashtags were in the input, the output MUST NOT contain the word "TAGS" or any hashtags.
+7. Structure for scannability - use Markdown bullets (-), not paragraphs.
+8. Use valid Markdown formatting throughout.
+9. Make sure to preserve all aspects of the original input.
+10. Follow the output format template exactly.
 
-Return ONLY the enhanced prompt. No meta-commentary.`;
+Return ONLY the enhanced prompt following the template above. No meta-commentary.`;
 
 /**
  * Build the system prompt, optionally injecting project context.
@@ -103,16 +113,24 @@ export class AIService {
         config: AIConfig,
         context?: AIEnhanceContext
     ): Promise<string> {
+        if (!config.enabled) {
+            throw new Error('AI configuration is disabled');
+        }
+
+        const systemPrompt = buildSystemPrompt(context);
+
+        // Handle Apple Intelligence separately
+        if (isAppleIntelligencePreset(config.presetId)) {
+            return await adapter.appleIntelligenceEnhance(content, systemPrompt);
+        }
+
         // API key is optional for local LLMs like Ollama, LM Studio
-        if (!config.enabled || !config.endpoint || !config.model) {
+        if (!config.endpoint || !config.model) {
             throw new Error('AI configuration is incomplete');
         }
 
         // Build the API URL
         const url = `${config.endpoint.replace(/\/$/, '')}/chat/completions`;
-
-        // Build system prompt with optional project context
-        const systemPrompt = buildSystemPrompt(context);
 
         // Prepare the request body
         const body = {
@@ -148,9 +166,16 @@ export class AIService {
         const data = await response.json();
 
         // Extract the enhanced content from the response
-        const enhancedContent = data.choices?.[0]?.message?.content;
+        let enhancedContent = data.choices?.[0]?.message?.content;
         if (!enhancedContent) {
             throw new Error('No content in API response');
+        }
+
+        // Post-process to ensure no hallucinated tag headers if original had none
+        const originalTags = content.match(/#[\w-]+/g);
+        if (!originalTags) {
+            // Remove common variations of the tag header if it appears at the end
+            enhancedContent = enhancedContent.replace(/\n*^(TAGS:|#Tags:|Tags:).*$/im, "");
         }
 
         return enhancedContent.trim();
@@ -163,6 +188,15 @@ export class AIService {
      * @throws Error if the connection fails
      */
     async testConnection(config: AIConfig): Promise<boolean> {
+        // Handle Apple Intelligence separately
+        if (isAppleIntelligencePreset(config.presetId)) {
+            const available = await adapter.checkAppleIntelligenceAvailable();
+            if (!available) {
+                throw new Error('Apple Intelligence is not available on this device');
+            }
+            return true;
+        }
+
         // API key is optional for local LLMs
         if (!config.endpoint || !config.model) {
             throw new Error('Configuration is incomplete');
