@@ -152,6 +152,10 @@ pub struct ContextRule {
     pub rule_type: String, // "process" or "title"
     pub value: String,
     pub match_type: String, // "contains", "exact"
+    #[serde(default)]
+    pub match_case: bool,
+    #[serde(default)]
+    pub use_regex: bool,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
@@ -2045,16 +2049,46 @@ pub fn run() {
                             if let Ok(contexts) = db.get_contexts() {
                                 'ctx_loop: for ctx in contexts.iter() {
                                     for rule in &ctx.rules {
-                                        let target = if rule.rule_type == "process" {
-                                            &app_name
+                                        let mut target = if rule.rule_type == "process" {
+                                            app_name.clone()
                                         } else {
-                                            &title
+                                            title.clone()
                                         };
                                         
-                                        let matched = if rule.match_type == "exact" {
-                                            target == &rule.value
+                                        let mut rule_value = rule.value.clone();
+
+                                        if !rule.match_case {
+                                            target = target.to_lowercase();
+                                            rule_value = rule_value.to_lowercase();
+                                        }
+
+                                        let matched = if rule.use_regex {
+                                            if let Ok(_re) = regex::Regex::new(&rule.value) {
+                                                // If not matching case, we should conceptually use (?i) or just lowercased target. 
+                                                // Actually, if use_regex, we should probably compile regex with case insensitivity if match_case is false.
+                                                let re_str = if rule.match_case {
+                                                    rule.value.clone()
+                                                } else {
+                                                    format!("(?i){}", rule.value)
+                                                };
+                                                if let Ok(re_case) = regex::Regex::new(&re_str) {
+                                                    // use original target because regex (?i) handles case
+                                                    let orig_target = if rule.rule_type == "process" {
+                                                        &app_name
+                                                    } else {
+                                                        &title
+                                                    };
+                                                    re_case.is_match(orig_target)
+                                                } else {
+                                                    false
+                                                }
+                                            } else {
+                                                false
+                                            }
+                                        } else if rule.match_type == "exact" {
+                                            target == rule_value
                                         } else {
-                                            target.contains(&rule.value)
+                                            target.contains(&rule_value)
                                         };
 
                                         if matched {

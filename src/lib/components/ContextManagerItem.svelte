@@ -13,6 +13,8 @@
         Trash2,
         Plus,
         Pencil,
+        CaseSensitive,
+        Braces,
     } from "lucide-svelte";
     import { formatBytes, ATTACHMENT_SIZE_LIMITS } from "$lib/utils/format";
     import { getRelativeTime } from "$lib/utils/date";
@@ -66,9 +68,11 @@
         context.rules = [
             ...context.rules,
             {
-                ruleType: "process",
+                ruleType: "title",
                 matchType: "contains",
                 value: "",
+                matchCase: false,
+                useRegex: false,
             },
         ];
         onSave?.(context);
@@ -256,6 +260,30 @@
                         onblur={() => onSave?.(context)}
                         placeholder={$_("contexts.rules.valuePlaceholder")}
                     />
+                    <div class="flex items-center gap-1 border-r border-border/50 pr-2">
+                        <button
+                            class="p-1 rounded text-muted-foreground hover:bg-muted transition-colors {rule.matchCase ? 'bg-primary/20 text-primary hover:bg-primary/30' : ''}"
+                            onclick={() => {
+                                rule.matchCase = !rule.matchCase;
+                                onSave?.(context);
+                            }}
+                            title={$_("contexts.rules.matchCase")}
+                            use:tooltip
+                        >
+                            <CaseSensitive size={14} />
+                        </button>
+                        <button
+                            class="p-1 rounded text-muted-foreground hover:bg-muted transition-colors {rule.useRegex ? 'bg-primary/20 text-primary hover:bg-primary/30' : ''}"
+                            onclick={() => {
+                                rule.useRegex = !rule.useRegex;
+                                onSave?.(context);
+                            }}
+                            title={$_("contexts.rules.useRegex")}
+                            use:tooltip
+                        >
+                            <Braces size={14} />
+                        </button>
+                    </div>
                     <button
                         class="text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity ml-auto sm:ml-0"
                         onclick={() => removeRule(j)}

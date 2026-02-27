@@ -243,7 +243,9 @@
             "title": "Window Title",
             "contains": "contains",
             "exact": "is exactly",
-            "valuePlaceholder": "Value (e.g. 'code', 'Project X')"
+            "valuePlaceholder": "Value (e.g. 'code', 'Project X')",
+            "matchCase": "Match Case",
+            "useRegex": "Use Regex"
         },
         "stats": {
             "stash": "stash",

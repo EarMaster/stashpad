@@ -48,6 +48,8 @@ export interface ContextRule {
     ruleType: 'process' | 'title';
     value: string;
     matchType: 'contains' | 'exact';
+    matchCase?: boolean;
+    useRegex?: boolean;
 }
 
 export interface Context {

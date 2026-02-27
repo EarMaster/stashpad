@@ -237,7 +237,9 @@
             "title": "Fenstertitel",
             "contains": "enthält",
             "exact": "ist exakt",
-            "valuePlaceholder": "Wert (z.B. 'code', 'Projekt X')"
+            "valuePlaceholder": "Wert (z.B. 'code', 'Projekt X')",
+            "matchCase": "Groß-/Kleinschreibung",
+            "useRegex": "RegEx verwenden"
         },
         "stats": {
             "stash": "Stash",
