@@ -5,7 +5,7 @@ trigger: always_on
 # LICENSE HEADER (AGPLv3 Compliance)
 
 ## 1. Objective
-Ensure that the copyleft effect of the AGPL v3 is maintained by adding the necessary license header to every source code file.
+Ensure that the copyleft effect of the AGPL v3 is maintained by adding the necessary license header to every source code file for the Stashpad app.
 
 ## 2. Affected Files
 Must be applied to the top of EVERY new and existing source file:
