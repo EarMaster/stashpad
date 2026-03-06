@@ -148,13 +148,21 @@
             },
             "apiKey": {
                 "label": "API Key",
-                "description": "Your API key (stored locally)",
+                "description": "Your API key (optional)",
                 "show": "Show API key",
                 "hide": "Hide API key"
             },
             "model": {
-                "label": "Model",
-                "description": "Model name to use for enhancement"
+                "label": "Model Name",
+                "description": "The specific model to use (e.g., gpt-4o-mini)."
+            },
+            "systemPrompt": {
+                "label": "System Prompt",
+                "description": "The instructions used for AI enhancement. These are stored in an external file for easy editing.",
+                "edit": "Edit Prompt File",
+                "create": "Create and Open",
+                "fallbackHint": "Using default fallback prompt. Create the file to customize instructions.",
+                "reloaded": "System prompt reloaded from disk"
             },
             "appleIntelligence": {
                 "info": "Apple Intelligence runs entirely on-device. Your data never leaves your Mac, and no API key or internet connection is required for enhancement."

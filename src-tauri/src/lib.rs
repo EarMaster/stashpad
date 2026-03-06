@@ -113,6 +113,41 @@ fn get_app_dir() -> PathBuf {
         .join(".stashpad")
 }
 
+const DEFAULT_SYSTEM_PROMPT: &str = r#"<instructions>
+You are an expert prompt engineer. Transform raw notes into clear, structured AI agent prompts.
+</instructions>
+
+<output_format>
+ACTION: <Short, imperative action line>
+
+CONTEXT:
+- <Essential context item 1> (Max 3, omit section if none)
+
+CONSTRAINTS: 
+- <Specific requirement 1> (Omit section if none)
+
+TAGS: <Only hashtags present in original input, space-separated. Omit section entirely if none.>
+</output_format>
+
+<rules>
+1. Be extremely concise - every word must add value.
+2. Remove fluff, greetings, and unnecessary explanations.
+3. Use imperative voice ("Implement X" not "Please implement X").
+4. Preserve all technical terms, code, file paths, and specifics EXACTLY.
+5. HASHTAGS (#): ONLY preserve hashtags that were in the ORIGINAL input. DO NOT suggest or add NEW hashtags.
+6. If no hashtags were in the input, the output MUST NOT contain the word "TAGS" or any hashtags.
+7. Structure for scannability - use Markdown bullets (-), not paragraphs.
+8. Use valid Markdown formatting throughout the variable parts of the template.
+9. Do not put the whole output in a Markdown block.
+10. Make sure to preserve all aspects of the original input.
+11. Follow the output format template exactly.
+12. Return ONLY the enhanced prompt following the template. Do not include any meta-commentary or conversational filler.
+</rules>"#;
+
+fn get_system_prompt_path() -> PathBuf {
+    get_app_dir().join("enhancement_prompt.txt")
+}
+
 fn ensure_storage_ready() {
     let app_dir = get_app_dir();
     let cache_dir = app_dir.join("cache");
@@ -121,6 +156,12 @@ fn ensure_storage_ready() {
     }
     if !cache_dir.exists() {
         fs::create_dir_all(&cache_dir).expect("Failed to create cache dir");
+    }
+
+    // Ensure default system prompt file exists
+    let prompt_path = get_system_prompt_path();
+    if !prompt_path.exists() {
+        let _ = fs::write(prompt_path, DEFAULT_SYSTEM_PROMPT);
     }
 }
 
@@ -1971,6 +2012,52 @@ fn apple_intelligence_enhance(content: String, system_prompt: String) -> Result<
     }
 }
 
+#[tauri::command]
+fn get_system_prompt() -> String {
+    let path = get_system_prompt_path();
+    if path.exists() {
+        fs::read_to_string(path).unwrap_or_else(|_| DEFAULT_SYSTEM_PROMPT.to_string())
+    } else {
+        DEFAULT_SYSTEM_PROMPT.to_string()
+    }
+}
+
+#[tauri::command]
+fn get_system_prompt_path_str() -> String {
+    get_system_prompt_path().to_string_lossy().to_string()
+}
+
+#[tauri::command]
+fn check_system_prompt_exists() -> bool {
+    get_system_prompt_path().exists()
+}
+
+#[tauri::command]
+fn create_system_prompt_file() -> Result<(), String> {
+    let path = get_system_prompt_path();
+    if !path.exists() {
+        fs::write(path, DEFAULT_SYSTEM_PROMPT).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn open_system_prompt_file() {
+    let path = get_system_prompt_path();
+    #[cfg(target_os = "windows")]
+    {
+        let _ = std::process::Command::new("explorer").arg(&path).spawn();
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("open").arg(&path).spawn();
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let _ = std::process::Command::new("xdg-open").arg(&path).spawn();
+    }
+}
+
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -2151,6 +2238,24 @@ pub fn run() {
                 apply_window_effects_to_window(&window, visual_effects_enabled, theme.as_deref());
             }
 
+            // Watch system prompt file
+            let app_handle = app.handle().clone();
+            thread::spawn(move || {
+                let path = get_system_prompt_path();
+                let mut last_mtime = fs::metadata(&path).and_then(|m| m.modified()).ok();
+                
+                loop {
+                    thread::sleep(Duration::from_secs(2));
+                    let current_mtime = fs::metadata(&path).and_then(|m| m.modified()).ok();
+                    if current_mtime != last_mtime {
+                        last_mtime = current_mtime;
+                        // Emit event
+                        use tauri::Emitter;
+                        let _ = app_handle.emit("system-prompt-changed", ());
+                    }
+                }
+            });
+
             Ok(())
         })
         .manage(tracker_state)
@@ -2227,10 +2332,10 @@ pub fn run() {
             get_settings,
             save_settings,
             is_windows_10,
-            get_contexts,   // New
-            save_contexts,  // New
-            save_context,   // New
-            delete_context, // New
+            get_contexts,
+            save_contexts,
+            save_context,
+            delete_context,
             set_autostart,
             get_autostart_enabled,
             start_cloud_auth,
@@ -2238,7 +2343,12 @@ pub fn run() {
             check_screen_recording_permission,
             open_macos_screen_recording_settings,
             check_apple_intelligence_available,
-            apple_intelligence_enhance
+            apple_intelligence_enhance,
+            get_system_prompt,
+            get_system_prompt_path_str,
+            check_system_prompt_exists,
+            create_system_prompt_file,
+            open_system_prompt_file
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

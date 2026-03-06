@@ -61,7 +61,10 @@
   import ActionButton from "./ActionButton.svelte";
   import TagBadge from "./TagBadge.svelte";
   import { isStashHovered } from "$lib/stores/drag-state.svelte";
-  import { aiService, type AIEnhanceContext } from "$lib/services/ai-service";
+  import {
+    aiService,
+    type AIEnhanceContext,
+  } from "$lib/services/ai-service.svelte";
   import { isAppleIntelligencePreset } from "$lib/utils/ai-presets";
   import { tooltip } from "$lib/actions/tooltip";
   import { externalLinks } from "$lib/actions/externalLinks";

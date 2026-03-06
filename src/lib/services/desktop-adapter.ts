@@ -182,5 +182,29 @@ export class DesktopStorageAdapter implements IStorageService {
     async appleIntelligenceEnhance(content: string, systemPrompt: string): Promise<string> {
         return invoke<string>('apple_intelligence_enhance', { content, systemPrompt });
     }
+
+    async getSystemPrompt(): Promise<string> {
+        return await invoke('get_system_prompt');
+    }
+
+    async getSystemPromptPath(): Promise<string> {
+        return await invoke('get_system_prompt_path_str');
+    }
+
+    async checkSystemPromptExists(): Promise<boolean> {
+        return await invoke('check_system_prompt_exists');
+    }
+
+    async createSystemPromptFile(): Promise<void> {
+        return await invoke('create_system_prompt_file');
+    }
+
+    async createPromptFile(): Promise<void> {
+        return await this.createSystemPromptFile();
+    }
+
+    async openSystemPromptFile(): Promise<void> {
+        return await invoke('open_system_prompt_file');
+    }
 }
 

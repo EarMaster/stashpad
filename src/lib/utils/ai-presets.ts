@@ -68,6 +68,12 @@ export const AI_PROVIDER_PRESETS: AIProviderPreset[] = [
         defaultModel: 'llama3.3',
     },
     {
+        id: 'lm-studio',
+        name: 'LM Studio (Local)',
+        endpoint: 'http://localhost:1234/v1',
+        defaultModel: 'model-identifier',
+    },
+    {
         id: 'custom',
         name: 'Custom',
         endpoint: '',
@@ -91,6 +97,27 @@ export function isAppleIntelligencePreset(id?: string): boolean {
  */
 export function getPresetById(id: string): AIProviderPreset | undefined {
     return AI_PROVIDER_PRESETS.find(preset => preset.id === id);
+}
+
+/**
+ * Check if the AI configuration refers to a local provider.
+ * This is used to provide context-specific error messages (e.g., CORS issues).
+ * @param config - The AI configuration to check
+ * @returns True if it's a known local provider or uses a local endpoint
+ */
+export function isLocalAIProvider(config?: { presetId?: string; endpoint?: string }): boolean {
+    if (!config) return false;
+
+    // Explicit local presets
+    if (config.presetId === 'ollama' || config.presetId === 'lm-studio') return true;
+
+    // Check for local endpoints (localhost, 127.0.0.1, [::1])
+    if (config.endpoint) {
+        const url = config.endpoint.toLowerCase();
+        return url.includes('localhost') || url.includes('127.0.0.1') || url.includes('[::1]');
+    }
+
+    return false;
 }
 
 /**

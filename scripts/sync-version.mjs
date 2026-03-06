@@ -40,20 +40,36 @@ function syncVersion() {
         const tauriConfContent = readFileSync(tauriConfPath, 'utf8');
         const tauriConf = JSON.parse(tauriConfContent);
 
-        // Check if version needs updating
-        if (tauriConf.version === version) {
-            console.log(`✅ Version already synced: ${version}`);
-            return;
+        // Update tauri.conf.json
+        if (tauriConf.version !== version) {
+            tauriConf.version = version;
+            writeFileSync(tauriConfPath, JSON.stringify(tauriConf, null, 2) + '\n', 'utf8');
+            console.log(`✅ Synced version ${version} to tauri.conf.json`);
+        } else {
+            console.log(`✅ tauri.conf.json version already matches: ${version}`);
         }
 
-        // Update version
-        tauriConf.version = version;
+        // Read Cargo.toml
+        const cargoTomlPath = join(__dirname, '../src-tauri/Cargo.toml');
+        let cargoTomlContent = readFileSync(cargoTomlPath, 'utf8');
 
-        // Write back to tauri.conf.json with proper formatting
-        // Preserve the original formatting by using 2 spaces
-        writeFileSync(tauriConfPath, JSON.stringify(tauriConf, null, 2) + '\n', 'utf8');
+        // Simple regex to find and replace version in [package] section
+        const versionRegex = /^version\s*=\s*"[^"]*"/m;
+        const newVersionLine = `version = "${version}"`;
 
-        console.log(`✅ Synced version ${version} from package.json to tauri.conf.json`);
+        if (cargoTomlContent.match(versionRegex)) {
+            const currentVersionMatch = cargoTomlContent.match(versionRegex)[0];
+            if (currentVersionMatch !== newVersionLine) {
+                cargoTomlContent = cargoTomlContent.replace(versionRegex, newVersionLine);
+                writeFileSync(cargoTomlPath, cargoTomlContent, 'utf8');
+                console.log(`✅ Synced version ${version} to Cargo.toml`);
+            } else {
+                console.log(`✅ Cargo.toml version already matches: ${version}`);
+            }
+        } else {
+            console.warn('⚠️ Could not find version in Cargo.toml');
+        }
+
     } catch (error) {
         console.error('❌ Error syncing version:', error.message);
         process.exit(1);

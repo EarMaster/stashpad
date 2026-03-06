@@ -33,9 +33,20 @@
     getPresetById,
     getDefaultAIConfig,
     isAppleIntelligencePreset,
+    isLocalAIProvider,
   } from "$lib/utils/ai-presets";
-  import { aiService } from "$lib/services/ai-service";
-  import { Eye, EyeOff, Loader2, Sparkles, Check, X } from "lucide-svelte";
+  import { aiService } from "$lib/services/ai-service.svelte";
+  import {
+    Eye,
+    EyeOff,
+    Loader2,
+    Sparkles,
+    Check,
+    X,
+    AlertCircle,
+    ExternalLink,
+    FileText,
+  } from "lucide-svelte";
   import TagBadge from "./TagBadge.svelte";
   import { tooltip } from "$lib/actions/tooltip";
   import { openUrl } from "@tauri-apps/plugin-opener";
@@ -204,7 +215,18 @@
         message: $_("settings.aiEnhancement.testSuccess"),
       };
     } catch (e) {
-      const errorMsg = e instanceof Error ? e.message : String(e);
+      let errorMsg = e instanceof Error ? e.message : String(e);
+
+      // Specifically handle "Load failed" which is the common error when fetch is blocked by CORS
+      // or the local server is not allowing the origin.
+      if (
+        errorMsg.includes("Load failed") &&
+        isLocalAIProvider(settings.aiConfig)
+      ) {
+        errorMsg +=
+          " (Check if 'Cross-Origin (CORS)' is enabled in LM Studio settings)";
+      }
+
       connectionTestResult = {
         success: false,
         message: $_("settings.aiEnhancement.testFailed", {
@@ -1096,6 +1118,32 @@
               {/each}
             </select>
           </div>
+          <div
+            class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
+            transition:fade={{ duration: 150 }}
+          >
+            <div class="space-y-0.5 flex-1 mr-4">
+              <div class="text-sm font-medium">
+                {$_("settings.aiEnhancement.systemPrompt.label")}
+              </div>
+              <div
+                class="text-xs text-muted-foreground break-all font-mono opacity-70"
+              >
+                {aiService.systemPromptPath}
+              </div>
+              <div class="text-xs text-muted-foreground mt-1">
+                {$_("settings.aiEnhancement.systemPrompt.description")}
+              </div>
+            </div>
+            <button
+              type="button"
+              class="inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium border border-border bg-muted hover:bg-accent hover:text-accent-foreground transition-colors"
+              onclick={() => adapter.openSystemPromptFile()}
+            >
+              <FileText size={14} />
+              {$_("settings.aiEnhancement.systemPrompt.edit")}
+            </button>
+          </div>
 
           {#if isAppleIntelligencePreset(settings.aiConfig?.presetId)}
             <!-- Apple Intelligence Info Note -->
@@ -1231,7 +1279,6 @@
                 onclick={handleTestConnection}
                 disabled={testingConnection ||
                   !settings.aiConfig?.endpoint ||
-                  !settings.aiConfig?.apiKey ||
                   !settings.aiConfig?.model}
               >
                 {#if testingConnection}

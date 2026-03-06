@@ -15,6 +15,8 @@
 import type { AIConfig } from '$lib/types';
 import { DesktopStorageAdapter } from '$lib/services/desktop-adapter';
 import { isAppleIntelligencePreset } from '$lib/utils/ai-presets';
+import { listen } from '@tauri-apps/api/event';
+import { DEFAULT_SYSTEM_PROMPT } from '$lib/constants/ai-prompts';
 
 const adapter = new DesktopStorageAdapter();
 
@@ -32,74 +34,121 @@ export interface AIEnhanceContext {
 }
 
 /**
- * Base system prompt for AI enhancement.
- * Uses prompt engineering best practices to create structured, effective AI agent prompts.
- */
-const BASE_SYSTEM_PROMPT = `You are an expert prompt engineer. Transform raw notes into clear, structured AI agent prompts.
-
-OUTPUT FORMAT TEMPLATE:
-ACTION: <Short, imperative action line>
-CONTEXT: 
-- <Essential context item 1> (Max 3, omit section if none)
-CONSTRAINTS: 
-- <Specific requirement 1> (Omit section if none)
-TAGS: <Only hashtags present in original input, space-separated. Omit section entirely if none.>
-
-RULES:
-1. Be extremely concise - every word must add value.
-2. Remove fluff, greetings, and unnecessary explanations.
-3. Use imperative voice ("Implement X" not "Please implement X").
-4. Preserve all technical terms, code, file paths, and specifics EXACTLY.
-5. HASHTAGS (#): ONLY preserve hashtags that were in the ORIGINAL input. DO NOT suggest or add NEW hashtags.
-6. If no hashtags were in the input, the output MUST NOT contain the word "TAGS" or any hashtags.
-7. Structure for scannability - use Markdown bullets (-), not paragraphs.
-8. Use valid Markdown formatting throughout.
-9. Make sure to preserve all aspects of the original input.
-10. Follow the output format template exactly.
-
-Return ONLY the enhanced prompt following the template above. No meta-commentary.`;
-
-/**
- * Build the system prompt, optionally injecting project context.
- * @param context - Optional project context information
- * @returns The complete system prompt
- */
-function buildSystemPrompt(context?: AIEnhanceContext): string {
-    // If no context info is available, return the base prompt
-    if (!context?.contextName && !context?.contextDescription && !context?.windowTitle) {
-        return BASE_SYSTEM_PROMPT;
-    }
-
-    // Build project context section
-    const contextLines: string[] = [];
-    if (context.contextName && context.contextName !== 'Default') {
-        contextLines.push(`- Project: ${context.contextName}`);
-    }
-    if (context.contextDescription) {
-        contextLines.push(`- Details: ${context.contextDescription}`);
-    }
-    if (context.windowTitle) {
-        contextLines.push(`- Active file/window: ${context.windowTitle}`);
-    }
-
-    if (contextLines.length === 0) {
-        return BASE_SYSTEM_PROMPT;
-    }
-
-    const projectSection = `
-PROJECT CONTEXT:
-${contextLines.join('\n')}
-
-Use this context to make the prompt more specific and relevant to the project.`;
-
-    return BASE_SYSTEM_PROMPT + projectSection;
-}
-
-/**
  * Service for AI-powered prompt enhancement.
  * Uses OpenAI-compatible APIs to improve stash content.
  */
 export class AIService {
+    private _systemPrompt = $state(DEFAULT_SYSTEM_PROMPT);
+    private _systemPromptPath = $state('');
+    private _promptFileExists = $state(false);
+
+    constructor() {
+        // Load initial prompt and path
+        this.refreshPrompt();
+
+        // Listen for changes from the backend
+        listen('system-prompt-changed', () => {
+            this.refreshPrompt(true);
+        });
+    }
+
+    /**
+     * Get the current system prompt content
+     */
+    get systemPrompt() {
+        return this._systemPrompt;
+    }
+
+    /**
+     * Get the absolute path to the system prompt file
+     */
+    get systemPromptPath() {
+        return this._systemPromptPath;
+    }
+
+    /**
+     * Check if the system prompt file exists on disk
+     */
+    get promptFileExists() {
+        return this._promptFileExists;
+    }
+
+    /**
+     * Refresh the prompt from disk
+     * @param notify - Whether to trigger a notification (handled externally via reactivity)
+     */
+    private async refreshPrompt(notify = false) {
+        try {
+            const [content, path, exists] = await Promise.all([
+                adapter.getSystemPrompt(),
+                adapter.getSystemPromptPath(),
+                adapter.checkSystemPromptExists()
+            ]);
+            this._systemPrompt = content;
+            this._systemPromptPath = path;
+            this._promptFileExists = exists;
+
+            if (notify) {
+                // We'll use a custom event for the UI to show a notification
+                window.dispatchEvent(new CustomEvent('stashpad:prompt-reloaded'));
+            }
+        } catch (e) {
+            console.error('Failed to refresh system prompt:', e);
+        }
+    }
+
+    /**
+     * Create the prompt file on disk manually using the fallback
+     */
+    async createPromptFile() {
+        try {
+            await adapter.createPromptFile();
+            await this.refreshPrompt(true);
+            await adapter.openSystemPromptFile();
+        } catch (e) {
+            console.error('Failed to create prompt file:', e);
+        }
+    }
+
+    /**
+     * Build the system prompt, optionally injecting project context.
+     * @param context - Optional project context information
+     * @returns The complete system prompt
+     */
+    buildSystemPrompt(context?: AIEnhanceContext): string {
+        const basePrompt = this._systemPrompt;
+
+        // If no context info is available, return the base prompt
+        if (!context?.contextName && !context?.contextDescription && !context?.windowTitle) {
+            return basePrompt;
+        }
+
+        // Build project context section
+        const contextLines: string[] = [];
+        if (context.contextName && context.contextName !== 'Default') {
+            contextLines.push(`- Project: ${context.contextName}`);
+        }
+        if (context.contextDescription) {
+            contextLines.push(`- Details: ${context.contextDescription}`);
+        }
+        if (context.windowTitle) {
+            contextLines.push(`- Active file/window: ${context.windowTitle}`);
+        }
+
+        if (contextLines.length === 0) {
+            return basePrompt;
+        }
+
+        const projectSection = `
+<project_context>
+${contextLines.join('\n')}
+
+Use this context to make the prompt more specific and relevant to the project.
+</project_context>`;
+
+        return basePrompt + projectSection;
+    }
+
     /**
      * Enhance a stash prompt using the configured AI provider.
      * @param content - The original stash content
@@ -117,14 +166,14 @@ export class AIService {
             throw new Error('AI configuration is disabled');
         }
 
-        const systemPrompt = buildSystemPrompt(context);
+        const systemPrompt = this.buildSystemPrompt(context);
 
         // Handle Apple Intelligence separately
         if (isAppleIntelligencePreset(config.presetId)) {
             return await adapter.appleIntelligenceEnhance(content, systemPrompt);
         }
 
-        // API key is optional for local LLMs like Ollama, LM Studio
+        // API key is optional
         if (!config.endpoint || !config.model) {
             throw new Error('AI configuration is incomplete');
         }
@@ -137,10 +186,11 @@ export class AIService {
             model: config.model,
             messages: [
                 { role: 'system', content: systemPrompt },
-                { role: 'user', content: content },
+                { role: 'user', content: `<user_notes>\n${content}\n</user_notes>` },
             ],
             temperature: 0.3, // Lower temperature for more consistent, focused output
             max_tokens: 1024, // Reduced since we want concise output
+            stream: false,
         };
 
         // Build headers - only add Authorization if API key is provided
@@ -197,7 +247,7 @@ export class AIService {
             return true;
         }
 
-        // API key is optional for local LLMs
+        // API key is optional
         if (!config.endpoint || !config.model) {
             throw new Error('Configuration is incomplete');
         }
@@ -207,9 +257,11 @@ export class AIService {
         const body = {
             model: config.model,
             messages: [
+                { role: 'system', content: 'You are a connection tester.' },
                 { role: 'user', content: 'Say "OK" to confirm the connection works.' },
             ],
             max_tokens: 10,
+            stream: false,
         };
 
         // Build headers - only add Authorization if API key is provided

@@ -145,13 +145,19 @@
             },
             "apiKey": {
                 "label": "API-Schlüssel",
-                "description": "Ihr API-Schlüssel (lokal gespeichert)",
+                "description": "Ihr API-Schlüssel (optional)",
                 "show": "API-Schlüssel anzeigen",
                 "hide": "API-Schlüssel verbergen"
             },
             "model": {
-                "label": "Modell",
-                "description": "Modellname für die Verbesserung"
+                "label": "Modellname",
+                "description": "Der Name des KI-Modells (z. B. gpt-4o-mini)."
+            },
+            "systemPrompt": {
+                "label": "System-Prompt",
+                "description": "Die Anweisungen für die KI-Optimierung. Diese sind in einer externen Datei gespeichert.",
+                "edit": "Prompt-Datei bearbeiten",
+                "reloaded": "System-Prompt wurde von der Festplatte neu geladen"
             },
             "appleIntelligence": {
                 "info": "Apple Intelligence läuft vollständig auf Ihrem Gerät. Ihre Daten verlassen niemals Ihren Mac, und es ist kein API-Schlüssel oder eine Internetverbindung für die Verbesserung erforderlich."

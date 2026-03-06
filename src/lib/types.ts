@@ -90,7 +90,7 @@ export interface CloudConfig {
     email?: string;
     /** The JWT token for authentication (stored in memory/secure storage) */
     accessToken?: string;
-    /** Subscription tier: 'free', 'pro', 'enterprise' */
+    /** Subscription tier: 'pro' */
     subscriptionTier?: string;
     /** Subscription status: 'active', 'canceled', etc. */
     subscriptionStatus?: string;
@@ -184,6 +184,12 @@ export interface IStorageService {
     // Apple Intelligence
     checkAppleIntelligenceAvailable(): Promise<boolean>;
     appleIntelligenceEnhance(content: string, systemPrompt: string): Promise<string>;
+    // AI System Prompt management
+    getSystemPrompt(): Promise<string>;
+    getSystemPromptPath(): Promise<string>;
+    checkSystemPromptExists(): Promise<boolean>;
+    createSystemPromptFile(): Promise<void>;
+    openSystemPromptFile(): Promise<void>;
 }
 
 /**

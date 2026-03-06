@@ -27,6 +27,8 @@
    import ContextSwitcher from "$lib/components/ContextSwitcher.svelte";
    import ConfirmationDialog from "$lib/components/ConfirmationDialog.svelte";
    import { onMount } from "svelte";
+   import { fly } from "svelte/transition";
+   import { Sparkles } from "lucide-svelte";
    import { getCurrentWindow } from "@tauri-apps/api/window";
 
    let transferMode = $state("Drag");
@@ -48,6 +50,7 @@
 
    // Cloud sync status
    let syncStatus = $state<SyncStatus>("idle");
+   let showPromptReloadedToast = $state(false);
 
    const appWindow = getCurrentWindow();
    const adapter = new DesktopStorageAdapter();
@@ -84,11 +87,22 @@
          }
       });
 
+      // Listen for prompt reload event
+      const handlePromptReloaded = () => {
+         showPromptReloadedToast = true;
+         setTimeout(() => (showPromptReloadedToast = false), 3000);
+      };
+      window.addEventListener("stashpad:prompt-reloaded", handlePromptReloaded);
+
       return () => {
          unlisten.then((f) => f());
          clearInterval(cleanupInterval);
          unsubscribeSync();
          cloudSync.dispose();
+         window.removeEventListener(
+            "stashpad:prompt-reloaded",
+            handlePromptReloaded,
+         );
       };
    });
 
@@ -551,4 +565,15 @@
          appWindow.close();
       }}
    />
+
+   <!-- Prompt Reloaded Notification -->
+   {#if showPromptReloadedToast}
+      <div
+         class="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] px-4 py-2.5 rounded-full bg-primary text-primary-foreground shadow-lg border border-primary/20 flex items-center gap-2 text-sm font-medium"
+         transition:fly={{ y: 20, duration: 250 }}
+      >
+         <Sparkles size={16} />
+         {$_("settings.aiEnhancement.systemPrompt.reloaded")}
+      </div>
+   {/if}
 </main>
