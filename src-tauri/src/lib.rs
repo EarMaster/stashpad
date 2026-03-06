@@ -1979,7 +1979,7 @@ fn get_autostart_enabled(app: tauri::AppHandle) -> Result<bool, String> {
 
 #[tauri::command]
 fn check_apple_intelligence_available() -> Result<bool, String> {
-    #[cfg(target_os = "macos")]
+    #[cfg(all(target_os = "macos", feature = "macos-apple-intelligence"))]
     {
         use fm_rs::SystemLanguageModel;
         let model = SystemLanguageModel::new().map_err(|e| e.to_string())?;
@@ -1988,7 +1988,7 @@ fn check_apple_intelligence_available() -> Result<bool, String> {
             Err(_) => Ok(false),
         }
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(any(not(target_os = "macos"), not(feature = "macos-apple-intelligence")))]
     {
         Ok(false)
     }
@@ -1996,7 +1996,7 @@ fn check_apple_intelligence_available() -> Result<bool, String> {
 
 #[tauri::command]
 fn apple_intelligence_enhance(content: String, system_prompt: String) -> Result<String, String> {
-    #[cfg(target_os = "macos")]
+    #[cfg(all(target_os = "macos", feature = "macos-apple-intelligence"))]
     {
         use fm_rs::{SystemLanguageModel, Session, GenerationOptions};
         let model = SystemLanguageModel::new().map_err(|e| e.to_string())?;
@@ -2004,11 +2004,11 @@ fn apple_intelligence_enhance(content: String, system_prompt: String) -> Result<
         let response = session.respond(&content, &GenerationOptions::default()).map_err(|e| e.to_string())?;
         Ok(response.content().to_string())
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(any(not(target_os = "macos"), not(feature = "macos-apple-intelligence")))]
     {
         let _ = content;
         let _ = system_prompt;
-        Err("Apple Intelligence is only available on macOS".into())
+        Err("Apple Intelligence is not available in this build".into())
     }
 }
 

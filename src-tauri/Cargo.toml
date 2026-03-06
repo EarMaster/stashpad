@@ -52,7 +52,10 @@ regex = "1.12.3"
 
 # Apple Intelligence (Foundation Models) - macOS 26+ only
 [target.'cfg(target_os = "macos")'.dependencies]
-fm-rs = "0.1"
+fm-rs = { version = "0.1", optional = true }
+
+[features]
+macos-apple-intelligence = ["fm-rs"]
 
 [dev-dependencies]
 tempfile = "3"

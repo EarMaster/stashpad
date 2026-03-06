@@ -554,6 +554,8 @@ mod tests {
                     rule_type: "process".to_string(),
                     value: "code".to_string(),
                     match_type: "exact".to_string(),
+                    match_case: false,
+                    use_regex: false,
                 }
             ],
             last_used: Some(chrono::Utc::now().to_rfc3339()),
