@@ -20,7 +20,7 @@
     import { getRelativeTime } from "$lib/utils/date";
     import ActionButton from "./ActionButton.svelte";
     import { tooltip } from "$lib/actions/tooltip";
-    import marked from "$lib/utils/markdown";
+    import { safeParse } from "$lib/utils/markdown";
     import { externalLinks } from "$lib/actions/externalLinks";
     import { tick } from "svelte";
 
@@ -198,7 +198,7 @@
                     onclick={focusDescription}
                 >
                     {#if context.description}
-                        {@html marked.parse(context.description)}
+                        {@html safeParse(context.description)}
                     {:else}
                         <span class="text-muted-foreground italic"
                             >{$_("contexts.description.placeholder")}</span
@@ -260,9 +260,13 @@
                         onblur={() => onSave?.(context)}
                         placeholder={$_("contexts.rules.valuePlaceholder")}
                     />
-                    <div class="flex items-center gap-1 border-r border-border/50 pr-2">
+                    <div
+                        class="flex items-center gap-1 border-r border-border/50 pr-2"
+                    >
                         <button
-                            class="p-1 rounded text-muted-foreground hover:bg-muted transition-colors {rule.matchCase ? 'bg-primary/20 text-primary hover:bg-primary/30' : ''}"
+                            class="p-1 rounded text-muted-foreground hover:bg-muted transition-colors {rule.matchCase
+                                ? 'bg-primary/20 text-primary hover:bg-primary/30'
+                                : ''}"
                             onclick={() => {
                                 rule.matchCase = !rule.matchCase;
                                 onSave?.(context);
@@ -273,7 +277,9 @@
                             <CaseSensitive size={14} />
                         </button>
                         <button
-                            class="p-1 rounded text-muted-foreground hover:bg-muted transition-colors {rule.useRegex ? 'bg-primary/20 text-primary hover:bg-primary/30' : ''}"
+                            class="p-1 rounded text-muted-foreground hover:bg-muted transition-colors {rule.useRegex
+                                ? 'bg-primary/20 text-primary hover:bg-primary/30'
+                                : ''}"
                             onclick={() => {
                                 rule.useRegex = !rule.useRegex;
                                 onSave?.(context);

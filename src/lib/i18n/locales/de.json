@@ -43,7 +43,7 @@
         "contextManagement": {
             "title": "Kontextverwaltung",
             "manageContexts": "Kontexte verwalten",
-            "description": "Konfigurieren Sie benutzerdefinierte Kontexte und Auto-Wechsel-Regeln (Prozessname, Fenstertitel)"
+            "description": "Konfigurieren Sie benutzerdefinierte Kontexte und Auto-Wechsel-Regeln"
         },
         "general": {
             "title": "Allgemein",
@@ -180,9 +180,25 @@
                 "login": "Mit GitHub anmelden",
                 "logout": "Abmelden",
                 "loggedInAs": "Angemeldet als {email}",
-                "status": "Status",
-                "authenticated": "Authentifiziert",
-                "notAuthenticated": "Nicht authentifiziert"
+                "status": "Cloud-Sync",
+                "authenticated": "Aktiv",
+                "notAuthenticated": "Nicht aktiviert",
+                "enableButton": "Cloud-Sync aktivieren",
+                "modalTitle": "Cloud-Sync autorisieren",
+                "waitingForAuth": "Warte auf Autorisierung…\nDein Browser sollte sich automatisch öffnen.",
+                "openBrowserFallback": "Hier klicken, falls dein Browser sich nicht öffnet",
+                "enterCodeManually": "Code manuell eingeben",
+                "linkCodePlaceholder": "Verknüpfungscode einfügen…",
+                "link": "Verknüpfen",
+                "linking": "Verknüpfe…",
+                "authSuccess": "Cloud-Sync aktiviert!",
+                "lastSync": "Zuletzt synchronisiert: {time}",
+                "neverSynced": "Noch nie synchronisiert",
+                "syncing": "Synchronisiere…",
+                "syncSuccess": "Synchronisierung erfolgreich",
+                "syncError": "Synchronisierung fehlgeschlagen",
+                "sessionExpired": "Sitzung abgelaufen",
+                "loginAgain": "Erneut Anmelden"
             }
         }
     },

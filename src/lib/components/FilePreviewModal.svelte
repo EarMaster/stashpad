@@ -35,7 +35,7 @@
         getLanguageForExtension,
         SUPPORTED_LANGUAGES,
     } from "$lib/utils/language-detection";
-    import markedInstance from "$lib/utils/markdown";
+    import markedInstance, { sanitizeHtml } from "$lib/utils/markdown";
     import { formatBytes } from "$lib/utils/format";
     import { locale } from "$lib/i18n";
     import { tooltip } from "$lib/actions/tooltip";
@@ -133,9 +133,9 @@
 
         // For markdown files, render synchronously as HTML
         if (isMarkdown()) {
-            highlightedContent = markedInstance.parse(
-                previewData.content,
-            ) as string;
+            highlightedContent = sanitizeHtml(
+                markedInstance.parse(previewData.content) as string,
+            );
             return;
         }
 
@@ -458,7 +458,7 @@
                                     class="w-full h-full max-h-[calc(90vh-12rem)] overflow-auto bg-muted/50 rounded-lg p-6 prose prose-sm dark:prose-invert max-w-none border border-border"
                                     use:externalLinks
                                 >
-                                    {@html highlightedContent}
+                                    {@html sanitizeHtml(highlightedContent)}
                                 </div>
                             {:else}
                                 <!-- Syntax Highlighted Code -->
@@ -478,7 +478,9 @@
                                     <pre
                                         class="p-4 text-xs font-mono text-foreground whitespace-pre min-w-max"><code
                                             class="hljs block"
-                                            >{@html highlightedContent}</code
+                                            >{@html sanitizeHtml(
+                                                highlightedContent,
+                                            )}</code
                                         ></pre>
                                 </div>
                             {/if}

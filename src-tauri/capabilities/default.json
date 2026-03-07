@@ -12,9 +12,6 @@
     "dialog:allow-save",
     "fs:default",
     "fs:allow-read",
-    "fs:allow-write",
-    "fs:allow-write-text-file",
-    "fs:allow-write-file",
     {
       "identifier": "fs:scope",
       "allow": [

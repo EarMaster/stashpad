@@ -523,6 +523,7 @@
    {:else if view === "Settings"}
       <SettingsView
          bind:settings
+         {syncStatus}
          onBack={() => {
             view = "Main";
             // No need to reload, we are bound. But safe to keep or remove.

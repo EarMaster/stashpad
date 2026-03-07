@@ -57,7 +57,7 @@
   import { stat } from "@tauri-apps/plugin-fs";
   import { open, message } from "@tauri-apps/plugin-dialog";
   import { getRelativeTime } from "$lib/utils/date";
-  import marked from "$lib/utils/markdown";
+  import { safeParse } from "$lib/utils/markdown";
   import ActionButton from "./ActionButton.svelte";
   import TagBadge from "./TagBadge.svelte";
   import { isStashHovered } from "$lib/stores/drag-state.svelte";
@@ -547,7 +547,7 @@
           ondblclick={handleDoubleClick}
           role="presentation"
         >
-          {@html marked.parse(displayContent)}
+          {@html safeParse(displayContent)}
         </div>
       {:else}
         <div class="text-xs text-muted-foreground/50 italic text-center">

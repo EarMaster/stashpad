@@ -16,6 +16,7 @@
 
 <script lang="ts">
   import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
+  import type { SyncStatus } from "$lib/services/cloud-sync";
   import type { Settings, AIConfig } from "$lib/types";
   import {
     _,
@@ -25,6 +26,7 @@
     type SupportedLocale,
   } from "$lib/i18n";
   import ShortcutInput from "./ShortcutInput.svelte";
+  import CloudAuthModal from "./CloudAuthModal.svelte";
   import { fade } from "svelte/transition";
   import { onMount } from "svelte";
   import { APP_VERSION } from "$lib/utils/version";
@@ -51,12 +53,16 @@
   import { tooltip } from "$lib/actions/tooltip";
   import { openUrl } from "@tauri-apps/plugin-opener";
 
+  import { getRelativeTime } from "$lib/utils/date";
+
   let {
     settings = $bindable(),
+    syncStatus,
     onBack,
     onOpenContexts,
   } = $props<{
     settings: Settings;
+    syncStatus: SyncStatus;
     onBack: () => void;
     onOpenContexts: () => void;
   }>();
@@ -238,14 +244,12 @@
     }
   }
 
-  let authenticatingCloud = $state(false);
+  /** Controls visibility of the cloud authorization modal */
+  let showAuthModal = $state(false);
 
-  async function handleCloudLogin() {
-    // Open the web portal for account/subscription management
-    // The website handles authentication and will redirect back with a token
-    openAccountPortal();
-  }
-
+  /**
+   * Fetches fresh subscription status from the cloud after a successful login.
+   */
   async function refreshSubscription() {
     try {
       const config = await adapter.fetchCloudAccount();
@@ -256,6 +260,7 @@
     }
   }
 
+  /** Clears all cloud auth data and disables sync. */
   function handleCloudLogout() {
     if (settings.cloudConfig) {
       settings.cloudConfig.accessToken = undefined;
@@ -269,6 +274,7 @@
     }
   }
 
+  /** Opens the Stashpad account portal in the system browser. */
   function openAccountPortal() {
     const endpoint =
       settings.cloudConfig?.endpoint || "https://stashpad.org/api";
@@ -278,54 +284,15 @@
     });
   }
 
-  // Link code entry for manual device linking
-  let linkCode = $state("");
-  let linkCodeError = $state<string | null>(null);
-  let linkCodeLoading = $state(false);
-
-  async function exchangeLinkCode() {
-    if (!linkCode.trim()) return;
-
-    linkCodeLoading = true;
-    linkCodeError = null;
-
-    try {
-      const endpoint =
-        settings.cloudConfig?.endpoint || "https://stashpad.org/api";
-      const response = await fetch(`${endpoint}/auth/exchange-token`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ token: linkCode.trim() }),
-      });
-
-      if (!response.ok) {
-        const error = await response.text();
-        throw new Error(error || "Invalid or expired code");
-      }
-
-      const data = await response.json();
-
-      // Update cloud config with the new auth
-      if (settings.cloudConfig) {
-        settings.cloudConfig.accessToken = data.token;
-        settings.cloudConfig.userId = data.userId;
-        settings.cloudConfig.enabled = true;
-        save();
-
-        // Fetch subscription status
-        await refreshSubscription();
-      }
-
-      linkCode = "";
-    } catch (e) {
-      linkCodeError = e instanceof Error ? e.message : "Failed to link account";
-    } finally {
-      linkCodeLoading = false;
-    }
+  /**
+   * Called by CloudAuthModal when authorization succeeds.
+   * Saves settings and refreshes subscription status.
+   */
+  async function handleAuthSuccess() {
+    showAuthModal = false;
+    save();
+    await refreshSubscription();
   }
-  // Force rebuild
 </script>
 
 <div class="h-full flex flex-col bg-background">
@@ -438,33 +405,8 @@
           {$_("settings.cloudSync.title")}
         </h2>
 
-        <!-- Enable Toggle -->
-        <div
-          class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
-        >
-          <div class="space-y-0.5">
-            <div class="text-sm font-medium">
-              {$_("settings.cloudSync.enable.label")}
-            </div>
-            <div class="text-xs text-muted-foreground">
-              {$_("settings.cloudSync.enable.description")}
-            </div>
-          </div>
-          <label class="relative inline-flex items-center cursor-pointer">
-            <input
-              type="checkbox"
-              class="sr-only peer"
-              bind:checked={settings.cloudConfig.enabled}
-              onchange={save}
-            />
-            <div
-              class="w-11 h-6 bg-muted rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary peer-focus-visible:ring-2 peer-focus-visible:ring-primary peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-background"
-            ></div>
-          </label>
-        </div>
-
         {#if settings.cloudConfig}
-          <!-- Auth Status & Button -->
+          <!-- Status indicator row -->
           <div
             class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
             transition:fade={{ duration: 150 }}
@@ -474,63 +416,77 @@
                 {$_("settings.cloudSync.auth.status")}
               </div>
               <div class="text-xs text-muted-foreground">
-                {#if settings.cloudConfig.accessToken}
-                  <span class="text-green-500 font-medium">
-                    {$_("settings.cloudSync.auth.authenticated")}
+                {#if settings.cloudConfig.accessToken && syncStatus !== "auth-error"}
+                  <!-- Authenticated: green dot + email -->
+                  <span class="inline-flex items-center gap-1.5">
+                    <span
+                      class="w-1.5 h-1.5 rounded-full bg-green-500 shrink-0"
+                      aria-hidden="true"
+                    ></span>
+                    <span class="text-green-500 font-medium">
+                      {$_("settings.cloudSync.auth.authenticated")}
+                    </span>
+                    {#if settings.cloudConfig.email}
+                      <span class="text-muted-foreground">
+                        — {settings.cloudConfig.email}
+                      </span>
+                    {/if}
                   </span>
-                  — {$_("settings.cloudSync.auth.loggedInAs", {
-                    values: { email: settings.cloudConfig.email },
-                  })}
+                {:else if settings.cloudConfig.accessToken && syncStatus === "auth-error"}
+                  <!-- Auth Error: session expired -->
+                  <span class="inline-flex items-center gap-1.5">
+                    <AlertCircle size={12} class="text-destructive shrink-0" />
+                    <span class="text-destructive font-medium">
+                      {$_("settings.cloudSync.auth.sessionExpired")}
+                    </span>
+                  </span>
                 {:else}
-                  <span class="text-muted-foreground">
-                    {$_("settings.cloudSync.auth.notAuthenticated")}
+                  <!-- Not authenticated: grey dot -->
+                  <span class="inline-flex items-center gap-1.5">
+                    <span
+                      class="w-1.5 h-1.5 rounded-full bg-muted-foreground/50 shrink-0"
+                      aria-hidden="true"
+                    ></span>
+                    <span class="text-muted-foreground">
+                      {$_("settings.cloudSync.auth.notAuthenticated")}
+                    </span>
                   </span>
                 {/if}
               </div>
             </div>
-            {#if settings.cloudConfig.accessToken}
+
+            {#if settings.cloudConfig.accessToken && syncStatus !== "auth-error"}
+              <!-- Logged in: logout button -->
               <button
                 class="px-4 py-2 rounded-md text-sm font-medium border border-border hover:bg-muted transition-colors"
                 onclick={handleCloudLogout}
               >
                 {$_("settings.cloudSync.auth.logout")}
               </button>
+            {:else if settings.cloudConfig.accessToken && syncStatus === "auth-error"}
+              <!-- Logged in but expired: login again button -->
+              <button
+                class="inline-flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+                onclick={() => {
+                  showAuthModal = true;
+                }}
+              >
+                {$_("settings.cloudSync.auth.loginAgain")}
+              </button>
             {:else}
-              <!-- Link Code Entry for manual device linking -->
-              <div class="flex flex-col gap-2">
-                <div class="flex items-center gap-2">
-                  <input
-                    type="text"
-                    class="flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors font-mono"
-                    placeholder="Paste link code here..."
-                    bind:value={linkCode}
-                    onkeydown={(e) => {
-                      if (e.key === "Enter") exchangeLinkCode();
-                    }}
-                  />
-                  <button
-                    class="inline-flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
-                    onclick={exchangeLinkCode}
-                    disabled={linkCodeLoading || !linkCode.trim()}
-                  >
-                    {linkCodeLoading ? "Linking..." : "Link"}
-                  </button>
-                </div>
-                {#if linkCodeError}
-                  <p class="text-xs text-red-500">{linkCodeError}</p>
-                {/if}
-                <p class="text-xs text-muted-foreground">
-                  Get a link code from <button
-                    type="button"
-                    class="text-primary hover:underline"
-                    onclick={handleCloudLogin}>stashpad.org/account</button
-                  >
-                </p>
-              </div>
+              <!-- Not logged in: open the auth modal -->
+              <button
+                class="inline-flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+                onclick={() => {
+                  showAuthModal = true;
+                }}
+              >
+                {$_("settings.cloudSync.auth.enableButton")}
+              </button>
             {/if}
           </div>
 
-          <!-- Subscription Status (if logged in) -->
+          <!-- Subscription Status (shown when logged in) -->
           {#if settings.cloudConfig.accessToken}
             <div
               class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
@@ -565,6 +521,61 @@
                   : "Manage"}
               </button>
             </div>
+
+            <!-- Live Sync Status -->
+            {#if settings.cloudConfig.enabled}
+              <div
+                class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
+                transition:fade={{ duration: 150 }}
+              >
+                <div class="space-y-0.5 flex-1 mr-4">
+                  <div class="text-sm font-medium">
+                    {$_("settings.cloudSync.auth.status")}
+                  </div>
+                  <div
+                    class="text-xs text-muted-foreground flex items-center gap-1.5 pt-0.5"
+                  >
+                    {#if syncStatus === "syncing"}
+                      <Loader2 size={12} class="animate-spin text-blue-500" />
+                      <span class="text-blue-500"
+                        >{$_("settings.cloudSync.auth.syncing")}</span
+                      >
+                    {:else if syncStatus === "success"}
+                      <Check size={12} class="text-green-500" />
+                      <span class="text-green-500"
+                        >{$_("settings.cloudSync.auth.syncSuccess")}</span
+                      >
+                    {:else if syncStatus === "error"}
+                      <AlertCircle size={12} class="text-destructive" />
+                      <span class="text-destructive"
+                        >{$_("settings.cloudSync.auth.syncError")}</span
+                      >
+                    {:else}
+                      <span
+                        class="w-1.5 h-1.5 rounded-full bg-muted-foreground/50 shrink-0"
+                        aria-hidden="true"
+                      ></span>
+                      <span class="text-muted-foreground">Idle</span>
+                    {/if}
+                  </div>
+                </div>
+                <!-- Optionally show last sync time on the right -->
+                <div class="text-xs text-muted-foreground text-right mt-auto">
+                  {#if settings.cloudConfig.lastSyncAt}
+                    {$_("settings.cloudSync.auth.lastSync", {
+                      values: {
+                        time: getRelativeTime(
+                          settings.cloudConfig.lastSyncAt,
+                          $_,
+                        ),
+                      },
+                    })}
+                  {:else}
+                    {$_("settings.cloudSync.auth.neverSynced")}
+                  {/if}
+                </div>
+              </div>
+            {/if}
           {/if}
         {/if}
       </section>
@@ -1308,3 +1319,14 @@
     </div>
   </div>
 </div>
+
+<!-- Cloud authorization modal – rendered at root level for full-window overlay -->
+{#if showAuthModal}
+  <CloudAuthModal
+    bind:settings
+    onSuccess={handleAuthSuccess}
+    onCancel={() => {
+      showAuthModal = false;
+    }}
+  />
+{/if}

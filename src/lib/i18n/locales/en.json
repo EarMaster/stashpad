@@ -46,7 +46,7 @@
         "contextManagement": {
             "title": "Context Management",
             "manageContexts": "Manage Contexts",
-            "description": "Configure custom contexts and auto-switching rules (Process Name, Window Title)"
+            "description": "Configure custom contexts and auto-switching rules"
         },
         "general": {
             "title": "General",
@@ -185,9 +185,25 @@
                 "login": "Login with GitHub",
                 "logout": "Logout",
                 "loggedInAs": "Logged in as {email}",
-                "status": "Status",
-                "authenticated": "Authenticated",
-                "notAuthenticated": "Not Authenticated"
+                "status": "Cloud Sync",
+                "authenticated": "Active",
+                "notAuthenticated": "Not enabled",
+                "enableButton": "Enable Cloud Sync",
+                "modalTitle": "Authorize Cloud Sync",
+                "waitingForAuth": "Waiting for authorization…\nYour browser should open automatically.",
+                "openBrowserFallback": "Click here if your browser didn't open",
+                "enterCodeManually": "Enter code manually",
+                "linkCodePlaceholder": "Paste link code here…",
+                "link": "Link",
+                "linking": "Linking…",
+                "authSuccess": "Cloud sync enabled!",
+                "lastSync": "Last synced: {time}",
+                "neverSynced": "Never synced",
+                "syncing": "Syncing…",
+                "syncSuccess": "Sync successful",
+                "syncError": "Sync failed",
+                "sessionExpired": "Session expired",
+                "loginAgain": "Log In Again"
             }
         }
     },

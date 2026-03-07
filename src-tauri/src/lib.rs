@@ -354,68 +354,91 @@ const OBFUSCATION_KEY: &[u8] = b"StashpadAIConfigKey2026";
 const KEYCHAIN_SERVICE: &str = "stashpad";
 const KEYCHAIN_USER: &str = "ai_api_key";
 const KEYCHAIN_TARGET: &str = "stashpad.ai_api_key";
+/// Keychain identifiers for cloud access token
+const KEYCHAIN_CLOUD_USER: &str = "cloud_access_token";
+const KEYCHAIN_CLOUD_TARGET: &str = "stashpad.cloud_access_token";
 
 /// Create a keychain entry with consistent target across platforms
 fn create_keychain_entry() -> Result<keyring::Entry, keyring::Error> {
     keyring::Entry::new_with_target(KEYCHAIN_TARGET, KEYCHAIN_SERVICE, KEYCHAIN_USER)
 }
 
-/// Store API key in system keychain and verify it can be retrieved
-fn store_api_key_in_keychain(key: &str) -> bool {
-    if key.is_empty() {
-        delete_api_key_from_keychain();
+/// Create a keychain entry for the cloud access token
+fn create_cloud_keychain_entry() -> Result<keyring::Entry, keyring::Error> {
+    keyring::Entry::new_with_target(KEYCHAIN_CLOUD_TARGET, KEYCHAIN_SERVICE, KEYCHAIN_CLOUD_USER)
+}
+
+/// Store a secret in the system keychain and verify it can be retrieved.
+/// Generic helper used for both AI API key and cloud access token.
+fn store_secret_in_keychain(
+    create_entry: fn() -> Result<keyring::Entry, keyring::Error>,
+    delete_fn: fn(),
+    secret: &str,
+) -> bool {
+    if secret.is_empty() {
+        delete_fn();
         return true;
     }
-    match create_keychain_entry() {
+    match create_entry() {
         Ok(entry) => {
-            match entry.set_password(key) {
+            match entry.set_password(secret) {
                 Ok(_) => {
                     // Verify we can actually retrieve it
-                    match create_keychain_entry() {
+                    match create_entry() {
                         Ok(verify_entry) => {
                             match verify_entry.get_password() {
-                                Ok(retrieved) if retrieved == key => {
-                                    println!("API key stored and verified in system keychain");
+                                Ok(retrieved) if retrieved == secret => {
+                                    log::debug!("Secret stored and verified in system keychain");
                                     true
                                 }
                                 Ok(_) => {
-                                    println!("Keychain verification failed: retrieved key doesn't match");
+                                    log::warn!("Keychain verification failed: retrieved value doesn't match");
                                     false
                                 }
-                                Err(e) => {
-                                    println!("Keychain verification failed: {:?}", e);
+                                Err(_) => {
+                                    log::warn!("Keychain verification failed on retrieval");
                                     false
                                 }
                             }
                         }
-                        Err(e) => {
-                            println!("Keychain verification failed (entry creation): {:?}", e);
+                        Err(_) => {
+                            log::warn!("Keychain verification failed on entry creation");
                             false
                         }
                     }
                 }
-                Err(e) => {
-                    println!("Failed to store API key in keychain: {:?}", e);
+                Err(_) => {
+                    log::warn!("Failed to store secret in keychain");
                     false
                 }
             }
         }
-        Err(e) => {
-            println!("Failed to create keychain entry: {:?}", e);
+        Err(_) => {
+            log::warn!("Failed to create keychain entry");
             false
         }
     }
 }
 
-/// Retrieve API key from system keychain
-fn get_api_key_from_keychain() -> Option<String> {
-    match create_keychain_entry() {
+/// Store API key in system keychain and verify it can be retrieved
+fn store_api_key_in_keychain(key: &str) -> bool {
+    store_secret_in_keychain(create_keychain_entry, delete_api_key_from_keychain, key)
+}
+
+/// Store cloud access token in system keychain
+fn store_cloud_token_in_keychain(token: &str) -> bool {
+    store_secret_in_keychain(create_cloud_keychain_entry, delete_cloud_token_from_keychain, token)
+}
+
+/// Retrieve a secret from the system keychain.
+/// Generic helper used for both AI API key and cloud access token.
+fn get_secret_from_keychain(
+    create_entry: fn() -> Result<keyring::Entry, keyring::Error>,
+) -> Option<String> {
+    match create_entry() {
         Ok(entry) => {
             match entry.get_password() {
-                Ok(password) => {
-                    println!("API key retrieved from system keychain");
-                    Some(password)
-                }
+                Ok(password) => Some(password),
                 Err(_) => None
             }
         }
@@ -423,11 +446,33 @@ fn get_api_key_from_keychain() -> Option<String> {
     }
 }
 
-/// Delete API key from keychain
-fn delete_api_key_from_keychain() {
-    if let Ok(entry) = create_keychain_entry() {
+/// Retrieve API key from system keychain
+fn get_api_key_from_keychain() -> Option<String> {
+    get_secret_from_keychain(create_keychain_entry)
+}
+
+/// Retrieve cloud access token from system keychain
+fn get_cloud_token_from_keychain() -> Option<String> {
+    get_secret_from_keychain(create_cloud_keychain_entry)
+}
+
+/// Delete a secret from the keychain.
+fn delete_secret_from_keychain(
+    create_entry: fn() -> Result<keyring::Entry, keyring::Error>,
+) {
+    if let Ok(entry) = create_entry() {
         let _ = entry.delete_credential();
     }
+}
+
+/// Delete API key from keychain
+fn delete_api_key_from_keychain() {
+    delete_secret_from_keychain(create_keychain_entry);
+}
+
+/// Delete cloud access token from keychain
+fn delete_cloud_token_from_keychain() {
+    delete_secret_from_keychain(create_cloud_keychain_entry);
 }
 
 /// Derive a 256-bit key from machine-specific information
@@ -487,8 +532,8 @@ fn encrypt_api_key(key: &str) -> String {
             result.extend_from_slice(&ciphertext);
             STANDARD.encode(&result)
         }
-        Err(e) => {
-            println!("Encryption failed: {:?}", e);
+        Err(_e) => {
+            log::warn!("AES encryption failed, using XOR fallback");
             // Fallback to simple obfuscation if encryption fails
             obfuscate_simple(key)
         }
@@ -577,12 +622,21 @@ fn load_settings_from_disk() -> Settings {
             if let Ok(mut settings) = serde_json::from_reader::<_, Settings>(file) {
                 // Try to get API key - keychain first, then JSON fallback
                 if let Some(ref mut ai_config) = settings.ai_config {
-                    // First try keychain
                     if let Some(keychain_key) = get_api_key_from_keychain() {
                         ai_config.api_key = keychain_key;
                     } else if !ai_config.api_key.is_empty() {
                         // Fallback: decrypt from JSON
                         ai_config.api_key = decrypt_api_key(&ai_config.api_key);
+                    }
+                }
+                // Try to get cloud access token - keychain first, then JSON fallback
+                if let Some(ref mut cloud_config) = settings.cloud_config {
+                    if let Some(keychain_token) = get_cloud_token_from_keychain() {
+                        cloud_config.access_token = Some(keychain_token);
+                    } else if let Some(ref token) = cloud_config.access_token {
+                        if !token.is_empty() {
+                            cloud_config.access_token = Some(decrypt_api_key(token));
+                        }
                     }
                 }
                 // Validate and sanitize settings before returning
@@ -668,7 +722,7 @@ fn persist_settings_to_disk(settings: &Settings) {
     let path = get_settings_path();
     let mut settings_to_save = settings.clone();
     
-    // Handle API key storage - try keychain first, fallback to obfuscation
+    // Handle API key storage - try keychain first, fallback to encryption
     if let Some(ref mut ai_config) = settings_to_save.ai_config {
         let api_key = ai_config.api_key.clone();
         
@@ -678,8 +732,25 @@ fn persist_settings_to_disk(settings: &Settings) {
                 ai_config.api_key = String::new();
             } else {
                 // Keychain failed - use encrypted JSON storage
-                println!("Keychain unavailable, using encrypted JSON storage");
+                log::info!("Keychain unavailable for API key, using encrypted JSON");
                 ai_config.api_key = encrypt_api_key(&api_key);
+            }
+        }
+    }
+
+    // Handle cloud access token storage - try keychain first, fallback to encryption
+    if let Some(ref mut cloud_config) = settings_to_save.cloud_config {
+        if let Some(ref token) = cloud_config.access_token {
+            if !token.is_empty() {
+                let token_clone = token.clone();
+                if store_cloud_token_in_keychain(&token_clone) {
+                    // Keychain success - store empty in JSON
+                    cloud_config.access_token = Some(String::new());
+                } else {
+                    // Keychain failed - use encrypted JSON storage
+                    log::info!("Keychain unavailable for cloud token, using encrypted JSON");
+                    cloud_config.access_token = Some(encrypt_api_key(&token_clone));
+                }
             }
         }
     }
@@ -933,11 +1004,20 @@ async fn start_cloud_auth(
         (config.endpoint.clone(), config.enabled)
     };
 
-    // 1. Start local server to listen for callback
-    let server = Server::http("127.0.0.1:11432").map_err(|e| e.to_string())?;
+    // 1. Start local server on an ephemeral port to listen for callback
+    let server = Server::http("127.0.0.1:0").map_err(|e| e.to_string())?;
+    let callback_port = server.server_addr().to_ip().map(|a| a.port()).ok_or("Failed to get callback port")?;
     
-    // 2. Open browser to cloud auth
-    let auth_url = format!("{}/auth/github", endpoint.trim_end_matches('/'));
+    // 2. Generate a CSRF state parameter to verify the callback origin
+    let state_param = uuid::Uuid::new_v4().to_string();
+    
+    // 3. Open browser to cloud auth with state parameter and callback port
+    let auth_url = format!(
+        "{}/auth/github?state={}&callback_port={}",
+        endpoint.trim_end_matches('/'),
+        state_param,
+        callback_port
+    );
     let _ = tauri_plugin_opener::OpenerExt::opener(&app).open_url(auth_url, None::<String>);
 
     // 3. Wait for request (with a timeout of 5 minutes)
@@ -945,20 +1025,30 @@ async fn start_cloud_auth(
     // For simplicity in this scaffold, we'll block briefly or just take the first request.
     
     if let Some(request) = server.recv_timeout(Duration::from_secs(300)).map_err(|e| e.to_string())? {
-        let url_str = format!("http://localhost:11432{}", request.url());
+        let url_str = format!("http://localhost:{}{}", callback_port, request.url());
         let url = Url::parse(&url_str).map_err(|e| e.to_string())?;
         
         let mut token = None;
         let mut user_id = None;
         let mut email = None;
+        let mut callback_state = None;
         
         for (key, value) in url.query_pairs() {
             match key.as_ref() {
                 "token" => token = Some(value.into_owned()),
                 "userId" => user_id = Some(value.into_owned()),
                 "email" => email = Some(value.into_owned()),
+                "state" => callback_state = Some(value.into_owned()),
                 _ => {}
             }
+        }
+        
+        // Verify the state parameter matches to prevent CSRF
+        if callback_state.as_deref() != Some(&state_param) {
+            let response = Response::from_string("Authentication failed: Invalid state parameter.")
+                .with_status_code(400);
+            let _ = request.respond(response);
+            return Err("Authentication failed: State parameter mismatch (CSRF protection)".into());
         }
         
         if let (Some(t), Some(uid), Some(e)) = (token, user_id, email) {
@@ -1240,8 +1330,9 @@ fn load_stashes(state: State<Arc<DbState>>) -> Vec<StashItem> {
 fn get_stash_cache_path(id: &str, context_id: Option<&str>) -> std::path::PathBuf {
     let cache_dir = get_app_dir().join("cache");
     let ctx_id = context_id.unwrap_or("default");
-    let safe_ctx = ctx_id.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_");
-    let safe_stash_id = id.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_");
+    // Sanitize path components to prevent directory traversal (including '..')
+    let safe_ctx = ctx_id.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|', '.'], "_");
+    let safe_stash_id = id.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|', '.'], "_");
     cache_dir.join(safe_ctx).join(safe_stash_id)
 }
 
@@ -1279,32 +1370,32 @@ fn delete_completed_stashes(state: State<Arc<DbState>>, context_id: Option<Strin
     let cache_dir = get_app_dir().join("cache");
 
     // Get list of completed stashes to delete attachments
-    let query = if let Some(ref cid) = context_id {
-        format!("SELECT id, context_id FROM stashes WHERE completed = 1 AND context_id = '{}' AND deleted = 0", cid)
-    } else {
-        "SELECT id, context_id FROM stashes WHERE completed = 1 AND deleted = 0".to_string()
-    };
-    
-    // Scope logic to avoid double borrow and collect data first
+    // Uses parameterized queries to prevent SQL injection
     let to_delete_data: Vec<(String, Option<String>)> = {
-        let mut stmt = db.conn.prepare(&query).unwrap();
-        let rows = stmt.query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
-        }).unwrap();
-        
-        let mut data = Vec::new();
-        for r in rows {
-            if let Ok(val) = r {
-                data.push(val);
-            }
+        if let Some(ref cid) = context_id {
+            let mut stmt = db.conn.prepare(
+                "SELECT id, context_id FROM stashes WHERE completed = 1 AND context_id = ?1 AND deleted = 0"
+            ).unwrap();
+            let rows = stmt.query_map(params![cid], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+            }).unwrap();
+            rows.filter_map(|r| r.ok()).collect()
+        } else {
+            let mut stmt = db.conn.prepare(
+                "SELECT id, context_id FROM stashes WHERE completed = 1 AND deleted = 0"
+            ).unwrap();
+            let rows = stmt.query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+            }).unwrap();
+            rows.filter_map(|r| r.ok()).collect()
         }
-        data
     };
 
     for (id, ctx_id_opt) in to_delete_data {
          let ctx_id = ctx_id_opt.as_deref().unwrap_or("default");
-         let safe_ctx = ctx_id.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_");
-         let safe_stash_id = id.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_");
+         // Sanitize path components to prevent directory traversal
+         let safe_ctx = ctx_id.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|', '.'], "_");
+         let safe_stash_id = id.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|', '.'], "_");
          let stash_folder = cache_dir.join(&safe_ctx).join(&safe_stash_id);
          if stash_folder.exists() {
              let _ = fs::remove_dir_all(stash_folder);
@@ -1312,7 +1403,7 @@ fn delete_completed_stashes(state: State<Arc<DbState>>, context_id: Option<Strin
     }
 
     if let Err(e) = db.delete_completed_stashes(context_id) {
-        println!("Failed to delete completed stashes: {}", e);
+        log::error!("Failed to delete completed stashes: {}", e);
     }
 }
 
@@ -1381,7 +1472,7 @@ fn save_asset(
     
     if let Some(ctx_id) = &context_id {
         // Sanitize context ID to prevent path traversal
-        let safe_ctx = ctx_id.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_");
+        let safe_ctx = ctx_id.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|', '.'], "_");
         target_dir = target_dir.join(&safe_ctx);
         
         if let Some(s_id) = &stash_id {
@@ -1501,7 +1592,7 @@ fn save_asset_from_path(
     
     if let Some(ctx_id) = &context_id {
         // Sanitize context ID to prevent path traversal
-        let safe_ctx = ctx_id.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_");
+        let safe_ctx = ctx_id.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|', '.'], "_");
         target_dir = target_dir.join(&safe_ctx);
         
         if let Some(s_id) = &stash_id {
@@ -1653,6 +1744,15 @@ pub struct FilePreviewData {
 #[tauri::command]
 fn read_file_for_preview(path: String) -> Result<FilePreviewData, String> {
     let file_path = std::path::Path::new(&path);
+    
+    // Security: validate that the path is within the cache directory
+    // to prevent arbitrary file reads via IPC
+    let cache_dir = get_app_dir().join("cache");
+    let canonical_path = file_path.canonicalize().map_err(|_| "File does not exist")?;
+    let canonical_cache = cache_dir.canonicalize().unwrap_or(cache_dir);
+    if !canonical_path.starts_with(&canonical_cache) {
+        return Err("Access denied: file outside cache directory".into());
+    }
     
     if !file_path.exists() {
         return Err("File does not exist".into());
@@ -1861,21 +1961,29 @@ fn get_smart_transfer_target(state: State<Arc<Mutex<TrackerState>>>) -> String {
 
 #[tauri::command]
 fn show_in_folder(path: String) {
+    // Security: verify the path exists and canonicalize it before passing to OS commands
+    let file_path = std::path::Path::new(&path);
+    let canonical = match file_path.canonicalize() {
+        Ok(p) => p,
+        Err(_) => return, // Silently fail if path doesn't exist
+    };
+    let safe_path = canonical.to_string_lossy();
+    
     #[cfg(target_os = "windows")]
     {
         let _ = std::process::Command::new("explorer")
-            .args(["/select,", &path])
+            .args(["/select,", &safe_path])
             .spawn();
     }
     #[cfg(target_os = "macos")]
     {
         let _ = std::process::Command::new("open")
-            .args(["-R", &path])
+            .args(["-R", &safe_path])
             .spawn();
     }
     #[cfg(target_os = "linux")]
     {
-        if let Some(parent) = std::path::Path::new(&path).parent() {
+        if let Some(parent) = canonical.parent() {
             let _ = std::process::Command::new("xdg-open")
                 .arg(parent)
                 .spawn();

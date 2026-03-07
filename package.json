@@ -21,7 +21,6 @@
     "clipboard",
     "productivity"
   ],
-  "private": true,
   "type": "module",
   "scripts": {
     "sync-version": "node scripts/sync-version.mjs",
@@ -73,11 +72,14 @@
     "@tauri-apps/plugin-fs": "^2.4.5",
     "@tauri-apps/plugin-opener": "^2.5.3",
     "@thisux/sveltednd": "^0.0.20",
+    "@types/dompurify": "^3.0.5",
     "bits-ui": "^2.14.4",
     "clsx": "^2.1.1",
+    "dompurify": "^3.3.2",
     "fuzzysort": "^3.1.0",
     "highlight.js": "^11.11.1",
     "jszip": "^3.10.1",
+    "jwt-decode": "^4.0.0",
     "lucide-svelte": "^0.556.0",
     "marked": "^17.0.1",
     "marked-highlight": "^2.2.3",

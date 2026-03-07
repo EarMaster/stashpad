@@ -22,9 +22,10 @@
  */
 
 import type { IStorageService, StashItem, Context, CloudConfig, Settings } from '../types';
+import { jwtDecode } from 'jwt-decode';
 
 /** Sync status for UI feedback */
-export type SyncStatus = 'idle' | 'syncing' | 'success' | 'error' | 'offline';
+export type SyncStatus = 'idle' | 'syncing' | 'success' | 'error' | 'offline' | 'auth-error';
 
 /** Sync event listener */
 export type SyncListener = (status: SyncStatus, message?: string) => void;
@@ -212,6 +213,13 @@ export class CloudSyncService {
         }
 
         const config = this.settings!.cloudConfig!;
+
+        // Verify token expiration offline
+        if (!this.verifyAuth(config.accessToken)) {
+            this.setStatus('auth-error', 'Session expired. Please log in again.');
+            return false;
+        }
+
         this.isSyncing = true;
         this.setStatus('syncing');
 
@@ -454,5 +462,25 @@ export class CloudSyncService {
             clearTimeout(this.debounceTimer);
         }
         this.listeners.clear();
+    }
+
+    /**
+     * Decode JWT and check if it has expired
+     * @returns true if valid, false if expired or invalid
+     */
+    private verifyAuth(token: string | null | undefined): boolean {
+        if (!token) return false;
+        try {
+            const decoded = jwtDecode<{ exp?: number }>(token);
+            if (!decoded.exp) return true; // No expiration, assume valid
+
+            // Check if expired (exp is in seconds, Date.now() is ms)
+            // Add a 60-second buffer to prevent edge cases
+            const now = Math.floor(Date.now() / 1000);
+            return decoded.exp > (now + 60);
+        } catch (e) {
+            console.error('[CloudSync] Failed to verify token:', e);
+            return false; // If we can't decode, assume invalid
+        }
     }
 }
