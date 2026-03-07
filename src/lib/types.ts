@@ -88,8 +88,8 @@ export interface CloudConfig {
     userId?: string;
     /** The authenticated user's email on the cloud service */
     email?: string;
-    /** The JWT token for authentication (stored in memory/secure storage) */
-    accessToken?: string;
+    /** The JWT token for authentication (stored in memory/secure storage) - No longer available in Frontend */
+    accessToken?: never;
     /** Subscription tier: 'pro' */
     subscriptionTier?: string;
     /** Subscription status: 'active', 'canceled', etc. */
@@ -178,8 +178,13 @@ export interface IStorageService {
     setAutostart(enabled: boolean): Promise<void>;
     getAutostartEnabled(): Promise<boolean>;
     startCloudAuth(): Promise<CloudConfig>;
+    exchangeLinkCodeApi(token: string): Promise<CloudConfig>;
     /** Fetch account info from cloud and update local subscription status */
     fetchCloudAccount(): Promise<CloudConfig>;
+
+    // Cloud sync proxy methods
+    syncStashesApi(payload: unknown): Promise<unknown>;
+    syncContextsApi(payload: unknown): Promise<unknown>;
 
     // Apple Intelligence
     checkAppleIntelligenceAvailable(): Promise<boolean>;

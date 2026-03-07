@@ -160,7 +160,6 @@ export class CloudSyncService {
 
         return (
             config.enabled &&
-            !!config.accessToken &&
             (config.subscriptionTier === 'pro' || config.subscriptionTier === 'enterprise')
         );
     }
@@ -214,11 +213,7 @@ export class CloudSyncService {
 
         const config = this.settings!.cloudConfig!;
 
-        // Verify token expiration offline
-        if (!this.verifyAuth(config.accessToken)) {
-            this.setStatus('auth-error', 'Session expired. Please log in again.');
-            return false;
-        }
+        // Token is stored in backend, so we rely on backend failure to detect expiration.
 
         this.isSyncing = true;
         this.setStatus('syncing');
@@ -305,27 +300,17 @@ export class CloudSyncService {
         config: CloudConfig,
         request: SyncRequest
     ): Promise<SyncResponse | null> {
-        const endpoint = config.endpoint.replace(/\/$/, '');
-
-        const response = await fetch(`${endpoint}/sync/stashes`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${config.accessToken}`,
-            },
-            body: JSON.stringify(request),
-        });
-
-        if (response.status === 401) {
-            this.setStatus('error', 'Authentication expired. Please log in again.');
-            return null;
+        try {
+            const response = await this.adapter.syncStashesApi(request);
+            return response as SyncResponse;
+        } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            if (msg.includes('Authentication expired') || msg.includes('401')) {
+                this.setStatus('error', 'Authentication expired. Please log in again.');
+                return null;
+            }
+            throw new Error(`Stash sync failed: ${msg}`);
         }
-
-        if (!response.ok) {
-            throw new Error(`Stash sync failed: ${response.status} ${response.statusText}`);
-        }
-
-        return response.json();
     }
 
     /**
@@ -335,26 +320,16 @@ export class CloudSyncService {
         config: CloudConfig,
         request: ContextSyncRequest
     ): Promise<ContextSyncResponse | null> {
-        const endpoint = config.endpoint.replace(/\/$/, '');
-
-        const response = await fetch(`${endpoint}/sync/contexts`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${config.accessToken}`,
-            },
-            body: JSON.stringify(request),
-        });
-
-        if (response.status === 401) {
-            return null;
+        try {
+            const response = await this.adapter.syncContextsApi(request);
+            return response as ContextSyncResponse;
+        } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            if (msg.includes('Authentication expired') || msg.includes('401')) {
+                return null;
+            }
+            throw new Error(`Context sync failed: ${msg}`);
         }
-
-        if (!response.ok) {
-            throw new Error(`Context sync failed: ${response.status} ${response.statusText}`);
-        }
-
-        return response.json();
     }
 
     /**
@@ -469,18 +444,7 @@ export class CloudSyncService {
      * @returns true if valid, false if expired or invalid
      */
     private verifyAuth(token: string | null | undefined): boolean {
-        if (!token) return false;
-        try {
-            const decoded = jwtDecode<{ exp?: number }>(token);
-            if (!decoded.exp) return true; // No expiration, assume valid
-
-            // Check if expired (exp is in seconds, Date.now() is ms)
-            // Add a 60-second buffer to prevent edge cases
-            const now = Math.floor(Date.now() / 1000);
-            return decoded.exp > (now + 60);
-        } catch (e) {
-            console.error('[CloudSync] Failed to verify token:', e);
-            return false; // If we can't decode, assume invalid
-        }
+        // Obsolete: Token is now stored securely in the Rust backend
+        return true;
     }
 }

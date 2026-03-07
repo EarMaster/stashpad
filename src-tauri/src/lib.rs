@@ -944,13 +944,28 @@ fn apply_window_effects_to_window(window: &tauri::WebviewWindow, enabled: Option
 
 #[tauri::command]
 fn get_settings(state: State<Arc<SettingsState>>) -> Settings {
-    state.settings.lock().unwrap().clone()
+    let mut settings = state.settings.lock().unwrap().clone();
+    if let Some(ref mut cloud_config) = settings.cloud_config {
+        cloud_config.access_token = None;
+    }
+    settings
 }
 
 #[tauri::command]
-
-fn save_settings(app: tauri::AppHandle, state: State<Arc<SettingsState>>, settings: Settings) {
+fn save_settings(app: tauri::AppHandle, state: State<Arc<SettingsState>>, mut settings: Settings) {
     println!("Saving settings");
+
+    // Preserve existing access token if the frontend didn't supply one
+    {
+        let current = state.settings.lock().unwrap();
+        if let Some(ref mut new_cloud) = settings.cloud_config {
+            if new_cloud.access_token.is_none() || new_cloud.access_token.as_ref().map(|t| t.is_empty()).unwrap_or(false) {
+                if let Some(ref current_cloud) = current.cloud_config {
+                    new_cloud.access_token = current_cloud.access_token.clone();
+                }
+            }
+        }
+    }
 
     // Update global shortcuts
     use tauri_plugin_global_shortcut::GlobalShortcutExt;
@@ -1077,8 +1092,11 @@ async fn start_cloud_auth(
                 .with_header(tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"text/plain"[..]).unwrap());
             let _ = request.respond(response);
             
-            Ok(config)
+            let mut return_config = config.clone();
+            return_config.access_token = None;
+            Ok(return_config)
         } else {
+
             let response = Response::from_string("Authentication failed: Missing parameters.")
                 .with_status_code(400);
             let _ = request.respond(response);
@@ -1129,10 +1147,138 @@ async fn fetch_cloud_account(
         
         let updated_config = config.clone();
         persist_settings_to_disk(&settings);
-        return Ok(updated_config);
+        
+        let mut return_config = updated_config;
+        return_config.access_token = None;
+        return Ok(return_config);
     }
 
     Err("Cloud config not found".into())
+}
+
+#[tauri::command]
+async fn exchange_link_code_api(
+    settings_state: State<'_, Arc<SettingsState>>,
+    token: String,
+) -> Result<CloudConfig, String> {
+    let endpoint = {
+        let settings = settings_state.settings.lock().unwrap();
+        let config = settings.cloud_config.as_ref().ok_or("Cloud config missing")?;
+        config.endpoint.clone()
+    };
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(format!("{}/auth/exchange-token", endpoint.trim_end_matches('/')))
+        .header("Content-Type", "application/json")
+        .json(&serde_json::json!({ "token": token }))
+        .send()
+        .await
+        .map_err(|e| format!("Failed to exchange token: {}", e))?;
+
+    if !response.status().is_success() {
+        let error_text = response.text().await.unwrap_or_else(|_| "Invalid or expired code".to_string());
+        return Err(error_text);
+    }
+
+    let data: serde_json::Value = response.json().await
+        .map_err(|e| format!("Failed to parse response: {}", e))?;
+
+    let access_token_val = data["token"]
+        .as_str()
+        .ok_or("Missing token in response")?
+        .to_string();
+    let user_id_val = data["userId"]
+        .as_str()
+        .map(|s| s.to_string());
+
+    let mut settings = settings_state.settings.lock().unwrap();
+    let mut config = settings.cloud_config.clone().unwrap_or(CloudConfig {
+        enabled: false,
+        endpoint: default_cloud_endpoint(),
+        user_id: None,
+        email: None,
+        access_token: None,
+        subscription_tier: None,
+        subscription_status: None,
+        subscription_period_end: None,
+        last_sync_at: None,
+    });
+    
+    config.access_token = Some(access_token_val);
+    config.user_id = user_id_val;
+    config.enabled = true;
+    
+    settings.cloud_config = Some(config.clone());
+    persist_settings_to_disk(&settings);
+    
+    let mut return_config = config;
+    return_config.access_token = None;
+    Ok(return_config)
+}
+
+#[tauri::command]
+async fn sync_stashes_api(
+    settings_state: State<'_, Arc<SettingsState>>,
+    payload: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let (endpoint, token) = {
+        let settings = settings_state.settings.lock().unwrap();
+        let config = settings.cloud_config.as_ref().ok_or("Cloud config missing")?;
+        let token = config.access_token.clone().ok_or("Not authenticated")?;
+        (config.endpoint.clone(), token)
+    };
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(format!("{}/sync/stashes", endpoint.trim_end_matches('/')))
+        .header("Authorization", format!("Bearer {}", token))
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to sync stashes: {}", e))?;
+
+    if response.status() == 401 {
+        return Err("Authentication expired. Please log in again.".into());
+    }
+
+    if !response.status().is_success() {
+        return Err(format!("Stash sync failed: {}", response.status()));
+    }
+
+    response.json().await.map_err(|e| format!("Failed to parse sync response: {}", e))
+}
+
+#[tauri::command]
+async fn sync_contexts_api(
+    settings_state: State<'_, Arc<SettingsState>>,
+    payload: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let (endpoint, token) = {
+        let settings = settings_state.settings.lock().unwrap();
+        let config = settings.cloud_config.as_ref().ok_or("Cloud config missing")?;
+        let token = config.access_token.clone().ok_or("Not authenticated")?;
+        (config.endpoint.clone(), token)
+    };
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(format!("{}/sync/contexts", endpoint.trim_end_matches('/')))
+        .header("Authorization", format!("Bearer {}", token))
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to sync contexts: {}", e))?;
+
+    if response.status() == 401 {
+        return Err("Authentication expired. Please log in again.".into());
+    }
+
+    if !response.status().is_success() {
+        return Err(format!("Context sync failed: {}", response.status()));
+    }
+
+    response.json().await.map_err(|e| format!("Failed to parse sync response: {}", e))
 }
 
 // --- Context Commands ---
@@ -2456,7 +2602,10 @@ pub fn run() {
             get_system_prompt_path_str,
             check_system_prompt_exists,
             create_system_prompt_file,
-            open_system_prompt_file
+            open_system_prompt_file,
+            exchange_link_code_api,
+            sync_stashes_api,
+            sync_contexts_api
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

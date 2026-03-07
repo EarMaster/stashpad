@@ -20,6 +20,7 @@
     import { fade, scale } from "svelte/transition";
     import { quintOut } from "svelte/easing";
     import { openUrl } from "@tauri-apps/plugin-opener";
+    import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
     import {
         Loader2,
         ExternalLink,
@@ -89,24 +90,12 @@
         linkCodeError = null;
 
         try {
-            const endpoint =
-                settings.cloudConfig?.endpoint || "https://stashpad.org/api";
-            const response = await fetch(`${endpoint}/auth/exchange-token`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ token: linkCode.trim() }),
-            });
+            const data = await new DesktopStorageAdapter().exchangeLinkCodeApi(
+                linkCode.trim(),
+            );
 
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(errorText || "Invalid or expired code");
-            }
-
-            const data = await response.json();
-
-            // Persist the new access token in settings
+            // Persist the new status in settings state
             if (settings.cloudConfig) {
-                settings.cloudConfig.accessToken = data.token;
                 settings.cloudConfig.userId = data.userId;
                 settings.cloudConfig.enabled = true;
             }

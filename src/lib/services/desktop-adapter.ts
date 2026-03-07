@@ -149,8 +149,20 @@ export class DesktopStorageAdapter implements IStorageService {
         return await invoke('start_cloud_auth');
     }
 
+    async exchangeLinkCodeApi(token: string): Promise<CloudConfig> {
+        return await invoke('exchange_link_code_api', { token });
+    }
+
     async fetchCloudAccount(): Promise<CloudConfig> {
         return await invoke('fetch_cloud_account');
+    }
+
+    async syncStashesApi(payload: unknown): Promise<unknown> {
+        return await invoke('sync_stashes_api', { payload });
+    }
+
+    async syncContextsApi(payload: unknown): Promise<unknown> {
+        return await invoke('sync_contexts_api', { payload });
     }
 
     /**

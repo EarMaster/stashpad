@@ -263,7 +263,7 @@
   /** Clears all cloud auth data and disables sync. */
   function handleCloudLogout() {
     if (settings.cloudConfig) {
-      settings.cloudConfig.accessToken = undefined;
+      settings.cloudConfig.userId = undefined;
       settings.cloudConfig.userId = undefined;
       settings.cloudConfig.email = undefined;
       settings.cloudConfig.subscriptionTier = undefined;
@@ -416,7 +416,7 @@
                 {$_("settings.cloudSync.auth.status")}
               </div>
               <div class="text-xs text-muted-foreground">
-                {#if settings.cloudConfig.accessToken && syncStatus !== "auth-error"}
+                {#if settings.cloudConfig.enabled && settings.cloudConfig.userId && syncStatus !== "auth-error"}
                   <!-- Authenticated: green dot + email -->
                   <span class="inline-flex items-center gap-1.5">
                     <span
@@ -432,7 +432,7 @@
                       </span>
                     {/if}
                   </span>
-                {:else if settings.cloudConfig.accessToken && syncStatus === "auth-error"}
+                {:else if settings.cloudConfig.enabled && settings.cloudConfig.userId && syncStatus === "auth-error"}
                   <!-- Auth Error: session expired -->
                   <span class="inline-flex items-center gap-1.5">
                     <AlertCircle size={12} class="text-destructive shrink-0" />
@@ -455,7 +455,7 @@
               </div>
             </div>
 
-            {#if settings.cloudConfig.accessToken && syncStatus !== "auth-error"}
+            {#if settings.cloudConfig.enabled && settings.cloudConfig.userId && syncStatus !== "auth-error"}
               <!-- Logged in: logout button -->
               <button
                 class="px-4 py-2 rounded-md text-sm font-medium border border-border hover:bg-muted transition-colors"
@@ -463,7 +463,7 @@
               >
                 {$_("settings.cloudSync.auth.logout")}
               </button>
-            {:else if settings.cloudConfig.accessToken && syncStatus === "auth-error"}
+            {:else if settings.cloudConfig.enabled && settings.cloudConfig.userId && syncStatus === "auth-error"}
               <!-- Logged in but expired: login again button -->
               <button
                 class="inline-flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
@@ -487,7 +487,7 @@
           </div>
 
           <!-- Subscription Status (shown when logged in) -->
-          {#if settings.cloudConfig.accessToken}
+          {#if settings.cloudConfig.enabled && settings.cloudConfig.userId}
             <div
               class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
               transition:fade={{ duration: 150 }}
