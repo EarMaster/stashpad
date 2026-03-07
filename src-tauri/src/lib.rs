@@ -94,6 +94,11 @@ pub struct DbState {
     pub db: Arc<Mutex<DbManager>>,
 }
 
+struct WsState {
+    /// Handle to the background task that manages the WebSocket connection
+    task_handle: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
+}
+
 impl TrackerState {
     fn new() -> Self {
         Self {
@@ -1088,10 +1093,6 @@ async fn start_cloud_auth(
             settings.cloud_config = Some(config.clone());
             persist_settings_to_disk(&settings);
             
-            let response = Response::from_string("Authentication successful! You can close this window and return to Stashpad.")
-                .with_header(tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"text/plain"[..]).unwrap());
-            let _ = request.respond(response);
-            
             let mut return_config = config.clone();
             return_config.access_token = None;
             Ok(return_config)
@@ -1279,6 +1280,104 @@ async fn sync_contexts_api(
     }
 
     response.json().await.map_err(|e| format!("Failed to parse sync response: {}", e))
+}
+
+// --- WebSocket Sync Commands ---
+
+#[tauri::command]
+async fn connect_websocket(
+    app: tauri::AppHandle,
+    settings_state: State<'_, Arc<SettingsState>>,
+    ws_state: State<'_, Arc<WsState>>,
+) -> Result<(), String> {
+    // End any existing connection
+    disconnect_websocket(ws_state.clone()).await?;
+
+    let (endpoint, token, enabled) = {
+        let settings = settings_state.settings.lock().unwrap();
+        let config = settings.cloud_config.as_ref().ok_or("Cloud config missing")?;
+        (config.endpoint.clone(), config.access_token.clone(), config.enabled)
+    };
+
+    if !enabled || token.is_none() {
+        return Ok(()); // Nothing to do if disabled or not logged in
+    }
+    let token = token.unwrap();
+
+    // Convert http(s):// to ws(s)://
+    let ws_endpoint = endpoint
+        .replace("http://", "ws://")
+        .replace("https://", "wss://");
+    
+    // Append the token to the URL query string
+    let ws_url = format!("{}/ws?token={}", ws_endpoint.trim_end_matches('/'), urlencoding::encode(&token));
+
+    // Spawn a persistent task for the WebSocket connection with reconnect logic
+    let task_app = app.clone();
+    let handle = tauri::async_runtime::spawn(async move {
+        use futures_util::StreamExt;
+        use tokio_tungstenite::connect_async;
+        use tauri::Emitter;
+        
+        let mut retry_backoff = 1;
+
+        loop {
+            log::info!("[WebSocket] Attempting to connect to {}", ws_endpoint);
+            
+            match connect_async(ws_url.clone()).await {
+                Ok((mut ws_stream, _)) => {
+                    log::info!("[WebSocket] Connected successfully");
+                    retry_backoff = 1; // reset backoff on success
+
+                    // Read frames until connection is closed or error occurs
+                    while let Some(msg) = ws_stream.next().await {
+                        match msg {
+                            Ok(tokio_tungstenite::tungstenite::Message::Text(text)) => {
+                                // Parse the JSON and emit to the frontend
+                                if let Ok(json) = serde_json::from_str::<serde_json::Value>(text.as_str()) {
+                                    if let Some(msg_type) = json.get("type").and_then(|v| v.as_str()) {
+                                        if msg_type == "sync_available" {
+                                            log::debug!("[WebSocket] Received sync notification: {:?}", json);
+                                            let _ = task_app.emit("cloud:sync-notification", json);
+                                        }
+                                    }
+                                }
+                            }
+                            Ok(tokio_tungstenite::tungstenite::Message::Close(_)) => {
+                                log::info!("[WebSocket] Server closed connection");
+                                break;
+                            }
+                            Err(e) => {
+                                log::error!("[WebSocket] Error reading frame: {}", e);
+                                break;
+                            }
+                            _ => {} // Ignore ping/pong/binary
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::error!("[WebSocket] Connection failed: {}", e);
+                }
+            }
+
+            // Exponential backoff, max 60 seconds
+            log::info!("[WebSocket] Reconnecting in {} seconds...", retry_backoff);
+            tokio::time::sleep(std::time::Duration::from_secs(retry_backoff)).await;
+            retry_backoff = std::cmp::min(retry_backoff * 2, 60);
+        }
+    });
+
+    *ws_state.task_handle.lock().unwrap() = Some(handle);
+    Ok(())
+}
+
+#[tauri::command]
+async fn disconnect_websocket(ws_state: State<'_, Arc<WsState>>) -> Result<(), String> {
+    if let Some(handle) = ws_state.task_handle.lock().unwrap().take() {
+        log::info!("[WebSocket] Disconnecting client...");
+        handle.abort();
+    }
+    Ok(())
 }
 
 // --- Context Commands ---
@@ -2353,6 +2452,10 @@ pub fn run() {
     let settings_state = Arc::new(SettingsState {
         settings: Mutex::new(load_settings_from_disk()),
     });
+
+    let ws_state = Arc::new(WsState {
+        task_handle: Mutex::new(None),
+    });
     
     // Perform startup cleanup
     {
@@ -2514,7 +2617,8 @@ pub fn run() {
         })
         .manage(tracker_state)
         .manage(db_state)
-        .manage(settings_state);
+        .manage(settings_state)
+        .manage(ws_state);
 
 
     #[cfg(debug_assertions)]
@@ -2605,13 +2709,24 @@ pub fn run() {
             open_system_prompt_file,
             exchange_link_code_api,
             sync_stashes_api,
-            sync_contexts_api
+            sync_contexts_api,
+            connect_websocket,
+            disconnect_websocket
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| match event {
             tauri::RunEvent::Exit => {
                 println!("App exiting, cleaning up...");
+                // Disconnect WebSocket
+                let ws_arc = {
+                    let state = app_handle.state::<Arc<WsState>>();
+                    state.clone()
+                };
+                if let Some(handle) = ws_arc.task_handle.lock().unwrap().take() {
+                    handle.abort();
+                }
+
                 // Clone the Arc out of state completely before locking
                 let db_arc = {
                     let state = app_handle.state::<Arc<DbState>>();

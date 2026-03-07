@@ -23,6 +23,11 @@
 
 import type { IStorageService, StashItem, Context, CloudConfig, Settings } from '../types';
 import { jwtDecode } from 'jwt-decode';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+
+// 15 minutes in milliseconds for fallback polling
+const FALLBACK_SYNC_INTERVAL_MS = 15 * 60 * 1000;
+const DEBOUNCE_DELAY_MS = 2000;
 
 /** Sync status for UI feedback */
 export type SyncStatus = 'idle' | 'syncing' | 'success' | 'error' | 'offline' | 'auth-error';
@@ -99,11 +104,8 @@ export class CloudSyncService {
     private status: SyncStatus = 'idle';
     private deviceId: string;
     private isSyncing = false;
-
-    /** Sync interval in milliseconds (5 minutes) */
-    private static readonly SYNC_INTERVAL_MS = 5 * 60 * 1000;
-    /** Debounce delay for on-change sync (2 seconds) */
-    private static readonly DEBOUNCE_DELAY_MS = 2000;
+    private wsUnlisten: UnlistenFn | null = null;
+    private initialized = false;
 
     constructor(adapter: IStorageService) {
         this.adapter = adapter;
@@ -170,9 +172,15 @@ export class CloudSyncService {
     private startPeriodicSync(): void {
         if (this.syncInterval) return;
 
+        // Start periodic sync (now functions as a fallback)
         this.syncInterval = setInterval(() => {
             this.sync();
-        }, CloudSyncService.SYNC_INTERVAL_MS);
+        }, FALLBACK_SYNC_INTERVAL_MS);
+
+        // Connect to WebSocket for real-time sync notifications
+        if (this.settings?.cloudConfig?.enabled) {
+            this.connectWebSocket();
+        }
 
         console.log('[CloudSync] Periodic sync started');
     }
@@ -186,6 +194,7 @@ export class CloudSyncService {
             this.syncInterval = null;
             console.log('[CloudSync] Periodic sync stopped');
         }
+        this.disconnectWebSocket();
     }
 
     /**
@@ -200,7 +209,7 @@ export class CloudSyncService {
 
         this.debounceTimer = setTimeout(() => {
             this.sync();
-        }, CloudSyncService.DEBOUNCE_DELAY_MS);
+        }, DEBOUNCE_DELAY_MS);
     }
 
     /**
@@ -426,6 +435,37 @@ export class CloudSyncService {
      */
     getStatus(): SyncStatus {
         return this.status;
+    }
+
+    private async connectWebSocket() {
+        try {
+            await this.adapter.connectWebSocket();
+
+            // Listen for sync notifications from the Rust backend
+            if (!this.wsUnlisten) {
+                this.wsUnlisten = await listen<{ type: string, source_device: string, timestamp: string }>('cloud:sync-notification', (event) => {
+                    // Do not sync if the notification came from our own device (loop prevention)
+                    if (event.payload.source_device !== this.deviceId) {
+                        console.debug('[CloudSyncService] Received sync notification from', event.payload.source_device, '- triggering sync');
+                        this.sync();
+                    }
+                });
+            }
+        } catch (error) {
+            console.error('[CloudSyncService] Failed to connect WebSocket:', error);
+        }
+    }
+
+    private async disconnectWebSocket() {
+        if (this.wsUnlisten) {
+            this.wsUnlisten();
+            this.wsUnlisten = null;
+        }
+        try {
+            await this.adapter.disconnectWebSocket();
+        } catch (error) {
+            console.error('[CloudSyncService] Failed to disconnect WebSocket:', error);
+        }
     }
 
     /**

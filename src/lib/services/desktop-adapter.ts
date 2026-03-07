@@ -153,6 +153,14 @@ export class DesktopStorageAdapter implements IStorageService {
         return await invoke('exchange_link_code_api', { token });
     }
 
+    async connectWebSocket(): Promise<void> {
+        return invoke('connect_websocket');
+    }
+
+    async disconnectWebSocket(): Promise<void> {
+        return invoke('disconnect_websocket');
+    }
+
     async fetchCloudAccount(): Promise<CloudConfig> {
         return await invoke('fetch_cloud_account');
     }

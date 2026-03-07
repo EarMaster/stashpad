@@ -151,6 +151,9 @@ export interface IStorageService {
     getPreviousAppInfo(): Promise<AppContext>;
     getSmartTransferTarget(): Promise<'GUI' | 'CLI'>;
     copyToClipboard(text: string): Promise<void>;
+    // WebSockets
+    connectWebSocket(): Promise<void>;
+    disconnectWebSocket(): Promise<void>;
     startDrag(text: string, files: string[]): Promise<void>;
     /**
      * Import an asset from an external file path into the cache directory.
