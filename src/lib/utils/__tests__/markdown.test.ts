@@ -13,72 +13,72 @@
 // See the GNU Affero General Public License for more details.
 
 import { describe, it, expect } from 'vitest';
-import markedInstance, { getTagHue } from '../markdown';
+import { getTagHue, safeParse } from '../markdown';
 
 describe('markdown utilities', () => {
-    describe('markedInstance', () => {
+    describe('safeParse', () => {
         it('should render basic markdown', () => {
-            const result = markedInstance.parse('**bold** text');
+            const result = safeParse('**bold** text');
             expect(result).toContain('<strong>bold</strong>');
         });
 
         it('should highlight @ mentions', () => {
-            const result = markedInstance.parse('@src/lib/i18n/locales');
+            const result = safeParse('@src/lib/i18n/locales');
             expect(result).toContain('class="ai-mention"');
             expect(result).toContain('@src/lib/i18n/locales');
         });
 
         it('should highlight @ mentions with special characters', () => {
-            const result = markedInstance.parse('@path/to/file.ts');
+            const result = safeParse('@path/to/file.ts');
             expect(result).toContain('class="ai-mention"');
             expect(result).toContain('@path/to/file.ts');
         });
 
         it('should highlight @ mentions after whitespace', () => {
-            const result = markedInstance.parse('Check @src/utils for helpers');
+            const result = safeParse('Check @src/utils for helpers');
             expect(result).toContain('class="ai-mention"');
             expect(result).toContain('@src/utils');
         });
 
         it('should highlight / commands when preceded by whitespace', () => {
-            const result = markedInstance.parse(' /help');
+            const result = safeParse(' /help');
             expect(result).toContain('class="ai-command"');
             expect(result).toContain('/help');
         });
 
         it('should highlight / commands at start of text', () => {
-            const result = markedInstance.parse('/search query');
+            const result = safeParse('/search query');
             expect(result).toContain('class="ai-command"');
             expect(result).toContain('/search');
         });
 
         it('should NOT highlight / in middle of paths (no preceding whitespace)', () => {
-            const result = markedInstance.parse('src/lib/utils');
+            const result = safeParse('src/lib/utils');
             expect(result).not.toContain('class="ai-command"');
         });
 
         it('should highlight #tags', () => {
-            const result = markedInstance.parse('#bug-fix');
+            const result = safeParse('#bug-fix');
             expect(result).toContain('class="ai-tag"');
             expect(result).toContain('bug-fix');
         });
 
         it('should generate tag icons for hashtags', () => {
-            const result = markedInstance.parse('#urgent');
+            const result = safeParse('#urgent');
             expect(result).toContain('<svg');
-            expect(result).toContain('--tag-hue:');
+            expect(result).toContain('--tag-bg:');
         });
 
         it('should handle code blocks with syntax highlighting', () => {
             const code = '```javascript\nconst x = 42;\n```';
-            const result = markedInstance.parse(code);
+            const result = safeParse(code);
             expect(result).toContain('hljs');
             expect(result).toContain('language-javascript');
         });
 
         it('should handle multiple markdown features together', () => {
             const text = '**Check** @src/lib for /help and #urgent items';
-            const result = markedInstance.parse(text);
+            const result = safeParse(text);
             expect(result).toContain('<strong>Check</strong>');
             expect(result).toContain('class="ai-mention"');
             expect(result).toContain('class="ai-command"');
