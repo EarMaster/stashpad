@@ -116,6 +116,8 @@
   let isEditing = $state(false);
   let editContent = $state("");
   let editFiles = $state<Attachment[]>([]);
+  let cardRef = $state<HTMLElement>();
+  let stashHeight = $state<number | undefined>(undefined);
   let clickTimeout: ReturnType<typeof setTimeout> | undefined = undefined; // State for click debounce
 
   // File preview modal state
@@ -164,8 +166,9 @@
   $effect(() => {
     if (isEditing) {
       editContent = item.content;
-      editContent = item.content;
       editFiles = [...item.attachments];
+    } else {
+      stashHeight = undefined;
     }
   });
 
@@ -378,6 +381,14 @@
     }, 250);
   }
 
+  function startEditing() {
+    if (item.completed) return;
+    if (cardRef) {
+      stashHeight = cardRef.offsetHeight;
+    }
+    isEditing = true;
+  }
+
   function handleDoubleClick(e: MouseEvent) {
     if (clickTimeout) {
       clearTimeout(clickTimeout);
@@ -385,11 +396,12 @@
     }
     if (item.completed) return;
     e.stopPropagation();
-    isEditing = true;
+    startEditing();
   }
 </script>
 
 <div
+  bind:this={cardRef}
   class="group relative flex flex-col gap-2 rounded-lg border border-border bg-card p-3 shadow-sm hover:shadow-md transition-all hover:border-primary/50 cursor-pointer {item.completed
     ? 'opacity-60 grayscale-[0.3]'
     : ''} {dragOver ? 'border-primary border-2' : ''}"
@@ -464,6 +476,7 @@
             saveLabel={$_("common.save")}
             autoFocus={true}
             {availableTags}
+            minHeight={stashHeight}
           />
         </div>
       {:else if item.content}
@@ -711,7 +724,7 @@
                 variant="additional"
                 onclick={(e) => {
                   e.stopPropagation();
-                  isEditing = true;
+                  startEditing();
                 }}
                 title={$_("stashCard.editContent")}
               >

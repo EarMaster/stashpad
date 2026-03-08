@@ -40,7 +40,8 @@
   import { fade } from "svelte/transition";
   import { convertFileSrc, invoke } from "@tauri-apps/api/core";
   import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-  import { onMount, onDestroy, untrack } from "svelte";
+  import { onMount, onDestroy, untrack, tick } from "svelte";
+
   import { findStashAtPosition } from "$lib/stores/drag-state.svelte";
   import { stat } from "@tauri-apps/plugin-fs";
   import { open, message } from "@tauri-apps/plugin-dialog";
@@ -68,6 +69,8 @@
     availableTags = [],
     pasteAsAttachmentThreshold = 8,
     resizeImages = true,
+    minHeight,
+    maxHeight,
   } = $props<{
     onStash?: (stashId?: string) => void;
     currentContextId?: string;
@@ -85,7 +88,16 @@
     /** Number of lines before pasted text becomes an attachment. 0 = ask user */
     pasteAsAttachmentThreshold?: number;
     resizeImages?: boolean;
+    minHeight?: number | string;
+    maxHeight?: number | string;
   }>();
+
+  let minHeightValue = $derived(
+    typeof minHeight === "number" ? `${minHeight}px` : (minHeight ?? "200px"),
+  );
+  let maxHeightValue = $derived(
+    typeof maxHeight === "number" ? `${maxHeight}px` : (maxHeight ?? "none"),
+  );
 
   // Generate or use existing stash ID for file storage organization
   // This ensures files are stored in the correct folder structure before the stash is saved
@@ -159,6 +171,7 @@
     window.addEventListener("keydown", handleShiftDown);
     window.addEventListener("keyup", handleShiftUp);
     window.addEventListener("blur", handleBlurReset);
+    window.addEventListener("resize", adjustTextareaHeight);
 
     // Listen for Tauri's native drag-drop events
     unlistenEnter = await listen("tauri://drag-enter", () => {
@@ -277,6 +290,8 @@
     window.removeEventListener("keydown", handleShiftDown);
     window.removeEventListener("keyup", handleShiftUp);
     window.removeEventListener("blur", handleBlurReset);
+    window.removeEventListener("resize", adjustTextareaHeight);
+
     unlistenEnter?.();
     unlistenLeave?.();
     unlistenDrop?.();
@@ -931,6 +946,21 @@
    */
   let textareaRef = $state<HTMLTextAreaElement | null>(null);
 
+  function adjustTextareaHeight() {
+    if (textareaRef) {
+      textareaRef.style.height = "auto";
+      const newHeight = Math.max(0, textareaRef.scrollHeight);
+      textareaRef.style.height = `${newHeight}px`;
+    }
+  }
+
+  $effect(() => {
+    content;
+    untrack(() => {
+      tick().then(adjustTextareaHeight);
+    });
+  });
+
   function insertMarkdown(prefix: string, suffix: string = "") {
     if (!textareaRef) return;
     const start = textareaRef.selectionStart;
@@ -987,7 +1017,8 @@
 </script>
 
 <div
-  class="relative flex flex-col rounded-xl border border-border bg-[var(--muted-editor)] text-card-foreground shadow-sm h-[200px] transition-colors"
+  class="relative flex flex-col rounded-xl border border-border bg-[var(--muted-editor)] text-card-foreground shadow-sm transition-colors overflow-hidden"
+  style="min-height: {minHeightValue}; max-height: {maxHeightValue};"
   ondrop={handleDrop}
   ondragover={handleDragOver}
   ondragenter={handleDragEnter}
@@ -1066,7 +1097,7 @@
   </div>
 
   <textarea
-    class="flex-1 bg-transparent resize-none outline-none text-sm p-4 placeholder:text-muted-foreground/50 font-mono"
+    class="flex-1 bg-transparent resize-none outline-none text-sm p-4 placeholder:text-muted-foreground/50 font-mono min-h-full"
     placeholder={$_("editor.placeholder")}
     bind:value={content}
     bind:this={textareaRef}
