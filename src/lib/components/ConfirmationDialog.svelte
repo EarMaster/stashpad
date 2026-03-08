@@ -6,8 +6,6 @@
 <script lang="ts">
     import { _ } from "$lib/i18n";
     import { Dialog } from "bits-ui";
-    import { fade, scale } from "svelte/transition";
-    import { quintOut } from "svelte/easing";
 
     let {
         open = $bindable(false),
@@ -65,19 +63,10 @@
 <Dialog.Root bind:open onOpenChange={(v) => (open = v)}>
     <Dialog.Portal>
         <Dialog.Overlay
-            transition={fade}
-            transitionConfig={{ duration: 150 }}
-            class="fixed inset-0 z-[100] bg-black/50 backdrop-blur-sm"
+            class="fixed inset-0 z-[100] bg-black/50 backdrop-blur-sm animate-in fade-in-0 duration-150"
         />
         <Dialog.Content
-            class="fixed left-[50%] top-[50%] z-[100] w-full max-w-sm translate-x-[-50%] translate-y-[-50%] outline-none"
-            transition={scale}
-            transitionConfig={{
-                duration: 200,
-                start: 0.95,
-                opacity: 0,
-                easing: quintOut,
-            }}
+            class="fixed left-[50%] top-[50%] z-[100] w-full max-w-sm translate-x-[-50%] translate-y-[-50%] outline-none animate-in zoom-in-95 fade-in-0 duration-200"
             onOpenAutoFocus={(e) => {
                 e.preventDefault();
                 confirmBtn?.focus();

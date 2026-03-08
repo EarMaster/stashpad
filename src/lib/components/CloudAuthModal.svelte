@@ -17,8 +17,7 @@
 <script lang="ts">
     import { _ } from "$lib/i18n";
     import { Dialog } from "bits-ui";
-    import { fade, scale } from "svelte/transition";
-    import { quintOut } from "svelte/easing";
+    import { fade } from "svelte/transition";
     import { openUrl } from "@tauri-apps/plugin-opener";
     import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
     import {
@@ -31,10 +30,12 @@
     import type { Settings } from "$lib/types";
 
     let {
+        open = $bindable(false),
         settings = $bindable(),
         onSuccess,
         onCancel,
     } = $props<{
+        open: boolean;
         settings: Settings;
         onSuccess: () => void;
         onCancel: () => void;
@@ -69,7 +70,7 @@
         const endpoint =
             settings.cloudConfig?.endpoint || "https://stashpad.org/api";
         const baseUrl = endpoint.replace(/\/api$/, "");
-        return `${baseUrl}/account`;
+        return `${baseUrl}/account?action=link-desktop`;
     }
 
     /** Opens the authorization URL in the system browser. */
@@ -114,13 +115,17 @@
         }
     }
 
-    // Open the browser as soon as the modal mounts
+    // Open the browser and reset state when the dialog is opened
     $effect(() => {
-        openBrowser();
+        if (open) {
+            phase = "waiting";
+            showManualEntry = false;
+            linkCode = "";
+            linkCodeError = null;
+            linkCodeLoading = false;
+            openBrowser();
+        }
     });
-
-    /** Internal open state — always true since the parent controls mounting */
-    let open = $state(true);
 </script>
 
 <!--
@@ -136,21 +141,12 @@
     <Dialog.Portal>
         <!-- Backdrop -->
         <Dialog.Overlay
-            transition={fade}
-            transitionConfig={{ duration: 150 }}
-            class="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm"
+            class="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm animate-in fade-in-0 duration-150"
         />
 
         <!-- Modal panel -->
         <Dialog.Content
-            class="fixed left-[50%] top-[50%] z-[100] w-full max-w-sm translate-x-[-50%] translate-y-[-50%] outline-none px-4"
-            transition={scale}
-            transitionConfig={{
-                duration: 200,
-                start: 0.95,
-                opacity: 0,
-                easing: quintOut,
-            }}
+            class="fixed left-[50%] top-[50%] z-[100] w-full max-w-sm translate-x-[-50%] translate-y-[-50%] outline-none px-4 animate-in zoom-in-95 fade-in-0 duration-200"
         >
             <div
                 class="bg-popover text-popover-foreground border border-border shadow-xl rounded-xl overflow-hidden"

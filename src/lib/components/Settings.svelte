@@ -1321,12 +1321,12 @@
 </div>
 
 <!-- Cloud authorization modal – rendered at root level for full-window overlay -->
-{#if showAuthModal}
-  <CloudAuthModal
-    bind:settings
-    onSuccess={handleAuthSuccess}
-    onCancel={() => {
-      showAuthModal = false;
-    }}
-  />
-{/if}
+<!-- Cloud authorization modal – rendered at root level for full-window overlay -->
+<CloudAuthModal
+  bind:open={showAuthModal}
+  bind:settings
+  onSuccess={handleAuthSuccess}
+  onCancel={() => {
+    showAuthModal = false;
+  }}
+/>
