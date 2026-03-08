@@ -7,6 +7,8 @@ trigger: always_on
 ## 1. Objective
 Ensure that the copyleft effect of the AGPL v3 is maintained by adding the necessary license header to every source code file for the Stashpad app.
 
+DO NOT ADD THESE TO cloud OR website FILES!
+
 ## 2. Affected Files
 Must be applied to the top of EVERY new and existing source file:
 - Rust files (`.rs`)
