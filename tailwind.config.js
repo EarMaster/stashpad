@@ -61,7 +61,13 @@ export default {
                             backgroundColor: 'transparent',
                             borderRadius: '0.5rem',
                             padding: '1rem',
-                        }
+                        },
+                        h1: { fontSize: '1.5em' },
+                        h2: { fontSize: '1.25em' },
+                        h3: { fontSize: '1.125em' },
+                        h4: { fontSize: '1em' },
+                        h5: { fontSize: '0.875em' },
+                        h6: { fontSize: '0.875em' }
                     },
                 },
             },
