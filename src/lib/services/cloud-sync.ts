@@ -162,7 +162,7 @@ export class CloudSyncService {
 
         return (
             config.enabled &&
-            (config.subscriptionTier === 'pro' || config.subscriptionTier === 'enterprise')
+            (config.subscriptionTier === 'pro' || config.subscriptionTier === 'enterprise' || config.enterpriseOwnerId !== null)
         );
     }
 

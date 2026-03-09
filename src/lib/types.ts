@@ -96,6 +96,8 @@ export interface CloudConfig {
     subscriptionStatus?: string;
     /** When the current billing period ends */
     subscriptionPeriodEnd?: string;
+    /** Enterprise owner ID if part of a team */
+    enterpriseOwnerId?: string | null;
     /** Last sync timestamp */
     lastSyncAt?: string;
 }
