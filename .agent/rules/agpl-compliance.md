@@ -10,7 +10,7 @@ Ensure that the copyleft effect of the AGPL v3 is maintained by adding the neces
 DO NOT ADD THESE TO cloud OR website FILES!
 
 ## 2. Affected Files
-Must be applied to the top of EVERY new and existing source file:
+Must be applied to the top of EVERY new and existing source file inside the `app` folder:
 - Rust files (`.rs`)
 - TypeScript files (`.ts`)
 - Svelte files (`.svelte`)
