@@ -93,6 +93,10 @@
             isDragging = false;
             importedMetadata = null;
             conflictDialogOpen = false;
+        } else {
+            // Ensure parent state is synchronized when dialog is closed/dismissed
+            // via internal mechanisms (Esc key, backdrop click)
+            onClose();
         }
     });
 

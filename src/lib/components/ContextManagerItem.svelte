@@ -110,7 +110,7 @@
                 disabled={stats.count === 0}
                 title={$_("contexts.exportContext")}
             >
-                <Download size={14} />
+                <Upload size={14} />
                 <span class="hidden sm:inline">{$_("contexts.export")}</span>
             </ActionButton>
 
@@ -119,7 +119,7 @@
                 onclick={onImport}
                 title={$_("contexts.importContext")}
             >
-                <Upload size={14} />
+                <Download size={14} />
                 <span class="hidden sm:inline">{$_("contexts.import")}</span>
             </ActionButton>
 

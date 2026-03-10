@@ -44,6 +44,8 @@
       CheckCheck,
       RotateCcw,
       Filter,
+      ChevronDown,
+      ChevronRight,
    } from "lucide-svelte";
    import { tooltip } from "$lib/actions/tooltip";
 
@@ -109,6 +111,9 @@
    // Fireworks state
    let showFireworks = $state(false);
    let previousActiveCount = $state(0);
+
+   // Collapsing state for completed section
+   let completedCollapsed = $state(true);
 
    // Tag Filtering
    let selectedTags = $state<string[]>([]);
@@ -309,6 +314,14 @@
          backupOrder = null;
          activeSort = null;
       });
+   });
+
+   // Handle default collapsing behavior
+   $effect(() => {
+      // If queue is empty, automatically expand the completed section
+      if (activeStashes.length === 0) {
+         completedCollapsed = false;
+      }
    });
 
    $effect(() => {
@@ -877,13 +890,27 @@
                class="flex items-center justify-between sticky top-0 py-3 z-10 -mx-4 px-4 mb-2 pointer-events-none"
                style="background: linear-gradient(to bottom, var(--background) 0%, var(--background) 80%, transparent 100%);"
             >
-               <h2
-                  class="text-[10px] font-bold text-muted-foreground/60 uppercase tracking-wider pointer-events-auto"
+               <button
+                  class="flex items-center gap-2 pointer-events-auto group"
+                  onclick={() => (completedCollapsed = !completedCollapsed)}
                >
-                  {$_("queue.completed")} ({selectedTags.length > 0
-                     ? filteredCompletedStashes.length
-                     : completedStashes.length})
-               </h2>
+                  <div
+                     class="text-muted-foreground/40 group-hover:text-muted-foreground transition-colors"
+                  >
+                     {#if completedCollapsed}
+                        <ChevronRight size={12} />
+                     {:else}
+                        <ChevronDown size={12} />
+                     {/if}
+                  </div>
+                  <h2
+                     class="text-[10px] font-bold text-muted-foreground/60 uppercase tracking-wider group-hover:text-muted-foreground/80 transition-colors"
+                  >
+                     {$_("queue.completed")} ({selectedTags.length > 0
+                        ? filteredCompletedStashes.length
+                        : completedStashes.length})
+                  </h2>
+               </button>
 
                <div class="flex items-center gap-2">
                   {#if showBackToTop}
@@ -908,28 +935,42 @@
                </div>
             </div>
 
-            <div class="flex flex-col gap-3">
-               {#each filteredCompletedStashes as item (item.id)}
-                  <div role="listitem" data-stash-id={item.id}>
-                     <StashCard
-                        {item}
-                        mode={effectiveMode}
-                        showReorderHandle={false}
-                        {stripTagsOnCopy}
-                        onMoveRequest={() => onMoveRequest(item)}
-                        onMoveToTop={() => {}}
-                        onMoveToBottom={() => {}}
-                        onToggleComplete={() => toggleComplete(item)}
-                        onDelete={() => deleteStash(item.id)}
-                        onUpdateContent={(content, files, enhancedContent) =>
-                           updateContent(item, content, files, enhancedContent)}
-                        {currentContext}
-                        {autoDetectedWindowTitle}
-                     />
+               {#if !completedCollapsed}
+                  <div
+                     class="flex flex-col gap-3"
+                     transition:fade={{ duration: 150 }}
+                  >
+                     {#each filteredCompletedStashes as item (item.id)}
+                        <div role="listitem" data-stash-id={item.id}>
+                           <StashCard
+                              {item}
+                              mode={effectiveMode}
+                              showReorderHandle={false}
+                              {stripTagsOnCopy}
+                              onMoveRequest={() => onMoveRequest(item)}
+                              onMoveToTop={() => {}}
+                              onMoveToBottom={() => {}}
+                              onToggleComplete={() => toggleComplete(item)}
+                              onDelete={() => deleteStash(item.id)}
+                              onUpdateContent={(
+                                 content,
+                                 files,
+                                 enhancedContent,
+                              ) =>
+                                 updateContent(
+                                    item,
+                                    content,
+                                    files,
+                                    enhancedContent,
+                                 )}
+                              {currentContext}
+                              {autoDetectedWindowTitle}
+                           />
+                        </div>
+                     {/each}
                   </div>
-               {/each}
-            </div>
-         </section>
+               {/if}
+            </section>
       {/if}
 
       {#if stashes.length === 0}
