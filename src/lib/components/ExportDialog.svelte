@@ -391,18 +391,22 @@
                     try {
                         const fileName =
                             filePath.split(/[\\\/]/).pop() || filePath;
-                        const fileData = await readFile(filePath);
-
-                        // Always prefix filename with stash ID to prevent collisions
-                        const prefixedFileName = `${stashIdShort}_${fileName}`;
-
-                        // Store mapping for markdown generation
-                        filenameMap.set(
-                            `${stash.id}:${fileName}`,
-                            prefixedFileName,
-                        );
-
-                        attachmentsFolder?.file(prefixedFileName, fileData);
+                        try {
+                            const fileData = await readFile(filePath);
+                            // Always prefix filename with stash ID to prevent collisions
+                            const prefixedFileName = `${stashIdShort}_${fileName}`;
+                            // Store mapping for markdown generation
+                            filenameMap.set(
+                                `${stash.id}:${fileName}`,
+                                prefixedFileName,
+                            );
+                            attachmentsFolder?.file(prefixedFileName, fileData);
+                        } catch (e) {
+                            console.error(
+                                `Failed to read file ${filePath}:`,
+                                e,
+                            );
+                        }
                     } catch (e) {
                         console.error(`Failed to read file ${filePath}:`, e);
                     }
@@ -414,16 +418,13 @@
                 for (const att of stash.attachments) {
                     try {
                         const fileData = await readFile(att.filePath);
-
                         // Always prefix filename with stash ID to prevent collisions
                         const prefixedFileName = `${stashIdShort}_${att.fileName}`;
-
                         // Store mapping for markdown generation
                         filenameMap.set(
                             `${stash.id}:${att.fileName}`,
                             prefixedFileName,
                         );
-
                         attachmentsFolder?.file(prefixedFileName, fileData);
                     } catch (e) {
                         console.error(

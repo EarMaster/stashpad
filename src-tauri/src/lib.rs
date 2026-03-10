@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
-// Copyright (C) 2025 Nico Wiedemann
+// Copyright (C) 2026 Nico Wiedemann
 //
 // This file is part of Stashpad.
 // Stashpad is free software: you can redistribute it and/or modify
@@ -948,6 +948,23 @@ fn apply_window_effects_to_window(window: &tauri::WebviewWindow, enabled: Option
 // --- Commands ---
 
 #[tauri::command]
+fn get_installation_source() -> String {
+    if let Ok(exe_path) = std::env::current_exe() {
+        let path_str = exe_path.to_string_lossy().to_lowercase();
+        if path_str.contains("scoop/apps") || path_str.contains("scoop\\apps") {
+            return "scoop".to_string();
+        }
+        if path_str.contains("homebrew/caskroom") || path_str.contains("homebrew\\caskroom") {
+            return "homebrew".to_string();
+        }
+        if path_str.contains("windowsapps") {
+            return "windowsapps".to_string();
+        }
+    }
+    "standalone".to_string()
+}
+
+#[tauri::command]
 fn get_settings(state: State<Arc<SettingsState>>) -> Settings {
     let mut settings = state.settings.lock().unwrap().clone();
     if let Some(ref mut cloud_config) = settings.cloud_config {
@@ -1248,6 +1265,89 @@ async fn sync_stashes_api(
     }
 
     response.json().await.map_err(|e| format!("Failed to parse sync response: {}", e))
+}
+
+#[tauri::command]
+async fn upload_attachment_to_cloud(
+    state: State<'_, Arc<DbState>>,
+    settings_state: State<'_, Arc<SettingsState>>,
+    attachment_id: String,
+) -> Result<(), String> {
+    let (endpoint, token) = {
+        let settings = settings_state.settings.lock().unwrap();
+        let config = settings.cloud_config.as_ref().ok_or("Cloud config missing")?;
+        let token = config.access_token.clone().ok_or("Not authenticated")?;
+        (config.endpoint.clone(), token)
+    };
+
+    let attachment = {
+        let db = state.db.lock().unwrap();
+        let mut stmt = db.conn.prepare("SELECT id, stash_id, file_path, file_name, file_size, mime_type, syntax, created_at FROM attachments WHERE id = ?")
+            .map_err(|e| e.to_string())?;
+        stmt.query_row(params![attachment_id], |row| {
+            Ok(Attachment {
+                id: row.get(0)?,
+                stash_id: row.get(1)?,
+                file_path: row.get(2)?,
+                file_name: row.get(3)?,
+                file_size: row.get(4)?,
+                mime_type: row.get(5)?,
+                syntax: row.get(6)?,
+                created_at: row.get(7)?,
+            })
+        }).optional().map_err(|e| e.to_string())?
+            .ok_or_else(|| "Attachment not found".to_string())?
+    };
+
+    let client = reqwest::Client::new();
+    
+    // 1. Get presigned upload URL from cloud
+    let upload_req = serde_json::json!({
+        "id": attachment.id,
+        "stashId": attachment.stash_id,
+        "fileName": attachment.file_name,
+        "fileSize": attachment.file_size,
+        "mimeType": attachment.mime_type,
+        "syntax": attachment.syntax,
+    });
+
+    let upload_url_resp = client
+        .post(format!("{}/attachments/upload", endpoint.trim_end_matches('/')))
+        .header("Authorization", format!("Bearer {}", token))
+        .json(&upload_req)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to get upload URL: {}", e))?;
+
+    if !upload_url_resp.status().is_success() {
+        let error_text = upload_url_resp.text().await.unwrap_or_default();
+        return Err(format!("Cloud rejected upload request: {} - {}", upload_url_resp.status(), error_text));
+    }
+
+    let upload_data: serde_json::Value = upload_url_resp.json().await
+        .map_err(|e| format!("Failed to parse upload URL response: {}", e))?;
+    
+    let upload_url = upload_data["uploadUrl"].as_str()
+        .ok_or_else(|| "No upload URL in response".to_string())?;
+
+    // 2. Read file content
+    let file_content = fs::read(&attachment.file_path)
+        .map_err(|e| format!("Failed to read attachment file: {}", e))?;
+
+    // 3. PUT file to R2
+    let put_resp = client
+        .put(upload_url)
+        .header("Content-Type", attachment.mime_type.unwrap_or_else(|| "application/octet-stream".to_string()))
+        .body(file_content)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to upload file to storage: {}", e))?;
+
+    if !put_resp.status().is_success() {
+        return Err(format!("File upload failed: {}", put_resp.status()));
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -2632,6 +2732,8 @@ pub fn run() {
     }
 
     builder
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
@@ -2710,8 +2812,10 @@ pub fn run() {
             exchange_link_code_api,
             sync_stashes_api,
             sync_contexts_api,
+            upload_attachment_to_cloud,
             connect_websocket,
-            disconnect_websocket
+            disconnect_websocket,
+            get_installation_source
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

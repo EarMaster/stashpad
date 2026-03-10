@@ -226,5 +226,9 @@ export class DesktopStorageAdapter implements IStorageService {
     async openSystemPromptFile(): Promise<void> {
         return await invoke('open_system_prompt_file');
     }
+
+    async uploadAttachmentToCloud(attachmentId: string): Promise<void> {
+        return await invoke('upload_attachment_to_cloud', { attachmentId });
+    }
 }
 

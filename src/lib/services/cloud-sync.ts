@@ -46,6 +46,13 @@ interface SyncStashInput {
     createdAt: string;
     updatedAt: string;
     deleted: boolean;
+    attachments: Array<{
+        id: string;
+        fileName: string;
+        fileSize: number;
+        mimeType: string | null;
+        syntax: string | null;
+    }>;
 }
 
 /** Cloud sync request payload */
@@ -248,6 +255,13 @@ export class CloudSyncService {
                     createdAt: stash.createdAt,
                     updatedAt: stash.updatedAt || stash.createdAt,
                     deleted: false,
+                    attachments: stash.attachments.map(att => ({
+                        id: att.id,
+                        fileName: att.fileName,
+                        fileSize: att.fileSize,
+                        mimeType: att.mimeType || null,
+                        syntax: att.syntax || null,
+                    })),
                 })),
             };
 
@@ -268,6 +282,7 @@ export class CloudSyncService {
             const [stashResponse, contextResponse] = await Promise.all([
                 this.callStashSyncApi(config, stashRequest),
                 this.callContextSyncApi(config, contextRequest),
+                this.uploadPendingAttachments(localStashes),
             ]);
 
             let stashCount = 0;
@@ -486,5 +501,26 @@ export class CloudSyncService {
     private verifyAuth(token: string | null | undefined): boolean {
         // Obsolete: Token is now stored securely in the Rust backend
         return true;
+    }
+    /**
+     * Upload all pending attachments to the cloud
+     */
+    private async uploadPendingAttachments(localStashes: any[]): Promise<void> {
+        // Flatten attachments from all stashes
+        const attachments = localStashes.flatMap(s => s.attachments || []);
+
+        if (attachments.length === 0) return;
+
+        console.log(`[CloudSync] Checking ${attachments.length} attachments for upload...`);
+
+        // Upload each one.
+        for (const att of attachments) {
+            try {
+                // The backend command handles whether it's already there or needed
+                await this.adapter.uploadAttachmentToCloud(att.id);
+            } catch (e) {
+                console.warn(`[CloudSync] Optional attachment upload failed for ${att.id}:`, e);
+            }
+        }
     }
 }

@@ -46,6 +46,15 @@
       }
     }
   },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/EarMaster/stashpad/releases/latest/download/latest.json"
+      ],
+      "pubkey": "UPDATE_ME",
+      "dialog": false
+    }
+  },
   "bundle": {
     "active": true,
     "targets": "all",

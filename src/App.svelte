@@ -30,6 +30,10 @@
    import { fly } from "svelte/transition";
    import { Sparkles } from "lucide-svelte";
    import { getCurrentWindow } from "@tauri-apps/api/window";
+   import { check } from "@tauri-apps/plugin-updater";
+   import { relaunch } from "@tauri-apps/plugin-process";
+   import { ask, message } from "@tauri-apps/plugin-dialog";
+   import { invoke } from "@tauri-apps/api/core";
 
    let transferMode = $state("Drag");
    let refreshTrigger = $state(0);
@@ -56,8 +60,47 @@
    const adapter = new DesktopStorageAdapter();
    const cloudSync = new CloudSyncService(adapter);
 
+   async function checkForUpdates() {
+      try {
+         const update = await check();
+         if (update?.available) {
+            const source = await invoke<string>("get_installation_source");
+            if (source === "standalone") {
+               const yes = await ask(
+                  `Update to ${update.version} is available!\n\nRelease notes:\n${update.body || "Bug fixes and improvements."}\n\nDo you want to install it now?`,
+                  { title: "Update Available", kind: "info" },
+               );
+               if (yes) {
+                  await update.downloadAndInstall();
+                  await relaunch();
+               }
+            } else {
+               let pmName = "your package manager";
+               let cmd = "";
+               if (source === "homebrew") {
+                  pmName = "Homebrew";
+                  cmd = "brew upgrade stashpad";
+               } else if (source === "scoop") {
+                  pmName = "Scoop";
+                  cmd = "scoop update stashpad";
+               } else if (source === "windowsapps") {
+                  pmName = "Winget / Microsoft Store";
+                  cmd = "winget upgrade stashpad";
+               }
+               await message(
+                  `A new version of Stashpad (${update.version}) is available!\n\nSince you installed Stashpad using ${pmName}, please run the following command to update:\n\n${cmd}`,
+                  { title: "Update Available", kind: "info" },
+               );
+            }
+         }
+      } catch (e) {
+         console.error("Failed to check for updates:", e);
+      }
+   }
+
    onMount(() => {
       adapter.isWindows10().then((v) => (isWin10 = v));
+      checkForUpdates();
       const unlisten = appWindow.onCloseRequested(async (event) => {
          if (editorDraft.trim() || editorFiles.length > 0) {
             event.preventDefault();

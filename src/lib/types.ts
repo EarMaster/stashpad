@@ -200,6 +200,7 @@ export interface IStorageService {
     checkSystemPromptExists(): Promise<boolean>;
     createSystemPromptFile(): Promise<void>;
     openSystemPromptFile(): Promise<void>;
+    uploadAttachmentToCloud(attachmentId: string): Promise<void>;
 }
 
 /**
