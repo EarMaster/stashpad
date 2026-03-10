@@ -1,6 +1,6 @@
 [package]
 name = "stashpad"
-version = "1.2.1"
+version = "1.2.2"
 description = "The staging area for your AI context."
 authors = ["Nico Wiedemann <nico.wiedemann@gmail.com>"]
 repository = "https://github.com/EarMaster/stashpad"
@@ -49,6 +49,7 @@ rand = "0.8"
 tiny_http = "0.12"
 url = "2"
 tauri-plugin-opener = "2"
+tauri-plugin-deep-link = "2"
 reqwest = { version = "0.12", features = ["json"] }
 regex = "1.12.3"
 tokio-tungstenite = { version = "0.26.1", features = ["native-tls"] }

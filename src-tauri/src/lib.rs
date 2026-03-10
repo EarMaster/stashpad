@@ -1319,12 +1319,15 @@ async fn upload_attachment_to_cloud(
         .await
         .map_err(|e| format!("Failed to get upload URL: {}", e))?;
 
-    if !upload_url_resp.status().is_success() {
-        let error_text = upload_url_resp.text().await.unwrap_or_default();
-        return Err(format!("Cloud rejected upload request: {} - {}", upload_url_resp.status(), error_text));
+    let status = upload_url_resp.status();
+    let resp_text = upload_url_resp.text().await
+        .map_err(|e| format!("Failed to read upload URL response: {}", e))?;
+
+    if !status.is_success() {
+        return Err(format!("Cloud rejected upload request: {} - {}", status, resp_text));
     }
 
-    let upload_data: serde_json::Value = upload_url_resp.json().await
+    let upload_data: serde_json::Value = serde_json::from_str(&resp_text)
         .map_err(|e| format!("Failed to parse upload URL response: {}", e))?;
     
     let upload_url = upload_data["uploadUrl"].as_str()
@@ -2817,41 +2820,44 @@ pub fn run() {
             disconnect_websocket,
             get_installation_source
         ])
+        .plugin(tauri_plugin_deep_link::init())
+        .setup(|_app| {
+            Ok(())
+        })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|app_handle, event| match event {
-            tauri::RunEvent::Exit => {
-                println!("App exiting, cleaning up...");
-                // Disconnect WebSocket
-                let ws_arc = {
-                    let state = app_handle.state::<Arc<WsState>>();
-                    state.clone()
-                };
-                if let Some(handle) = ws_arc.task_handle.lock().unwrap().take() {
-                    handle.abort();
+        .run(|app_handle, event| {
+            match event {
+                tauri::RunEvent::Exit => {
+                    println!("App exiting, cleaning up...");
+                    cleanup_websocket_state(app_handle);
+                    cleanup_database_state(app_handle);
                 }
-
-                // Clone the Arc out of state completely before locking
-                let db_arc = {
-                    let state = app_handle.state::<Arc<DbState>>();
-                    state.db.clone()
-                };
-                // Now state is dropped, we can safely lock
-                match db_arc.lock() {
-                    Ok(db) => {
-                        if let Err(e) = db.prepare_shutdown() {
-                            eprintln!("Failed to shutdown DB gracefully: {}", e);
-                        } else {
-                            println!("DB shutdown successful (WAL checkpointed).");
-                        }
-                    }
-                    Err(e) => {
-                        eprintln!("Failed to acquire DB lock: {}", e);
-                    }
-                };
+                _ => {}
             }
-            _ => {}
         });
+}
+
+fn cleanup_websocket_state<R: tauri::Runtime>(app_handle: &tauri::AppHandle<R>) {
+    use tauri::Manager;
+    if let Some(ws_arc_state) = app_handle.try_state::<Arc<WsState>>() {
+        let ws_arc: &Arc<WsState> = ws_arc_state.inner();
+        if let Some(handle) = ws_arc.task_handle.lock().unwrap().take() {
+            handle.abort();
+        }
+    }
+}
+
+fn cleanup_database_state<R: tauri::Runtime>(app_handle: &tauri::AppHandle<R>) {
+    use std::sync::Arc;
+    use tauri::Manager;
+    if let Some(db_state) = app_handle.try_state::<Arc<DbState>>() {
+        let db_arc = &db_state.db;
+        if let Ok(db) = db_arc.lock() {
+            let _: rusqlite::Result<()> = db.prepare_shutdown();
+            println!("DB shutdown successful (WAL checkpointed).");
+        }
+    }
 }
 
 #[cfg(test)]

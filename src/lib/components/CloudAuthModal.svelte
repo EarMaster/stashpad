@@ -19,6 +19,7 @@
     import { Dialog } from "bits-ui";
     import { fade } from "svelte/transition";
     import { openUrl } from "@tauri-apps/plugin-opener";
+    import { onOpenUrl } from "@tauri-apps/plugin-deep-link";
     import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
     import {
         Loader2,
@@ -68,7 +69,7 @@
      */
     function getAccountUrl(): string {
         const endpoint =
-            settings.cloudConfig?.endpoint || "https://stashpad.org/api";
+            settings.cloudConfig?.endpoint || "https://api.stashpad.org";
         const baseUrl = endpoint.replace(/\/api$/, "");
         return `${baseUrl}/account?action=link-desktop`;
     }
@@ -114,6 +115,39 @@
             linkCodeLoading = false;
         }
     }
+
+    // Listen for deep link events
+    $effect(() => {
+        let unlisten: (() => void) | undefined;
+
+        const setupListener = async () => {
+            unlisten = await onOpenUrl((urls) => {
+                for (const url of urls) {
+                    if (url.startsWith("stashpad://auth/callback")) {
+                        try {
+                            const parsedUrl = new URL(url);
+                            const token = parsedUrl.searchParams.get("token");
+                            if (token) {
+                                linkCode = token;
+                                exchangeLinkCode();
+                            }
+                        } catch (err) {
+                            console.error(
+                                "[CloudAuthModal] Failed to parse deep link URL:",
+                                err,
+                            );
+                        }
+                    }
+                }
+            });
+        };
+
+        setupListener();
+
+        return () => {
+            if (unlisten) unlisten();
+        };
+    });
 
     // Open the browser and reset state when the dialog is opened
     $effect(() => {
