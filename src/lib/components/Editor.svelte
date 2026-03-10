@@ -92,9 +92,11 @@
     maxHeight?: number | string;
   }>();
 
-  let minHeightValue = $derived(
-    typeof minHeight === "number" ? `${minHeight}px` : (minHeight ?? "200px"),
-  );
+  let minHeightValue = $derived.by(() => {
+    if (typeof minHeight === 'number') return `${Math.max(200, minHeight)}px`;
+    if (!minHeight) return '200px';
+    return minHeight;
+  });
   let maxHeightValue = $derived(
     typeof maxHeight === "number" ? `${maxHeight}px` : (maxHeight ?? "none"),
   );

@@ -384,10 +384,11 @@
   function startEditing() {
     if (item.completed) return;
     if (cardRef) {
-      stashHeight = cardRef.offsetHeight;
+      stashHeight = Math.max(200, cardRef.offsetHeight);
     }
     isEditing = true;
   }
+
 
   function handleDoubleClick(e: MouseEvent) {
     if (clickTimeout) {
