@@ -259,3 +259,21 @@
 .prose a[href^="https://"]:hover {
   opacity: 1;
 }
+
+/* Make markdown tables responsive and prevent horizontal overflow of container */
+.prose table {
+  display: block;
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin-top: 1em;
+  margin-bottom: 1em;
+  border-collapse: collapse;
+}
+
+.prose th,
+.prose td {
+  border: 1px solid var(--border);
+  padding: 0.5em 0.75em;
+  text-align: left;
+}

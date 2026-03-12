@@ -648,7 +648,7 @@
    <div
       bind:this={scrollContainer}
       onscroll={handleScroll}
-      class="flex-1 overflow-y-auto p-4 pt-0 pb-10 space-y-8 scrollbar-hide"
+      class="flex-1 overflow-y-auto overflow-x-hidden p-4 pt-0 pb-10 space-y-8 scrollbar-hide"
       role="list"
    >
       <!-- Active Section -->

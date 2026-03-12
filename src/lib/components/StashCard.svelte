@@ -403,7 +403,7 @@
 
 <div
   bind:this={cardRef}
-  class="group relative flex flex-col gap-2 rounded-lg border border-border bg-card p-3 shadow-sm hover:shadow-md transition-all hover:border-primary/50 cursor-pointer {item.completed
+  class="group relative flex flex-col gap-2 rounded-lg border border-border bg-card p-3 shadow-sm hover:shadow-md transition-all hover:border-primary/50 cursor-pointer overflow-hidden {item.completed
     ? 'opacity-60 grayscale-[0.3]'
     : ''} {dragOver ? 'border-primary border-2' : ''}"
   transition:fly={{ y: 20, duration: 300 }}
@@ -554,7 +554,7 @@
           </div>
         {/if}
         <div
-          class="prose dark:prose-invert prose-xs max-w-none text-sm text-foreground/90 leading-relaxed font-sans {item.completed
+          class="prose dark:prose-invert prose-xs max-w-none text-sm text-foreground/90 leading-relaxed font-sans break-words {item.completed
             ? 'line-through text-muted-foreground/70'
             : ''}"
           use:externalLinks
