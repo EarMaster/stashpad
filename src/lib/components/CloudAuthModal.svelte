@@ -70,8 +70,7 @@
     function getAccountUrl(): string {
         const endpoint = settings.cloudConfig?.endpoint;
         if (!endpoint) return "";
-        const baseUrl = endpoint.replace("https://api.", "https://");
-        return `${baseUrl}/account?action=link-desktop`;
+        return `${endpoint}/account/portal?action=link-desktop`;
     }
 
     /** Opens the authorization URL in the system browser. */
