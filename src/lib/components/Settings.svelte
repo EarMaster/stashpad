@@ -276,9 +276,9 @@
 
   /** Opens the Stashpad account portal in the system browser. */
   function openAccountPortal() {
-    const endpoint =
-      settings.cloudConfig?.endpoint || "https://stashpad.org/api";
-    const baseUrl = endpoint.replace(/\/api$/, "");
+    const endpoint = settings.cloudConfig?.endpoint;
+    if (!endpoint) return;
+    const baseUrl = endpoint.replace("https://api.", "https://");
     openUrl(`${baseUrl}/account`).catch((err) => {
       console.error("Failed to open account portal:", err);
     });

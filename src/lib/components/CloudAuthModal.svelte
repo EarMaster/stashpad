@@ -68,9 +68,9 @@
      * Opens the account page so the website knows to show the linking flow.
      */
     function getAccountUrl(): string {
-        const endpoint =
-            settings.cloudConfig?.endpoint || "https://api.stashpad.org";
-        const baseUrl = endpoint.replace(/\/api$/, "");
+        const endpoint = settings.cloudConfig?.endpoint;
+        if (!endpoint) return "";
+        const baseUrl = endpoint.replace("https://api.", "https://");
         return `${baseUrl}/account?action=link-desktop`;
     }
 
@@ -109,8 +109,8 @@
                 onSuccess();
             }, 1200);
         } catch (e) {
-            linkCodeError =
-                e instanceof Error ? e.message : "Failed to link account";
+            linkCodeError = e instanceof Error ? e.message : String(e) || "Failed to link account";
+            showManualEntry = true;
         } finally {
             linkCodeLoading = false;
         }

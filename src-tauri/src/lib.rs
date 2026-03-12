@@ -289,7 +289,7 @@ pub struct CloudConfig {
 }
 
 fn default_cloud_endpoint() -> String {
-    "https://stashpad.org/api".to_string()
+    "https://api.stashpad.org".to_string()
 }
 
 /// AI provider configuration for prompt enhancement
@@ -718,6 +718,12 @@ fn validate_settings(mut settings: Settings) -> Settings {
             subscription_period_end: None,
             last_sync_at: None,
         });
+    // Repair old endpoints: https://stashpad.org/api -> https://api.stashpad.org
+    if let Some(ref mut cloud_config) = settings.cloud_config {
+        if cloud_config.endpoint == "https://stashpad.org/api" {
+            println!("Warning: Repairing old cloud endpoint https://stashpad.org/api to https://api.stashpad.org");
+            cloud_config.endpoint = "https://api.stashpad.org".to_string();
+        }
     }
     
     settings
