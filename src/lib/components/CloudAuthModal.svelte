@@ -70,7 +70,7 @@
     function getAccountUrl(): string {
         const endpoint = settings.cloudConfig?.endpoint;
         if (!endpoint) return "";
-        return `${endpoint}/account/portal?action=link-desktop`;
+        return `${endpoint}/account/home?action=link-desktop`;
     }
 
     /** Opens the authorization URL in the system browser. */

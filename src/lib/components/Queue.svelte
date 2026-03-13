@@ -293,35 +293,38 @@
       syncLists();
    });
 
-   // Watch for queue completion (all active stashes become completed)
+   // Watch for queue transitions and completion
    $effect(() => {
       const currentActiveCount = activeStashes.length;
 
-      // Trigger fireworks when: previous count was > 0 AND current count is 0
-      // This means the queue just became empty
-      if (previousActiveCount > 0 && currentActiveCount === 0) {
-         showFireworks = true;
+      if (currentActiveCount === 0) {
+         // Auto-expand completed section when the active queue is empty
+         completedCollapsed = false;
+
+         // Trigger fireworks when the queue becomes empty
+         if (previousActiveCount > 0) {
+            showFireworks = true;
+         }
+      } else if (previousActiveCount === 0 && currentActiveCount > 0) {
+         // Auto-collapse when transition from empty queue to having active stashes (collapsed by default)
+         completedCollapsed = true;
       }
 
       // Update previous count for next comparison
       previousActiveCount = currentActiveCount;
    });
 
-   // Clear backup order ONLY when context changes
+   // Clear context-specific state when switching
    $effect(() => {
       currentContextId;
       untrack(() => {
          backupOrder = null;
          activeSort = null;
+         // Reset collapsing state based on whether active items exist
+         completedCollapsed = activeStashes.length > 0;
+         // Update previous count to prevent transition effects on context switch
+         previousActiveCount = activeStashes.length;
       });
-   });
-
-   // Handle default collapsing behavior
-   $effect(() => {
-      // If queue is empty, automatically expand the completed section
-      if (activeStashes.length === 0) {
-         completedCollapsed = false;
-      }
    });
 
    $effect(() => {

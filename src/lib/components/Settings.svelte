@@ -278,7 +278,7 @@
   function openAccountPortal() {
     const endpoint = settings.cloudConfig?.endpoint;
     if (!endpoint) return;
-    openUrl(`${endpoint}/account/portal`).catch((err) => {
+    openUrl(`${endpoint}/account/home`).catch((err) => {
       console.error("Failed to open account portal:", err);
     });
   }
