@@ -16,7 +16,7 @@ npm run sync-version
 3. **Commit the changes**:
 // turbo
 ```bash
-git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml
+git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock
 git commit -m "chore: bump version to v$(node -p "require('./package.json').version")"
 ```
 
