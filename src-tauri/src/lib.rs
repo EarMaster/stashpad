@@ -719,14 +719,6 @@ fn validate_settings(mut settings: Settings) -> Settings {
             last_sync_at: None,
         });
     }
-
-    // Repair old endpoints: https://stashpad.org/api -> https://api.stashpad.org
-    if let Some(ref mut cloud_config) = settings.cloud_config {
-        if cloud_config.endpoint == "https://stashpad.org/api" {
-            println!("Warning: Repairing old cloud endpoint https://stashpad.org/api to https://api.stashpad.org");
-            cloud_config.endpoint = "https://api.stashpad.org".to_string();
-        }
-    }
     
     settings
 }
