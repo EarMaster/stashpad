@@ -22,7 +22,8 @@ use tauri::{Manager, State};
 use rusqlite::params;
 use rusqlite::OptionalExtension;
 use tauri::window::Color;
-use tauri::menu::Menu;
+#[allow(unused_imports)]
+use tauri::menu::{Menu, MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tiny_http::{Server, Response};
 use url::Url;
 
@@ -2690,10 +2691,63 @@ pub fn run() {
                     let _ = window.set_background_color(Some(Color(24, 24, 27, 255)));
                 }
 
-                // Set default menu to enable standard shortcuts (Cmd+W, Cmd+Q, etc.)
-                if let Ok(menu) = Menu::default(app.handle()) {
-                    let _ = app.set_menu(menu);
+                // Build app menu with "Check for Updates…" item on macOS;
+                // fall back to default menu on other platforms.
+                #[cfg(target_os = "macos")]
+                {
+                    let _ = (|| -> Result<(), Box<dyn std::error::Error>> {
+                        let check_updates_item = MenuItemBuilder::new("Check for Updates…")
+                            .id("check_for_updates")
+                            .build(app)?;
+                        let app_submenu = SubmenuBuilder::new(app, "stashpad")
+                            .about(None)
+                            .item(&check_updates_item)
+                            .separator()
+                            .services()
+                            .separator()
+                            .hide()
+                            .hide_others()
+                            .show_all()
+                            .separator()
+                            .quit()
+                            .build()?;
+                        let edit_submenu = SubmenuBuilder::new(app, "Edit")
+                            .undo()
+                            .redo()
+                            .separator()
+                            .cut()
+                            .copy()
+                            .paste()
+                            .select_all()
+                            .build()?;
+                        let window_submenu = SubmenuBuilder::new(app, "Window")
+                            .minimize()
+                            .separator()
+                            .close_window()
+                            .build()?;
+                        let menu = MenuBuilder::new(app)
+                            .item(&app_submenu)
+                            .item(&edit_submenu)
+                            .item(&window_submenu)
+                            .build()?;
+                        app.set_menu(menu)?;
+                        Ok(())
+                    })();
                 }
+                #[cfg(not(target_os = "macos"))]
+                {
+                    if let Ok(menu) = Menu::default(app.handle()) {
+                        let _ = app.set_menu(menu);
+                    }
+                }
+
+                // Emit Tauri event when "Check for Updates…" menu item is clicked
+                app.on_menu_event(|app, event| {
+                    if event.id().0 == "check_for_updates" {
+                        use tauri::Emitter;
+                        let _ = app.emit("menu:check-for-updates", ());
+                    }
+                });
 
                 apply_window_effects_to_window(&window, visual_effects_enabled, theme.as_deref());
             }

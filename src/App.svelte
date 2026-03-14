@@ -30,6 +30,7 @@
    import { fly } from "svelte/transition";
    import { Sparkles } from "lucide-svelte";
    import { getCurrentWindow } from "@tauri-apps/api/window";
+   import { listen } from "@tauri-apps/api/event";
    import { check } from "@tauri-apps/plugin-updater";
    import { relaunch } from "@tauri-apps/plugin-process";
    import { ask, message } from "@tauri-apps/plugin-dialog";
@@ -51,6 +52,7 @@
 
    let showExitConfirmation = $state(false);
    let isWin10 = $state(false);
+   let isCheckingForUpdates = $state(false);
 
    // Cloud sync status
    let syncStatus = $state<SyncStatus>("idle");
@@ -60,15 +62,22 @@
    const adapter = new DesktopStorageAdapter();
    const cloudSync = new CloudSyncService(adapter);
 
-   async function checkForUpdates() {
+   async function checkForUpdates(showNoUpdateMessage = false) {
+      if (isCheckingForUpdates) return;
+      isCheckingForUpdates = true;
       try {
          const update = await check();
          if (update?.available) {
             const source = await invoke<string>("get_installation_source");
             if (source === "standalone") {
                const yes = await ask(
-                  `Update to ${update.version} is available!\n\nRelease notes:\n${update.body || "Bug fixes and improvements."}\n\nDo you want to install it now?`,
-                  { title: "Update Available", kind: "info" },
+                  $_("settings.updates.standalonePrompt", {
+                     values: {
+                        version: update.version,
+                        notes: update.body || "Bug fixes and improvements.",
+                     },
+                  }),
+                  { title: $_("settings.updates.updateAvailable"), kind: "info" },
                );
                if (yes) {
                   await update.downloadAndInstall();
@@ -88,19 +97,31 @@
                   cmd = "winget upgrade stashpad";
                }
                await message(
-                  `A new version of Stashpad (${update.version}) is available!\n\nSince you installed Stashpad using ${pmName}, please run the following command to update:\n\n${cmd}`,
-                  { title: "Update Available", kind: "info" },
+                  $_("settings.updates.packageManagerNotice", {
+                     values: { version: update.version, pmName, cmd },
+                  }),
+                  { title: $_("settings.updates.updateAvailable"), kind: "info" },
                );
             }
+         } else if (showNoUpdateMessage) {
+            await message($_("settings.updates.noUpdateMessage"), {
+               title: $_("settings.updates.noUpdateTitle"),
+               kind: "info",
+            });
          }
       } catch (e) {
          console.error("Failed to check for updates:", e);
+      } finally {
+         isCheckingForUpdates = false;
       }
    }
 
    onMount(() => {
       adapter.isWindows10().then((v) => (isWin10 = v));
       checkForUpdates();
+      const unlistenMenuUpdate = listen("menu:check-for-updates", () => {
+         checkForUpdates(true);
+      });
       const unlisten = appWindow.onCloseRequested(async (event) => {
          if (editorDraft.trim() || editorFiles.length > 0) {
             event.preventDefault();
@@ -139,6 +160,7 @@
 
       return () => {
          unlisten.then((f) => f());
+         unlistenMenuUpdate.then((f) => f());
          clearInterval(cleanupInterval);
          unsubscribeSync();
          cloudSync.dispose();
@@ -576,6 +598,8 @@
             navigationSource = "Settings";
             view = "Contexts";
          }}
+         onCheckForUpdates={() => checkForUpdates(true)}
+         {isCheckingForUpdates}
       />
    {:else if view === "Contexts"}
       <ContextManager

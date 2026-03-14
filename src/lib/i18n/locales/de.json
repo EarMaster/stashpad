@@ -166,6 +166,15 @@
             "testSuccess": "Verbindung erfolgreich!",
             "testFailed": "Verbindung fehlgeschlagen: {error}"
         },
+        "updates": {
+            "checkForUpdates": "Nach Updates suchen…",
+            "checking": "Suche…",
+            "updateAvailable": "Update verfügbar",
+            "standalonePrompt": "Update auf {version} verfügbar!\n\nRelease-Hinweise:\n{notes}\n\nJetzt installieren?",
+            "packageManagerNotice": "Eine neue Version von Stashpad ({version}) ist verfügbar!\n\nDa Sie Stashpad über {pmName} installiert haben, führen Sie bitte folgenden Befehl aus:\n\n{cmd}",
+            "noUpdateTitle": "Kein Update verfügbar",
+            "noUpdateMessage": "Sie verwenden bereits die neueste Version von Stashpad."
+        },
         "cloudSync": {
             "title": "Cloud-Synchronisierung",
             "enable": {

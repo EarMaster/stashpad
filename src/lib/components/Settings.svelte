@@ -60,11 +60,15 @@
     syncStatus,
     onBack,
     onOpenContexts,
+    onCheckForUpdates,
+    isCheckingForUpdates = false,
   } = $props<{
     settings: Settings;
     syncStatus: SyncStatus;
     onBack: () => void;
     onOpenContexts: () => void;
+    onCheckForUpdates: () => void;
+    isCheckingForUpdates?: boolean;
   }>();
 
   const adapter = new DesktopStorageAdapter();
@@ -1310,7 +1314,21 @@
           </p>
           <p>{$_("app.copyright")}</p>
           <p>{$_("app.license")}</p>
-          <div class="pt-2 opacity-50 text-[10px]">
+          <div class="pt-3">
+            <button
+              class="inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium border border-border hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              onclick={onCheckForUpdates}
+              disabled={isCheckingForUpdates}
+            >
+              {#if isCheckingForUpdates}
+                <Loader2 size={12} class="animate-spin" />
+                {$_("settings.updates.checking")}
+              {:else}
+                {$_("settings.updates.checkForUpdates")}
+              {/if}
+            </button>
+          </div>
+          <div class="pt-1 opacity-50 text-[10px]">
             {$_("app.madeWith")}
           </div>
         </div>
