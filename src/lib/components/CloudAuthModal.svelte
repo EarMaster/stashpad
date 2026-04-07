@@ -64,13 +64,27 @@
     let linkCodeLoading = $state(false);
 
     /**
-     * Derives the web portal URL from the configured cloud endpoint.
-     * Opens the account page so the website knows to show the linking flow.
+     * Derives the frontend account URL from the configured cloud API endpoint.
+     * The API lives at api.stashpad.org and the frontend at stashpad.org,
+     * so we strip the leading 'api.' subdomain to get the frontend URL.
+     * Falls back to the API endpoint's /account/home route if the URL does
+     * not follow the expected pattern.
      */
     function getAccountUrl(): string {
         const endpoint = settings.cloudConfig?.endpoint;
         if (!endpoint) return "";
-        return `${endpoint}/account/home?action=link-desktop`;
+
+        try {
+            const url = new URL(endpoint);
+            // Strip the 'api.' subdomain prefix if present (e.g. api.stashpad.org → stashpad.org)
+            if (url.hostname.startsWith('api.')) {
+                url.hostname = url.hostname.slice('api.'.length);
+            }
+            return `${url.origin}/account?action=link-desktop`;
+        } catch {
+            // Fallback: use the legacy /account/home redirect on the API
+            return `${endpoint}/account/home?action=link-desktop`;
+        }
     }
 
     /** Opens the authorization URL in the system browser. */

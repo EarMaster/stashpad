@@ -282,7 +282,21 @@
   function openAccountPortal() {
     const endpoint = settings.cloudConfig?.endpoint;
     if (!endpoint) return;
-    openUrl(`${endpoint}/account/home`).catch((err) => {
+
+    let accountUrl: string;
+    try {
+      const url = new URL(endpoint);
+      // Strip the 'api.' subdomain prefix if present (e.g. api.stashpad.org → stashpad.org)
+      if (url.hostname.startsWith('api.')) {
+        url.hostname = url.hostname.slice('api.'.length);
+      }
+      accountUrl = `${url.origin}/account`;
+    } catch {
+      // Fallback: use the legacy /account/home redirect on the API
+      accountUrl = `${endpoint}/account/home`;
+    }
+
+    openUrl(accountUrl).catch((err) => {
       console.error("Failed to open account portal:", err);
     });
   }
