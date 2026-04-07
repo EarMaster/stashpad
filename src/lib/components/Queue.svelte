@@ -22,6 +22,7 @@
    import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
    import type { StashItem, Context, Attachment, AIConfig } from "$lib/types";
    import { _ } from "$lib/i18n";
+   import { isHexColor, extractTagsAndColors } from "$lib/utils/markdown";
    import StashCard from "./StashCard.svelte";
    import TagBadge from "./TagBadge.svelte";
    import ConfirmationDialog from "./ConfirmationDialog.svelte";
@@ -123,20 +124,15 @@
    // Extract unique tags from BOTH active and completed stashes (for filter options)
    let availableTags = $derived.by(() => {
       const tags = new Set<string>();
-      const regex = /#[\w-]+/g;
       // Include tags from active stashes
       activeStashes.forEach((stash) => {
-         const matches = stash.content.match(regex);
-         if (matches) {
-            matches.forEach((tag) => tags.add(tag));
-         }
+         const { tags: stashTags } = extractTagsAndColors(stash.content);
+         stashTags.forEach((t) => tags.add(t));
       });
       // Include tags from completed stashes
       completedStashes.forEach((stash) => {
-         const matches = stash.content.match(regex);
-         if (matches) {
-            matches.forEach((tag) => tags.add(tag));
-         }
+         const { tags: stashTags } = extractTagsAndColors(stash.content);
+         stashTags.forEach((t) => tags.add(t));
       });
       return Array.from(tags).sort();
    });
@@ -145,9 +141,12 @@
    let filteredStashes = $derived.by(() => {
       if (selectedTags.length === 0) return activeStashes;
 
-      // Using OR logic: Show stashes that contain ANY of the selected tags
+      // Using OR logic: Show stashes that contain ANY of the selected tags (using whole word matching)
       return activeStashes.filter((stash) => {
-         return selectedTags.some((tag) => stash.content.includes(tag));
+         return selectedTags.some((tag) => {
+            const regex = new RegExp(`${tag}(?![\\w-])`, "g");
+            return regex.test(stash.content);
+         });
       });
    });
 
@@ -155,9 +154,12 @@
    let filteredCompletedStashes = $derived.by(() => {
       if (selectedTags.length === 0) return completedStashes;
 
-      // Using OR logic: Show stashes that contain ANY of the selected tags
+      // Using OR logic: Show stashes that contain ANY of the selected tags (using whole word matching)
       return completedStashes.filter((stash) => {
-         return selectedTags.some((tag) => stash.content.includes(tag));
+         return selectedTags.some((tag) => {
+            const regex = new RegExp(`${tag}(?![\\w-])`, "g");
+            return regex.test(stash.content);
+         });
       });
    });
 
@@ -218,20 +220,16 @@
 
       // Collect all tags from all context stashes (for allTags prop)
       contextStashes.forEach((stash) => {
-         const matches = stash.content.match(regex);
-         if (matches) {
-            matches.forEach((tag) => tags.add(tag));
-         }
+         const { tags: stashTags } = extractTagsAndColors(stash.content);
+         stashTags.forEach((t) => tags.add(t));
       });
 
       // Count occurrences only from ACTIVE (uncompleted) stashes
       activeStashes.forEach((stash) => {
-         const matches = stash.content.match(regex);
-         if (matches) {
-            matches.forEach((tag) => {
-               counts.set(tag, (counts.get(tag) || 0) + 1);
-            });
-         }
+         const { tags: stashTags } = extractTagsAndColors(stash.content);
+         stashTags.forEach((t) => {
+            counts.set(t, (counts.get(t) || 0) + 1);
+         });
       });
 
       allTags = Array.from(tags).sort();

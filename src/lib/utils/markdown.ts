@@ -1,4 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+
+// Copyright (C) 2026 Nico Wiedemann
+//
+// This file is part of Stashpad.
+// Stashpad is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+// See the GNU Affero General Public License for more details.
 import { Marked } from "marked";
 import { markedHighlight } from "marked-highlight";
 import hljs from "highlight.js";
@@ -68,13 +80,48 @@ const markedInstance = new Marked(
                 }
             },
             {
+                name: 'color',
+                level: 'inline',
+                start(src) {
+                    const match = src.match(/(?:^|[^a-zA-Z0-9_])#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})(?![a-zA-Z0-9_-])/);
+                    if (match && match.index !== undefined) {
+                        return match.index + (match[0].startsWith('#') ? 0 : 1);
+                    }
+                    return undefined;
+                },
+                tokenizer(src, tokens) {
+                    const match = isHexColor(src);
+                    if (match) {
+                        return {
+                            type: 'color',
+                            raw: match,
+                            text: match
+                        };
+                    }
+                },
+                renderer(token) {
+                    // Similar to tags, we emit raw text and replace after DOMPurify
+                    return token.raw;
+                }
+            },
+            {
                 name: 'tag',
                 level: 'inline',
-                start(src) { return src.match(/#[\w-]+/)?.index; },
+                start(src) {
+                    const match = src.match(/(?:^|[^a-zA-Z0-9_])#[\w-]+/);
+                    if (match && match.index !== undefined) {
+                        return match.index + (match[0].startsWith('#') ? 0 : 1);
+                    }
+                    return undefined;
+                },
                 tokenizer(src, tokens) {
                     const rule = /^#[\w-]+/;
                     const match = rule.exec(src);
                     if (match) {
+                        // Check if it's a hex color (Option 1: Strict exclusion)
+                        if (isHexColor(match[0])) {
+                            return; // Let the color extension handle it or just treat as plain text
+                        }
                         return {
                             type: 'tag',
                             raw: match[0],
@@ -83,10 +130,6 @@ const markedInstance = new Marked(
                     }
                 },
                 renderer(token) {
-                    // Emit the raw tag text (e.g. "#cloud") as plain text.
-                    // The tokenizer still correctly distinguishes tags from
-                    // markdown headings (which require a space after #).
-                    // injectTagBadges() will replace these after DOMPurify.
                     return token.raw;
                 }
             }
@@ -113,6 +156,41 @@ export function getTagHue(text: string): number {
         hash = text.charCodeAt(i) + ((hash << 5) - hash);
     }
     return Math.abs(hash % 360);
+}
+
+/**
+ * Check if a string is a hex color (#HHH, #HHHHHH, #HHHHHHHH).
+ * Returns the matched hex string or null.
+ */
+export function isHexColor(text: string): string | null {
+    const hexRule = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})(?![a-zA-Z0-9_-])/;
+    const match = hexRule.exec(text);
+    return match ? match[0] : null;
+}
+
+/**
+ * Extract all unique tags and hex colors from content, 
+ * respecting word boundaries to avoid URL anchors.
+ */
+export function extractTagsAndColors(content: string): { tags: string[], colors: string[] } {
+    const regex = /(?:^|[^a-zA-Z0-9_])(#[\w-]+)/g;
+    const tags = new Set<string>();
+    const colors = new Set<string>();
+
+    const matches = content.matchAll(regex);
+    for (const match of matches) {
+        const fullTag = match[1]; // The first capture group is #[\w-]+
+        if (isHexColor(fullTag)) {
+            colors.add(fullTag);
+        } else {
+            tags.add(fullTag);
+        }
+    }
+
+    return {
+        tags: Array.from(tags).sort(),
+        colors: Array.from(colors).sort()
+    };
 }
 
 /**
@@ -158,41 +236,53 @@ export function sanitizeHtml(html: string): string {
 }
 
 /**
- * Replace #tag occurrences in sanitized HTML with fully-styled badge HTML.
- *
- * Runs AFTER DOMPurify so we can inject SVG and computed styles freely.
- * Skips content inside <pre> and <code> blocks so that code examples are
- * never converted to badges.
- *
- * The CSS variables written here mirror the non-selected, non-interactive
- * branch of TagBadge.svelte so that inline badges and card-header badges
- * look identical.
+ * Replace #tag and #hex occurrences in sanitized HTML with badges.
+ * Ensures we don't match inside HTML tags (like href anchors).
  */
-function injectTagBadges(html: string): string {
-    // Split on pre/code blocks; odd-indexed parts are those blocks.
-    const segments = html.split(/(<pre[\s\S]*?<\/pre>|<code[\s\S]*?<\/code>)/gi);
+function injectBadges(html: string): string {
+    // 1. Split by blocks that we MUST NOT touch (pre, code)
+    const blocks = html.split(/(<pre[\s\S]*?<\/pre>|<code[\s\S]*?<\/code>)/gi);
 
-    return segments.map((segment, index) => {
-        // Leave code / pre blocks untouched.
-        if (index % 2 === 1) return segment;
+    return blocks.map((block, i) => {
+        if (i % 2 === 1) return block; // It's pre/code, return as is
 
-        return segment.replace(/#([\w-]+)/g, (_, label) => {
-            const h = getTagHue(`#${label}`);
-            // Mirror the non-selected, non-interactive branch of TagBadge.svelte:
-            const style = [
-                `--tag-bg: hsla(${h}, 75%, 45%, 0.1)`,
-                `--tag-bg-dark: hsla(${h}, 80%, 70%, 0.1)`,
-                `--tag-border: hsla(${h}, 75%, 45%, 0.2)`,
-                `--tag-border-dark: hsla(${h}, 80%, 70%, 0.2)`,
-                `--tag-text: hsl(${h}, 75%, 45%)`,
-                `--tag-text-dark: hsl(${h}, 80%, 70%)`,
-            ].join('; ');
-            return (
-                `<span class="ai-tag" style="${style}">` +
-                `${HASH_ICON_SVG}${label}` +
-                `</span>`
-            );
-        });
+        // 2. Split the remaining HTML by any HTML tag to avoid matching in attributes
+        const segments = block.split(/(<[^>]*>)/g);
+        return segments.map((segment, j) => {
+            if (j % 2 === 1) return segment; // It's an HTML tag like <a href="...">
+
+            // 3. Process text nodes
+            return segment.replace(/(^|[^a-zA-Z0-9_])(#[\w-]+)/g, (match, prefix, fullTag) => {
+                if (isHexColor(fullTag)) {
+                    // Return ColorBadge HTML
+                    return (
+                        prefix +
+                        `<span class="ai-color">` +
+                        `<span class="ai-color-swatch" style="background-color: ${fullTag};"></span>` +
+                        `<span class="font-mono lowercase opacity-90">${fullTag}</span>` +
+                        `</span>`
+                    );
+                }
+
+                const label = fullTag.slice(1);
+                const h = getTagHue(fullTag);
+                const style = [
+                    `--tag-bg: hsla(${h}, 75%, 45%, 0.1)`,
+                    `--tag-bg-dark: hsla(${h}, 80%, 70%, 0.1)`,
+                    `--tag-border: hsla(${h}, 75%, 45%, 0.2)`,
+                    `--tag-border-dark: hsla(${h}, 80%, 70%, 0.2)`,
+                    `--tag-text: hsl(${h}, 75%, 45%)`,
+                    `--tag-text-dark: hsl(${h}, 80%, 70%)`,
+                ].join('; ');
+
+                return (
+                    prefix +
+                    `<span class="ai-tag" style="${style}">` +
+                    `${HASH_ICON_SVG}${label}` +
+                    `</span>`
+                );
+            });
+        }).join('');
     }).join('');
 }
 
@@ -201,14 +291,15 @@ function injectTagBadges(html: string): string {
  * Use this instead of raw `marked.parse()` + `{@html}`.
  *
  * Pipeline:
- *  1. marked  – tokenises markdown, emits placeholder spans for #tags
+ *  1. marked  – tokenises markdown, emits placeholders
  *  2. DOMPurify – strips anything unsafe (XSS prevention)
- *  3. injectTagBadges – expands placeholders into fully-styled badge HTML
+ *  3. injectBadges – expands placeholders into fully-styled badge HTML
  */
 export function safeParse(content: string): string {
     const raw = markedInstance.parse(content) as string;
     const sanitized = sanitizeHtml(raw);
-    return injectTagBadges(sanitized);
+    return injectBadges(sanitized);
 }
+
 
 export default markedInstance;

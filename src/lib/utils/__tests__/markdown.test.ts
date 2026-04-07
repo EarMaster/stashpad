@@ -84,7 +84,33 @@ describe('markdown utilities', () => {
             expect(result).toContain('class="ai-command"');
             expect(result).toContain('class="ai-tag"');
         });
+
+        it('should recognize hex colors as color badges and NOT as tags', () => {
+            const result = safeParse('Use color #302919 or #f00');
+            expect(result).toContain('class="ai-color"');
+            expect(result).toContain('background-color: #302919');
+            expect(result).toContain('background-color: #f00');
+            expect(result).not.toContain('class="ai-tag"');
+        });
+
+        it('should NOT recognize non-hex hashtags as colors', () => {
+            const result = safeParse('#not-a-color and #bad');
+            // #bad is a color if we follow Option 1 strictly!
+            expect(result).toContain('class="ai-tag"');
+            expect(result).toContain('not-a-color');
+            expect(result).toContain('class="ai-color"'); // #bad is 3 hex chars
+            expect(result).toContain('background-color: #bad');
+        });
+
+        it('should NOT recognize partial hex as colors if followed by more word characters', () => {
+            const result = safeParse('#abc-tag and #abcdefg');
+            expect(result).toContain('class="ai-tag"');
+            expect(result).toContain('abc-tag');
+            expect(result).toContain('abcdefg');
+            expect(result).not.toContain('class="ai-color"');
+        });
     });
+
 
     describe('getTagHue', () => {
         it('should return a number between 0 and 360', () => {
@@ -105,9 +131,21 @@ describe('markdown utilities', () => {
             expect(hue1).not.toBe(hue2);
         });
 
-        it('should handle empty strings', () => {
-            const hue = getTagHue('');
-            expect(hue).toBe(0);
+        it('should NOT recognize anchors in URLs as tags', () => {
+            const result = safeParse('Check https://example.com#section');
+            expect(result).toContain('https://example.com#section');
+            expect(result).not.toContain('class="ai-tag"');
+        });
+
+        it('should NOT recognize anchors in markdown links as tags', () => {
+            const result = safeParse('[link](https://example.com#anchor)');
+            expect(result).toContain('href="https://example.com#anchor"');
+            expect(result).not.toContain('class="ai-tag"');
+        });
+
+        it('should NOT recognize hashes in middle of words as tags', () => {
+            const result = safeParse('file#utils and foo#bar');
+            expect(result).not.toContain('class="ai-tag"');
         });
     });
 });

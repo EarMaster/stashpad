@@ -1,7 +1,7 @@
 <!--
 // SPDX-License-Identifier: AGPL-3.0-only
 
-// Copyright (C) 2025 Nico Wiedemann
+// Copyright (C) 2026 Nico Wiedemann
 //
 // This file is part of Stashpad.
 // Stashpad is free software: you can redistribute it and/or modify
@@ -316,7 +316,15 @@
 
     if (wordMatch) {
       const query = wordMatch[0].slice(1).toLowerCase(); // remove #
-      const matchIndex = wordMatch.index!;
+      const matchIndex = wordMatch[0].startsWith("#") ? wordMatch.index! : wordMatch.index! + 1;
+      const tagCandidate = wordMatch[0];
+
+      // Option 1: Strict exclusion of hex colors from triggering autocomplete
+      const hexRule = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
+      if (hexRule.test(tagCandidate)) {
+        showSuggestions = false;
+        return;
+      }
 
       filteredTags = availableTags.filter((t) =>
         t.toLowerCase().startsWith("#" + query),
@@ -498,25 +506,15 @@
   async function saveTextAsAttachment(text: string) {
     // Detect language from content to determine file extension
     const detection = await detectLanguage(text);
-    const extension = detection.extension;
 
     // Generate a filename based on first line or timestamp
     const firstLine = text.split("\n")[0].slice(0, 30).trim();
     const safeName = firstLine.replace(/[^a-zA-Z0-9_-]/g, "_") || "pasted_code";
     const timestamp = Date.now();
-    const filename = `${safeName}_${timestamp}.${extension}`;
+    // Always use .txt extension so AI agents can reliably interpret it without binary fallbacks
+    const filename = `${safeName}_${timestamp}.txt`;
 
-    // Determine MIME type based on extension
-    const mimeTypes: Record<string, string> = {
-      js: "application/javascript",
-      ts: "application/typescript",
-      json: "application/json",
-      html: "text/html",
-      css: "text/css",
-      xml: "application/xml",
-      md: "text/markdown",
-    };
-    const mimeType = mimeTypes[extension] ?? "text/plain";
+    const mimeType = "text/plain";
 
     // Create a File object from the text
     const blob = new Blob([text], { type: mimeType });
@@ -963,7 +961,11 @@
     });
   });
 
-  function insertMarkdown(prefix: string, suffix: string = "") {
+  function insertMarkdown(
+    prefix: string,
+    suffix: string = "",
+    suffixToSelect?: string,
+  ) {
     if (!textareaRef) return;
     const start = textareaRef.selectionStart;
     const end = textareaRef.selectionEnd;
@@ -979,6 +981,14 @@
       if (start === end) {
         const newPos = start + prefix.length;
         textareaRef.setSelectionRange(newPos, newPos);
+      } else if (suffixToSelect && suffix.includes(suffixToSelect)) {
+        const indexInSuffix = suffix.indexOf(suffixToSelect);
+        const selectStart =
+          start + prefix.length + selection.length + indexInSuffix;
+        textareaRef.setSelectionRange(
+          selectStart,
+          selectStart + suffixToSelect.length,
+        );
       } else {
         textareaRef.setSelectionRange(
           start + prefix.length,
@@ -1089,7 +1099,7 @@
     </button>
     <button
       class="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-all"
-      onclick={() => insertMarkdown("[", "](url)")}
+      onclick={() => insertMarkdown("[", "](url)", "url")}
       title={$_("editor.link")}
       use:tooltip
       tabindex="-1"

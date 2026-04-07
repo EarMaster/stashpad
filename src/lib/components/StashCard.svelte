@@ -57,9 +57,10 @@
   import { stat } from "@tauri-apps/plugin-fs";
   import { open, message } from "@tauri-apps/plugin-dialog";
   import { getRelativeTime } from "$lib/utils/date";
-  import { safeParse } from "$lib/utils/markdown";
+  import { safeParse, isHexColor, extractTagsAndColors } from "$lib/utils/markdown";
   import ActionButton from "./ActionButton.svelte";
   import TagBadge from "./TagBadge.svelte";
+  import ColorBadge from "./ColorBadge.svelte";
   import { isStashHovered } from "$lib/stores/drag-state.svelte";
   import {
     aiService,
@@ -157,11 +158,9 @@
     showEnhanced && hasEnhancedVersion ? item.enhancedContent! : item.content,
   );
 
-  // Extract unique tags from content
-  let stashTags = $derived(() => {
-    const matches = item.content.match(/#[\w-]+/g);
-    return (matches ? [...new Set(matches)] : []) as string[];
-  });
+  let stashData = $derived(extractTagsAndColors(item.content));
+  let stashTags = $derived(() => stashData.tags);
+  let stashColors = $derived(() => stashData.colors);
 
   $effect(() => {
     if (isEditing) {
