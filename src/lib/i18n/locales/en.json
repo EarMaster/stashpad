@@ -376,6 +376,8 @@
         "list": "List",
         "code": "Code",
         "link": "Link",
+        "expand": "Expand editor",
+        "collapse": "Collapse editor",
         "pasteChoice": {
             "title": "How would you like to paste?",
             "description": "The pasted content can be added as text or saved as a file attachment.",

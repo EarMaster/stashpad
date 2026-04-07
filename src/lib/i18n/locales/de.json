@@ -368,6 +368,8 @@
         "list": "Liste",
         "code": "Code",
         "link": "Link",
+        "expand": "Editor maximieren",
+        "collapse": "Editor minimieren",
         "pasteChoice": {
             "title": "Wie möchten Sie einfügen?",
             "description": "Der eingefügte Inhalt kann als Text hinzugefügt oder als Dateianhang gespeichert werden.",

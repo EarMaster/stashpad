@@ -32,6 +32,8 @@
     List,
     Code,
     Heading,
+    Maximize2,
+    Minimize2,
   } from "lucide-svelte";
   import { getCaretCoordinates } from "$lib/utils/caret";
   import FilePreviewModal from "./FilePreviewModal.svelte";
@@ -147,6 +149,14 @@
 
   // Clear confirmation dialog state
   let clearConfirmDialogOpen = $state(false);
+
+  // Expand/fullscreen state
+  let isExpanded = $state(false);
+
+  /** Toggle the editor between its default size and a fullscreen overlay. */
+  function toggleExpand() {
+    isExpanded = !isExpanded;
+  }
 
   // Track Shift key state for paste override (ClipboardEvent doesn't expose shiftKey).
   // Reset on blur to prevent state from getting stuck when the window loses focus.
@@ -609,6 +619,8 @@
         await adapter.saveStash(stash, { invertPosition });
         content = "";
         files = [];
+        // Collapse expanded editor after stashing
+        isExpanded = false;
         // Generate a new ID for the next stash to avoid overwriting the one we just saved
         stashId = crypto.randomUUID();
         onStash?.(stash.id);
@@ -674,12 +686,13 @@
       }
     }
 
-    // Clear the editor
+    // Clear the editor and collapse
     content = "";
     files = [];
     addedFilePaths = [];
     removedFilePaths = [];
     clearConfirmDialogOpen = false;
+    isExpanded = false;
   }
 
   function handleKeydown(e: KeyboardEvent) {
@@ -747,8 +760,15 @@
       return;
     }
 
-    if (e.key === "Escape" && onCancel) {
-      handleCancel();
+    if (e.key === "Escape") {
+      if (isExpanded) {
+        // Collapse expanded editor first; a second Escape will cancel
+        isExpanded = false;
+        return;
+      }
+      if (onCancel) {
+        handleCancel();
+      }
     }
   }
 
@@ -1028,9 +1048,22 @@
   }
 </script>
 
+{#if isExpanded}
+  <!-- Backdrop overlay — clicking it collapses the editor -->
+  <button
+    class="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm cursor-default"
+    onclick={toggleExpand}
+    tabindex="-1"
+    aria-label={$_("editor.collapse")}
+    type="button"
+  ></button>
+{/if}
+
 <div
-  class="relative flex flex-col rounded-xl border border-border bg-[var(--muted-editor)] text-card-foreground shadow-sm transition-colors overflow-hidden"
-  style="min-height: {minHeightValue}; max-height: {maxHeightValue};"
+  class="{isExpanded
+    ? 'fixed inset-4 z-50 shadow-2xl'
+    : 'relative'} flex flex-col rounded-xl border border-border bg-[var(--muted-editor)] text-card-foreground transition-all duration-200 overflow-hidden"
+  style={isExpanded ? '' : `min-height: ${minHeightValue}; max-height: ${maxHeightValue};`}
   ondrop={handleDrop}
   ondragover={handleDragOver}
   ondragenter={handleDragEnter}
@@ -1105,6 +1138,25 @@
       tabindex="-1"
     >
       <LinkIcon size={14} />
+    </button>
+
+    <!-- Spacer to push expand button to the right -->
+    <div class="flex-1"></div>
+
+    <!-- Expand / Collapse button -->
+    <button
+      class="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-all"
+      onclick={toggleExpand}
+      title={isExpanded ? $_("editor.collapse") : $_("editor.expand")}
+      use:tooltip
+      tabindex="-1"
+      type="button"
+    >
+      {#if isExpanded}
+        <Minimize2 size={14} />
+      {:else}
+        <Maximize2 size={14} />
+      {/if}
     </button>
   </div>
 
