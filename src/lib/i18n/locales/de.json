@@ -366,6 +366,7 @@
         "italic": "Kursiv",
         "heading": "Überschrift",
         "list": "Liste",
+        "orderedList": "Nummerierte Liste",
         "code": "Code",
         "link": "Link",
         "expand": "Editor maximieren",

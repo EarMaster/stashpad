@@ -374,6 +374,7 @@
         "italic": "Italic",
         "heading": "Heading",
         "list": "List",
+        "orderedList": "Ordered List",
         "code": "Code",
         "link": "Link",
         "expand": "Expand editor",

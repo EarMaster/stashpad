@@ -30,6 +30,7 @@
     Italic,
     Link as LinkIcon,
     List,
+    ListOrdered,
     Code,
     Heading,
     Maximize2,
@@ -981,6 +982,51 @@
     });
   });
 
+  function toggleLinePrefix(prefix: string) {
+    if (!textareaRef) return;
+    const start = textareaRef.selectionStart;
+    const end = textareaRef.selectionEnd;
+    const text = content;
+
+    let lineStart = text.lastIndexOf('\n', start - 1) + 1;
+    let lineEnd = text.indexOf('\n', end);
+    if (lineEnd === -1) lineEnd = text.length;
+    
+    if (end > start && text[end - 1] === '\n') {
+      lineEnd = end - 1;
+    }
+
+    const selectedLinesText = text.substring(lineStart, lineEnd);
+    const lines = selectedLinesText.split('\n');
+
+    const allHavePrefix = lines.every((line) => line.startsWith(prefix));
+
+    const newLines = lines.map((line) => {
+      if (allHavePrefix) {
+        return line.substring(prefix.length);
+      } else {
+        const cleanLine = line.replace(/^(?:[-*+]\s|\d+\.\s|#{1,6}\s)/, '');
+        return prefix + cleanLine;
+      }
+    });
+
+    const replacement = newLines.join('\n');
+    content = text.substring(0, lineStart) + replacement + text.substring(lineEnd);
+
+    setTimeout(() => {
+      if (!textareaRef) return;
+      textareaRef.focus();
+      
+      if (start === end) {
+        const diff = replacement.length - selectedLinesText.length;
+        const newPos = Math.max(0, start + diff);
+        textareaRef.setSelectionRange(newPos, newPos);
+      } else {
+        textareaRef.setSelectionRange(lineStart, lineStart + replacement.length);
+      }
+    }, 0);
+  }
+
   function insertMarkdown(
     prefix: string,
     suffix: string = "",
@@ -1104,7 +1150,7 @@
     </button>
     <button
       class="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-all"
-      onclick={() => insertMarkdown("### ")}
+      onclick={() => toggleLinePrefix("### ")}
       title={$_("editor.heading")}
       use:tooltip
       tabindex="-1"
@@ -1114,12 +1160,21 @@
     <div class="w-px h-4 bg-border/50 mx-1"></div>
     <button
       class="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-all"
-      onclick={() => insertMarkdown("- ")}
+      onclick={() => toggleLinePrefix("- ")}
       title={$_("editor.list")}
       use:tooltip
       tabindex="-1"
     >
       <List size={14} />
+    </button>
+    <button
+      class="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-all"
+      onclick={() => toggleLinePrefix("1. ")}
+      title={$_("editor.orderedList")}
+      use:tooltip
+      tabindex="-1"
+    >
+      <ListOrdered size={14} />
     </button>
     <button
       class="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-all"
