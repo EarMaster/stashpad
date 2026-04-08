@@ -562,6 +562,7 @@ mod tests {
             ],
             last_used: Some(chrono::Utc::now().to_rfc3339()),
             description: Some("Test description".to_string()),
+            updated_at: None,
         };
         
         db.save_context(&test_context).expect("Failed to save context");
@@ -585,6 +586,7 @@ mod tests {
             rules: vec![],
             last_used: None,
             description: None,
+            updated_at: None,
         };
         
         db.save_context(&modified_default).expect("Save should succeed");
@@ -610,6 +612,7 @@ mod tests {
             created_at: chrono::Utc::now().to_rfc3339(),
             completed: false,
             completed_at: None,
+            updated_at: None,
         };
         
         db.save_stash(&stash, None).expect("Failed to save stash");
@@ -636,6 +639,7 @@ mod tests {
             created_at: chrono::Utc::now().to_rfc3339(),
             completed: false,
             completed_at: None,
+            updated_at: None,
         };
         
         db.save_stash(&stash, None).expect("Failed to save stash");
@@ -662,6 +666,7 @@ mod tests {
             created_at: chrono::Utc::now().to_rfc3339(),
             completed: true,
             completed_at: Some(chrono::Utc::now().to_rfc3339()),
+            updated_at: None,
         };
         
         let active = StashItem {
@@ -674,6 +679,7 @@ mod tests {
             created_at: chrono::Utc::now().to_rfc3339(),
             completed: false,
             completed_at: None,
+            updated_at: None,
         };
         
         db.save_stash(&completed, None).expect("Failed to save completed stash");
@@ -701,6 +707,7 @@ mod tests {
             created_at: chrono::Utc::now().to_rfc3339(),
             completed: false,
             completed_at: None,
+            updated_at: None,
         };
         
         let stash2 = StashItem {
@@ -713,6 +720,7 @@ mod tests {
             created_at: chrono::Utc::now().to_rfc3339(),
             completed: false,
             completed_at: None,
+            updated_at: None,
         };
         
         // Save without explicit position (should append)

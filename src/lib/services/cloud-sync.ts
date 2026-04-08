@@ -267,9 +267,9 @@ export class CloudSyncService {
                     completed: !!stash.completed,
                     completedAt: stash.completedAt || null,
                     createdAt: stash.createdAt,
-                    updatedAt: typeof (stash as any).updatedAt === 'number' 
-                        ? new Date((stash as any).updatedAt * 1000).toISOString() 
-                        : (stash.updatedAt || stash.createdAt),
+                    updatedAt: typeof stash.updatedAt === 'number'
+                        ? new Date(stash.updatedAt * 1000).toISOString()
+                        : (stash.updatedAt as string || stash.createdAt),
                     deleted: false,
                     attachments: stash.attachments.map(att => ({
                         id: att.id,
@@ -290,9 +290,9 @@ export class CloudSyncService {
                     name: ctx.name,
                     rules: ctx.rules || [],
                     lastUsed: ctx.lastUsed || null,
-                    updatedAt: typeof (ctx as any).updatedAt === 'number'
-                        ? new Date((ctx as any).updatedAt * 1000).toISOString()
-                        : (ctx.updatedAt || ctx.lastUsed || new Date().toISOString()),
+                    updatedAt: typeof ctx.updatedAt === 'number'
+                        ? new Date(ctx.updatedAt * 1000).toISOString()
+                        : (ctx.updatedAt as string || ctx.lastUsed || new Date().toISOString()),
                     deleted: false,
                 })),
             };
