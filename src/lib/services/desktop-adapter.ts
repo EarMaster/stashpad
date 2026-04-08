@@ -230,5 +230,9 @@ export class DesktopStorageAdapter implements IStorageService {
     async uploadAttachmentToCloud(attachmentId: string): Promise<void> {
         return await invoke('upload_attachment_to_cloud', { attachmentId });
     }
+
+    async getDeviceName(): Promise<string> {
+        return await invoke('get_device_name');
+    }
 }
 

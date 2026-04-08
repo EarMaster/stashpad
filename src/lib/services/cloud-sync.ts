@@ -58,6 +58,7 @@ interface SyncStashInput {
 /** Cloud sync request payload */
 interface SyncRequest {
     deviceId: string;
+    deviceName: string | null;
     lastSyncAt: string | null;
     stashes: SyncStashInput[];
 }
@@ -81,6 +82,7 @@ interface SyncContextInput {
 /** Context sync request */
 interface ContextSyncRequest {
     deviceId: string;
+    deviceName: string | null;
     contexts: SyncContextInput[];
 }
 
@@ -110,6 +112,7 @@ export class CloudSyncService {
     private listeners: Set<SyncListener> = new Set();
     private status: SyncStatus = 'idle';
     private deviceId: string;
+    private deviceName: string | null = null;
     private isSyncing = false;
     private wsUnlisten: UnlistenFn | null = null;
     private initialized = false;
@@ -137,6 +140,14 @@ export class CloudSyncService {
      */
     async initialize(settings: Settings): Promise<void> {
         this.settings = settings;
+        if (!this.deviceName) {
+            try {
+                this.deviceName = await this.adapter.getDeviceName();
+            } catch (e) {
+                console.error('Failed to get device name:', e);
+                this.deviceName = 'Unknown Device';
+            }
+        }
 
         if (this.shouldSync()) {
             this.startPeriodicSync();
@@ -155,6 +166,7 @@ export class CloudSyncService {
 
         if (isEnabled && !wasEnabled) {
             this.startPeriodicSync();
+            this.sync(); // Trigger immediate sync upon enabling
         } else if (!isEnabled && wasEnabled) {
             this.stopPeriodicSync();
         }
@@ -244,6 +256,7 @@ export class CloudSyncService {
             // Prepare stash sync payload
             const stashRequest: SyncRequest = {
                 deviceId: this.deviceId,
+                deviceName: this.deviceName,
                 lastSyncAt: config.lastSyncAt || null,
                 stashes: localStashes.map(stash => ({
                     id: stash.id,
@@ -253,7 +266,9 @@ export class CloudSyncService {
                     completed: !!stash.completed,
                     completedAt: stash.completedAt || null,
                     createdAt: stash.createdAt,
-                    updatedAt: stash.updatedAt || stash.createdAt,
+                    updatedAt: typeof (stash as any).updatedAt === 'number' 
+                        ? new Date((stash as any).updatedAt * 1000).toISOString() 
+                        : (stash.updatedAt || stash.createdAt),
                     deleted: false,
                     attachments: stash.attachments.map(att => ({
                         id: att.id,
@@ -268,12 +283,15 @@ export class CloudSyncService {
             // Prepare context sync payload
             const contextRequest: ContextSyncRequest = {
                 deviceId: this.deviceId,
+                deviceName: this.deviceName,
                 contexts: localContexts.map(ctx => ({
                     id: ctx.id,
                     name: ctx.name,
                     rules: ctx.rules || [],
                     lastUsed: ctx.lastUsed || null,
-                    updatedAt: ctx.lastUsed || new Date().toISOString(),
+                    updatedAt: typeof (ctx as any).updatedAt === 'number'
+                        ? new Date((ctx as any).updatedAt * 1000).toISOString()
+                        : (ctx.updatedAt || ctx.lastUsed || new Date().toISOString()),
                     deleted: false,
                 })),
             };

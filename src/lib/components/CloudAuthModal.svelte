@@ -95,6 +95,23 @@
     }
 
     /**
+     * Sanitizes a raw error string so that HTML responses (e.g. a server
+     * 500 page) are replaced with a concise, readable message.
+     */
+    function sanitizeError(raw: string): string {
+        const trimmed = raw.trim();
+        // Detect HTML: starts with '<' or contains common HTML tags
+        if (trimmed.startsWith("<") || /<html|<body|<!DOCTYPE/i.test(trimmed)) {
+            return "Server error. Please try again or enter the code manually.";
+        }
+        // Truncate excessively long messages
+        if (trimmed.length > 200) {
+            return trimmed.slice(0, 200) + "…";
+        }
+        return trimmed || "Failed to link account";
+    }
+
+    /**
      * Exchanges the manually entered link code for an access token.
      * On success, saves the token to settings and emits `onSuccess`.
      */
@@ -122,15 +139,19 @@
                 onSuccess();
             }, 1200);
         } catch (e) {
-            linkCodeError = e instanceof Error ? e.message : String(e) || "Failed to link account";
+            const raw = e instanceof Error ? e.message : String(e);
+            linkCodeError = sanitizeError(raw);
+            // Expand the manual entry panel so the user can retry
             showManualEntry = true;
         } finally {
             linkCodeLoading = false;
         }
     }
 
-    // Listen for deep link events
+    // Listen for deep-link events – only while the modal is open
     $effect(() => {
+        if (!open) return;
+
         let unlisten: (() => void) | undefined;
 
         const setupListener = async () => {
@@ -239,6 +260,18 @@
 
                         <hr class="border-border" />
 
+                        <!-- Error banner – always visible when an exchange fails -->
+                        {#if linkCodeError}
+                            <div
+                                class="flex items-start gap-2 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2"
+                                role="alert"
+                                transition:fade={{ duration: 100 }}
+                            >
+                                <span class="shrink-0 text-red-500 text-base leading-none mt-px">⚠</span>
+                                <p class="text-xs text-red-500 leading-snug">{linkCodeError}</p>
+                            </div>
+                        {/if}
+
                         <!-- Manual code entry disclosure -->
                         <div class="space-y-2">
                             <button
@@ -298,15 +331,6 @@
                                                   )}
                                         </button>
                                     </div>
-
-                                    {#if linkCodeError}
-                                        <p
-                                            class="text-xs text-red-500"
-                                            role="alert"
-                                        >
-                                            {linkCodeError}
-                                        </p>
-                                    {/if}
                                 </div>
                             {/if}
                         </div>

@@ -90,7 +90,7 @@ For comprehensive testing documentation, see [TESTING.md](TESTING.md).
 
 This project's source code is licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0)**.
 
-**© Copyright 2025 Nico Wiedemann**
+**© Copyright 2025-2026 Nico Wiedemann**
 
 **⚠️ BRANDING & ASSET EXCEPTION:**
 The following directories and their contents are **explicitly excluded** from the AGPL v3.0, as they constitute proprietary branding and design assets:

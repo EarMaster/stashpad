@@ -55,7 +55,8 @@
    let isCheckingForUpdates = $state(false);
 
    // Cloud sync status
-   let syncStatus = $state<SyncStatus>("idle");
+   let syncStatus: SyncStatus = $state("idle");
+   let syncStatusMessage: string = $state("");
    let showPromptReloadedToast = $state(false);
 
    const appWindow = getCurrentWindow();
@@ -143,8 +144,9 @@
       ); // 5 minutes
 
       // Listen to sync status changes
-      const unsubscribeSync = cloudSync.addListener((status) => {
+      const unsubscribeSync = cloudSync.addListener((status, message) => {
          syncStatus = status;
+         syncStatusMessage = message || "";
          if (status === "success") {
             // Refresh queue after successful sync to show server changes
             refreshTrigger++;
@@ -563,7 +565,7 @@
                bind:files={editorFiles}
                availableTags={allTags}
                pasteAsAttachmentThreshold={settings.pasteAsAttachmentThreshold ??
-                  8}
+                  500}
                resizeImages={settings.resizeImages ?? true}
             />
          </div>
@@ -589,6 +591,7 @@
       <SettingsView
          bind:settings
          {syncStatus}
+         syncStatusMessage={syncStatusMessage}
          onBack={() => {
             view = "Main";
             // No need to reload, we are bound. But safe to keep or remove.
@@ -599,6 +602,7 @@
             view = "Contexts";
          }}
          onCheckForUpdates={() => checkForUpdates(true)}
+         onTriggerSync={() => cloudSync.sync()}
          {isCheckingForUpdates}
       />
    {:else if view === "Contexts"}

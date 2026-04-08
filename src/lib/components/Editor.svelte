@@ -70,7 +70,7 @@
     saveLabel,
     autoFocus = false,
     availableTags = [],
-    pasteAsAttachmentThreshold = 8,
+    pasteAsAttachmentThreshold = 500,
     resizeImages = true,
     minHeight,
     maxHeight,
@@ -88,7 +88,7 @@
     saveLabel?: string;
     autoFocus?: boolean;
     availableTags?: string[];
-    /** Number of lines before pasted text becomes an attachment. 0 = ask user */
+    /** Number of bytes before pasted text becomes an attachment. 0 = ask user */
     pasteAsAttachmentThreshold?: number;
     resizeImages?: boolean;
     minHeight?: number | string;
@@ -436,7 +436,7 @@
   /**
    * Handle paste events to detect files or large text.
    * Files are added as attachments.
-   * Large text (exceeding threshold) is converted to a text file attachment.
+   * Large text (exceeding the byte threshold) is converted to a text file attachment.
    * When threshold is 0, a dialog asks the user what to do.
    */
   async function handlePaste(e: ClipboardEvent) {
@@ -490,7 +490,8 @@
     // When Shift is held, always paste as inline text
     if (forceInline) return;
 
-    const lineCount = pastedText.split("\n").length;
+    // Measure size in bytes (UTF-8 encoded length is a good proxy for content size)
+    const byteCount = new TextEncoder().encode(pastedText).length;
 
     // If threshold is 0, ask user what to do
     if (pasteAsAttachmentThreshold === 0) {
@@ -500,8 +501,8 @@
       return;
     }
 
-    // If text exceeds threshold, convert to attachment
-    if (lineCount > pasteAsAttachmentThreshold) {
+    // If text exceeds the byte threshold, convert to attachment
+    if (byteCount > pasteAsAttachmentThreshold) {
       e.preventDefault();
       await saveTextAsAttachment(pastedText);
       return;

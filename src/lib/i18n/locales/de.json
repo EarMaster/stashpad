@@ -74,10 +74,10 @@
             },
             "pasteAsAttachment": {
                 "label": "Als Anhang einfügen",
-                "description": "Anzahl Zeilen, ab der eingefügter Text als Anhang gespeichert wird",
+                "description": "Einfügegröße in Bytes, ab der Text als Anhang gespeichert wird",
                 "zeroNote": "Auf 0 setzen, um immer nachzufragen",
                 "shiftModifier": "Shift halten beim Einfügen, um immer als Text einzufügen",
-                "unit": "Zeilen"
+                "unit": "Bytes"
             },
             "autostart": {
                 "label": "Beim Start ausführen",

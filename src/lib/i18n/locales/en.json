@@ -77,10 +77,10 @@
             },
             "pasteAsAttachment": {
                 "label": "Paste as Attachment",
-                "description": "Number of lines before pasted text becomes an attachment",
+                "description": "Paste size in bytes before text is saved as an attachment",
                 "zeroNote": "Set to 0 to always ask what to do",
                 "shiftModifier": "Hold Shift while pasting to always paste as inline text",
-                "unit": "Lines"
+                "unit": "Bytes"
             },
             "autostart": {
                 "label": "Launch on Startup",

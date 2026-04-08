@@ -48,8 +48,10 @@
     AlertCircle,
     ExternalLink,
     FileText,
+    RefreshCw,
   } from "lucide-svelte";
   import TagBadge from "./TagBadge.svelte";
+  import SettingsButton from "./SettingsButton.svelte";
   import { tooltip } from "$lib/actions/tooltip";
   import { openUrl } from "@tauri-apps/plugin-opener";
 
@@ -58,16 +60,20 @@
   let {
     settings = $bindable(),
     syncStatus,
+    syncStatusMessage,
     onBack,
     onOpenContexts,
     onCheckForUpdates,
+    onTriggerSync,
     isCheckingForUpdates = false,
   } = $props<{
     settings: Settings;
     syncStatus: SyncStatus;
+    syncStatusMessage?: string;
     onBack: () => void;
     onOpenContexts: () => void;
     onCheckForUpdates: () => void;
+    onTriggerSync?: () => void;
     isCheckingForUpdates?: boolean;
   }>();
 
@@ -287,8 +293,8 @@
     try {
       const url = new URL(endpoint);
       // Strip the 'api.' subdomain prefix if present (e.g. api.stashpad.org → stashpad.org)
-      if (url.hostname.startsWith('api.')) {
-        url.hostname = url.hostname.slice('api.'.length);
+      if (url.hostname.startsWith("api.")) {
+        url.hostname = url.hostname.slice("api.".length);
       }
       accountUrl = `${url.origin}/account`;
     } catch {
@@ -423,43 +429,85 @@
         </h2>
 
         {#if settings.cloudConfig}
-          <!-- Status indicator row -->
+          <!-- Combined Status & Sync indicator row -->
           <div
             class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
             transition:fade={{ duration: 150 }}
           >
-            <div class="space-y-0.5 flex-1 mr-4">
+            <div class="space-y-1.5 flex-1 mr-4">
               <div class="text-sm font-medium">
                 {$_("settings.cloudSync.auth.status")}
               </div>
-              <div class="text-xs text-muted-foreground">
+
+              <!-- Authentication & Sync state -->
+              <div class="text-xs text-muted-foreground flex flex-col gap-1">
                 {#if settings.cloudConfig.enabled && settings.cloudConfig.userId && syncStatus !== "auth-error"}
-                  <!-- Authenticated: green dot + email -->
-                  <span class="inline-flex items-center gap-1.5">
-                    <span
-                      class="w-1.5 h-1.5 rounded-full bg-green-500 shrink-0"
-                      aria-hidden="true"
-                    ></span>
-                    <span class="text-green-500 font-medium">
-                      {$_("settings.cloudSync.auth.authenticated")}
-                    </span>
-                    {#if settings.cloudConfig.email}
-                      <span class="text-muted-foreground">
-                        — {settings.cloudConfig.email}
+                  <!-- Authenticated -->
+                  <div class="flex items-center gap-1.5 pt-0.5">
+                    {#if syncStatus === "syncing"}
+                      <Loader2 size={12} class="animate-spin text-blue-500" />
+                      <span class="text-blue-500"
+                        >{$_("settings.cloudSync.auth.syncing")}</span
+                      >
+                    {:else if syncStatus === "success"}
+                      <Check size={12} class="text-green-500" />
+                      <span class="text-green-500"
+                        >{$_("settings.cloudSync.auth.syncSuccess")}</span
+                      >
+                    {:else if syncStatus === "error"}
+                      <AlertCircle size={12} class="text-red-500" />
+                      <span class="text-red-500">
+                        {$_("settings.cloudSync.auth.syncError")}
+                        {#if syncStatusMessage}
+                          <span
+                            class="opacity-80 block text-[10px] whitespace-normal"
+                            >({syncStatusMessage})</span
+                          >
+                        {/if}
                       </span>
+                    {:else}
+                      <span
+                        class="w-1.5 h-1.5 rounded-full bg-green-500 shrink-0"
+                        aria-hidden="true"
+                      ></span>
+                      <span class="text-green-500 font-medium"
+                        >{$_("settings.cloudSync.auth.authenticated")}</span
+                      >
                     {/if}
-                  </span>
+
+                    {#if settings.cloudConfig.email}
+                      <span class="text-muted-foreground"
+                        >— {settings.cloudConfig.email}</span
+                      >
+                    {/if}
+                  </div>
+
+                  <!-- Last Sync Time -->
+                  <div class="text-[10px] text-muted-foreground/80 pl-3">
+                    {#if settings.cloudConfig.lastSyncAt}
+                      {$_("settings.cloudSync.auth.lastSync", {
+                        values: {
+                          time: getRelativeTime(
+                            settings.cloudConfig.lastSyncAt,
+                            $_,
+                          ),
+                        },
+                      })}
+                    {:else}
+                      {$_("settings.cloudSync.auth.neverSynced")}
+                    {/if}
+                  </div>
                 {:else if settings.cloudConfig.enabled && settings.cloudConfig.userId && syncStatus === "auth-error"}
-                  <!-- Auth Error: session expired -->
-                  <span class="inline-flex items-center gap-1.5">
-                    <AlertCircle size={12} class="text-destructive shrink-0" />
-                    <span class="text-destructive font-medium">
+                  <!-- Auth Error -->
+                  <div class="flex items-center gap-1.5 pt-0.5">
+                    <AlertCircle size={12} class="text-red-500 shrink-0" />
+                    <span class="text-red-500 font-medium">
                       {$_("settings.cloudSync.auth.sessionExpired")}
                     </span>
-                  </span>
+                  </div>
                 {:else}
-                  <!-- Not authenticated: grey dot -->
-                  <span class="inline-flex items-center gap-1.5">
+                  <!-- Not authenticated -->
+                  <div class="flex items-center gap-1.5 pt-0.5">
                     <span
                       class="w-1.5 h-1.5 rounded-full bg-muted-foreground/50 shrink-0"
                       aria-hidden="true"
@@ -467,43 +515,59 @@
                     <span class="text-muted-foreground">
                       {$_("settings.cloudSync.auth.notAuthenticated")}
                     </span>
-                  </span>
+                  </div>
                 {/if}
               </div>
             </div>
 
-            {#if settings.cloudConfig.enabled && settings.cloudConfig.userId && syncStatus !== "auth-error"}
-              <!-- Logged in: logout button -->
-              <button
-                class="px-4 py-2 rounded-md text-sm font-medium border border-border hover:bg-muted transition-colors"
-                onclick={handleCloudLogout}
-              >
-                {$_("settings.cloudSync.auth.logout")}
-              </button>
-            {:else if settings.cloudConfig.enabled && settings.cloudConfig.userId && syncStatus === "auth-error"}
-              <!-- Logged in but expired: login again button -->
-              <button
-                class="inline-flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
-                onclick={() => {
-                  showAuthModal = true;
-                }}
-              >
-                {$_("settings.cloudSync.auth.loginAgain")}
-              </button>
-            {:else}
-              <!-- Not logged in: open the auth modal -->
-              <button
-                class="inline-flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
-                onclick={() => {
-                  showAuthModal = true;
-                }}
-              >
-                {$_("settings.cloudSync.auth.enableButton")}
-              </button>
-            {/if}
+            <!-- Action Button -->
+            <div class="shrink-0 flex items-center gap-2 justify-end">
+              {#if settings.cloudConfig.enabled && settings.cloudConfig.userId && syncStatus !== "auth-error"}
+                <SettingsButton
+                  variant="outline"
+                  iconOnly
+                  title={$_("settings.cloudSync.auth.syncNow", {
+                    default: "Sync now",
+                  })}
+                  onclick={() => onTriggerSync?.()}
+                  disabled={syncStatus === "syncing"}
+                >
+                  {#snippet icon()}
+                    <RefreshCw
+                      size={16}
+                      class={syncStatus === "syncing" ? "animate-spin" : ""}
+                    />
+                  {/snippet}
+                </SettingsButton>
+                <SettingsButton
+                  variant="destructive"
+                  onclick={handleCloudLogout}
+                >
+                  {$_("settings.cloudSync.auth.logout")}
+                </SettingsButton>
+              {:else if settings.cloudConfig.enabled && settings.cloudConfig.userId && syncStatus === "auth-error"}
+                <SettingsButton
+                  variant="outside"
+                  onclick={() => {
+                    showAuthModal = true;
+                  }}
+                >
+                  {$_("settings.cloudSync.auth.loginAgain")}
+                </SettingsButton>
+              {:else}
+                <SettingsButton
+                  variant="outside"
+                  onclick={() => {
+                    showAuthModal = true;
+                  }}
+                >
+                  {$_("settings.cloudSync.auth.enableButton")}
+                </SettingsButton>
+              {/if}
+            </div>
           </div>
 
-          <!-- Subscription Status (shown when logged in) -->
+          <!-- Subscription Status -->
           {#if settings.cloudConfig.enabled && settings.cloudConfig.userId}
             <div
               class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
@@ -528,71 +592,16 @@
                   {/if}
                 </div>
               </div>
-              <button
-                class="px-4 py-2 rounded-md text-sm font-medium border border-border hover:bg-muted transition-colors"
-                onclick={openAccountPortal}
-              >
+              <SettingsButton variant="outline" onclick={openAccountPortal}>
+                {#snippet icon()}
+                  <ExternalLink size={14} />
+                {/snippet}
                 {settings.cloudConfig.subscriptionTier === "free" ||
                 !settings.cloudConfig.subscriptionTier
                   ? "Upgrade"
                   : "Manage"}
-              </button>
+              </SettingsButton>
             </div>
-
-            <!-- Live Sync Status -->
-            {#if settings.cloudConfig.enabled}
-              <div
-                class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
-                transition:fade={{ duration: 150 }}
-              >
-                <div class="space-y-0.5 flex-1 mr-4">
-                  <div class="text-sm font-medium">
-                    {$_("settings.cloudSync.auth.status")}
-                  </div>
-                  <div
-                    class="text-xs text-muted-foreground flex items-center gap-1.5 pt-0.5"
-                  >
-                    {#if syncStatus === "syncing"}
-                      <Loader2 size={12} class="animate-spin text-blue-500" />
-                      <span class="text-blue-500"
-                        >{$_("settings.cloudSync.auth.syncing")}</span
-                      >
-                    {:else if syncStatus === "success"}
-                      <Check size={12} class="text-green-500" />
-                      <span class="text-green-500"
-                        >{$_("settings.cloudSync.auth.syncSuccess")}</span
-                      >
-                    {:else if syncStatus === "error"}
-                      <AlertCircle size={12} class="text-destructive" />
-                      <span class="text-destructive"
-                        >{$_("settings.cloudSync.auth.syncError")}</span
-                      >
-                    {:else}
-                      <span
-                        class="w-1.5 h-1.5 rounded-full bg-muted-foreground/50 shrink-0"
-                        aria-hidden="true"
-                      ></span>
-                      <span class="text-muted-foreground">Idle</span>
-                    {/if}
-                  </div>
-                </div>
-                <!-- Optionally show last sync time on the right -->
-                <div class="text-xs text-muted-foreground text-right mt-auto">
-                  {#if settings.cloudConfig.lastSyncAt}
-                    {$_("settings.cloudSync.auth.lastSync", {
-                      values: {
-                        time: getRelativeTime(
-                          settings.cloudConfig.lastSyncAt,
-                          $_,
-                        ),
-                      },
-                    })}
-                  {:else}
-                    {$_("settings.cloudSync.auth.neverSynced")}
-                  {/if}
-                </div>
-              </div>
-            {/if}
           {/if}
         {/if}
       </section>
@@ -740,9 +749,9 @@
             <input
               type="number"
               min="0"
-              max="1000"
+              max="100000"
               class="w-20 rounded-md border border-border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors"
-              value={settings.pasteAsAttachmentThreshold ?? 8}
+              value={settings.pasteAsAttachmentThreshold ?? 500}
               oninput={(e) => {
                 const val = parseInt(e.currentTarget.value);
                 if (!isNaN(val) && val >= 0) {
@@ -1115,37 +1124,7 @@
         </div>
 
         {#if settings.aiConfig?.enabled}
-          <!-- Provider Selector -->
-          <div
-            class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
-            transition:fade={{ duration: 150 }}
-          >
-            <div class="space-y-0.5">
-              <div class="text-sm font-medium">
-                {$_("settings.aiEnhancement.provider.label")}
-              </div>
-              <div class="text-xs text-muted-foreground">
-                {$_("settings.aiEnhancement.provider.description")}
-              </div>
-            </div>
-            <select
-              class="bg-muted border border-border rounded-md px-3 py-1.5 text-sm font-medium cursor-pointer outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors"
-              value={settings.aiConfig?.presetId ?? ""}
-              onchange={(e) => handlePresetChange(e.currentTarget.value)}
-            >
-              <option value="" disabled>{$_("common.select")}</option>
-              {#each AI_PROVIDER_PRESETS as preset}
-                <!-- Only show Apple Intelligence preset if available -->
-                {#if !isAppleIntelligencePreset(preset.id) || appleIntelligenceAvailable}
-                  <option value={preset.id}>
-                    {preset.id === "custom"
-                      ? $_("settings.aiEnhancement.provider.custom")
-                      : preset.name}
-                  </option>
-                {/if}
-              {/each}
-            </select>
-          </div>
+          <!-- 2. System-Prompt Edit (Standalone Box) -->
           <div
             class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
             transition:fade={{ duration: 150 }}
@@ -1163,159 +1142,196 @@
                 {$_("settings.aiEnhancement.systemPrompt.description")}
               </div>
             </div>
-            <button
-              type="button"
-              class="inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium border border-border bg-muted hover:bg-accent hover:text-accent-foreground transition-colors"
+            <SettingsButton
+              variant="inside"
               onclick={() => adapter.openSystemPromptFile()}
             >
-              <FileText size={14} />
+              {#snippet icon()}
+                <FileText size={14} />
+              {/snippet}
               {$_("settings.aiEnhancement.systemPrompt.edit")}
-            </button>
+            </SettingsButton>
           </div>
 
-          {#if isAppleIntelligencePreset(settings.aiConfig?.presetId)}
-            <!-- Apple Intelligence Info Note -->
+          <!-- Grouped AI Connection Container (3-6) -->
+          <div
+            class="rounded-lg border border-border bg-card overflow-hidden"
+            transition:fade={{ duration: 150 }}
+          >
+            <!-- 3. Provider Selector -->
             <div
-              class="flex items-center gap-3 p-4 rounded-lg bg-primary/10 border border-primary/20 text-primary"
-              transition:fade={{ duration: 150 }}
+              class="flex items-center justify-between p-3 {isAppleIntelligencePreset(
+                settings.aiConfig?.presetId,
+              )
+                ? ''
+                : 'border-b border-border/50'}"
             >
-              <Sparkles class="w-5 h-5 flex-shrink-0" />
-              <div class="text-sm">
-                {$_("settings.aiEnhancement.appleIntelligence.info")}
-              </div>
-            </div>
-          {:else}
-            <!-- API Endpoint -->
-            <div
-              class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
-              transition:fade={{ duration: 150 }}
-            >
-              <div class="space-y-0.5 flex-1 mr-4">
+              <div class="space-y-0.5">
                 <div class="text-sm font-medium">
-                  {$_("settings.aiEnhancement.endpoint.label")}
+                  {$_("settings.aiEnhancement.provider.label")}
                 </div>
                 <div class="text-xs text-muted-foreground">
-                  {$_("settings.aiEnhancement.endpoint.description")}
+                  {$_("settings.aiEnhancement.provider.description")}
                 </div>
               </div>
-              <input
-                type="text"
-                class="w-64 rounded-md border border-border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors"
-                placeholder="https://api.openai.com/v1"
-                value={settings.aiConfig?.endpoint ?? ""}
-                oninput={(e) => {
-                  if (settings.aiConfig) {
-                    settings.aiConfig.endpoint = e.currentTarget.value;
-                    connectionTestResult = null;
-                    save();
-                  }
-                }}
-              />
+              <select
+                class="bg-muted border border-border rounded-md px-3 py-1.5 text-sm font-medium cursor-pointer outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors"
+                value={settings.aiConfig?.presetId ?? ""}
+                onchange={(e) => handlePresetChange(e.currentTarget.value)}
+              >
+                <option value="" disabled>{$_("common.select")}</option>
+                {#each AI_PROVIDER_PRESETS as preset}
+                  {#if !isAppleIntelligencePreset(preset.id) || appleIntelligenceAvailable}
+                    <option value={preset.id}>
+                      {preset.id === "custom"
+                        ? $_("settings.aiEnhancement.provider.custom")
+                        : preset.name}
+                    </option>
+                  {/if}
+                {/each}
+              </select>
             </div>
 
-            <!-- API Key -->
-            <div
-              class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
-              transition:fade={{ duration: 150 }}
-            >
-              <div class="space-y-0.5 flex-1 mr-4">
-                <div class="text-sm font-medium">
-                  {$_("settings.aiEnhancement.apiKey.label")}
-                </div>
-                <div class="text-xs text-muted-foreground">
-                  {$_("settings.aiEnhancement.apiKey.description")}
+            {#if isAppleIntelligencePreset(settings.aiConfig?.presetId)}
+              <!-- Apple Intelligence Info Note -->
+              <div
+                class="flex items-center gap-3 p-4 bg-primary/10 text-primary border-t border-border/50"
+              >
+                <Sparkles class="w-5 h-5 flex-shrink-0" />
+                <div class="text-sm">
+                  {$_("settings.aiEnhancement.appleIntelligence.info")}
                 </div>
               </div>
-              <div class="flex items-center gap-2">
+            {:else}
+              <!-- 4-6. Connection fields Grouped inside the same container -->
+
+              <!-- API Endpoint (4) -->
+              <div
+                class="flex items-center justify-between p-3 border-b border-border/50"
+              >
+                <div class="space-y-0.5 flex-1 mr-4">
+                  <div class="text-sm font-medium">
+                    {$_("settings.aiEnhancement.endpoint.label")}
+                  </div>
+                  <div class="text-xs text-muted-foreground">
+                    {$_("settings.aiEnhancement.endpoint.description")}
+                  </div>
+                </div>
                 <input
-                  type={showApiKey ? "text" : "password"}
-                  class="w-52 rounded-md border border-border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors font-mono"
-                  placeholder="sk-..."
-                  value={settings.aiConfig?.apiKey ?? ""}
+                  type="text"
+                  class="w-64 rounded-md border border-border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors"
+                  placeholder="https://api.openai.com/v1"
+                  value={settings.aiConfig?.endpoint ?? ""}
                   oninput={(e) => {
                     if (settings.aiConfig) {
-                      settings.aiConfig.apiKey = e.currentTarget.value;
+                      settings.aiConfig.endpoint = e.currentTarget.value;
                       connectionTestResult = null;
                       save();
                     }
                   }}
                 />
-                <button
-                  type="button"
-                  class="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                  onclick={() => (showApiKey = !showApiKey)}
-                  title={showApiKey
-                    ? $_("settings.aiEnhancement.apiKey.hide")
-                    : $_("settings.aiEnhancement.apiKey.show")}
-                  use:tooltip
-                >
-                  {#if showApiKey}
-                    <EyeOff size={16} />
-                  {:else}
-                    <Eye size={16} />
-                  {/if}
-                </button>
               </div>
-            </div>
 
-            <!-- Model Name -->
-            <div
-              class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
-              transition:fade={{ duration: 150 }}
-            >
-              <div class="space-y-0.5 flex-1 mr-4">
-                <div class="text-sm font-medium">
-                  {$_("settings.aiEnhancement.model.label")}
-                </div>
-                <div class="text-xs text-muted-foreground">
-                  {$_("settings.aiEnhancement.model.description")}
-                </div>
-              </div>
-              <input
-                type="text"
-                class="w-64 rounded-md border border-border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors"
-                placeholder="gpt-4o-mini"
-                value={settings.aiConfig?.model ?? ""}
-                oninput={(e) => {
-                  if (settings.aiConfig) {
-                    settings.aiConfig.model = e.currentTarget.value;
-                    connectionTestResult = null;
-                    save();
-                  }
-                }}
-              />
-            </div>
-
-            <!-- Test Connection -->
-            <div
-              class="flex items-center justify-end gap-3 p-3"
-              transition:fade={{ duration: 150 }}
-            >
-              {#if connectionTestResult}
-                <span
-                  class="text-xs {connectionTestResult.success
-                    ? 'text-green-500'
-                    : 'text-destructive'}"
-                  transition:fade
-                >
-                  {connectionTestResult.message}
-                </span>
-              {/if}
-              <button
-                type="button"
-                class="inline-flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                onclick={handleTestConnection}
-                disabled={testingConnection ||
-                  !settings.aiConfig?.endpoint ||
-                  !settings.aiConfig?.model}
+              <!-- API Key (5) -->
+              <div
+                class="flex items-center justify-between p-3 border-b border-border/50"
               >
-                {#if testingConnection}
-                  <Loader2 size={14} class="animate-spin" />
+                <div class="space-y-0.5 flex-1 mr-4">
+                  <div class="text-sm font-medium">
+                    {$_("settings.aiEnhancement.apiKey.label")}
+                  </div>
+                  <div class="text-xs text-muted-foreground">
+                    {$_("settings.aiEnhancement.apiKey.description")}
+                  </div>
+                </div>
+                <div class="flex items-center gap-2">
+                  <input
+                    type={showApiKey ? "text" : "password"}
+                    class="w-52 rounded-md border border-border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors font-mono"
+                    placeholder="sk-..."
+                    value={settings.aiConfig?.apiKey ?? ""}
+                    oninput={(e) => {
+                      if (settings.aiConfig) {
+                        settings.aiConfig.apiKey = e.currentTarget.value;
+                        connectionTestResult = null;
+                        save();
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    class="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                    onclick={() => (showApiKey = !showApiKey)}
+                    title={showApiKey
+                      ? $_("settings.aiEnhancement.apiKey.hide")
+                      : $_("settings.aiEnhancement.apiKey.show")}
+                    use:tooltip
+                  >
+                    {#if showApiKey}
+                      <EyeOff size={16} />
+                    {:else}
+                      <Eye size={16} />
+                    {/if}
+                  </button>
+                </div>
+              </div>
+
+              <!-- Model Name (6) -->
+              <div class="flex items-center justify-between p-3">
+                <div class="space-y-0.5 flex-1 mr-4">
+                  <div class="text-sm font-medium">
+                    {$_("settings.aiEnhancement.model.label")}
+                  </div>
+                  <div class="text-xs text-muted-foreground">
+                    {$_("settings.aiEnhancement.model.description")}
+                  </div>
+                </div>
+                <input
+                  type="text"
+                  class="w-64 rounded-md border border-border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors"
+                  placeholder="gpt-4o-mini"
+                  value={settings.aiConfig?.model ?? ""}
+                  oninput={(e) => {
+                    if (settings.aiConfig) {
+                      settings.aiConfig.model = e.currentTarget.value;
+                      connectionTestResult = null;
+                      save();
+                    }
+                  }}
+                />
+              </div>
+
+              <!-- Test Connection (Bottom of Container) -->
+              <div
+                class="p-3 bg-muted/30 flex items-center justify-end gap-3 border-t border-border/50"
+              >
+                {#if connectionTestResult}
+                  <span
+                    class="text-xs {connectionTestResult.success
+                      ? 'text-green-500'
+                      : 'text-destructive'}"
+                    transition:fade
+                  >
+                    {connectionTestResult.message}
+                  </span>
                 {/if}
-                {$_("settings.aiEnhancement.testConnection")}
-              </button>
-            </div>
-          {/if}
+                <SettingsButton
+                  variant="outside"
+                  onclick={handleTestConnection}
+                  disabled={testingConnection ||
+                    !settings.aiConfig?.endpoint ||
+                    !settings.aiConfig?.model}
+                >
+                  {#snippet icon()}
+                    {#if testingConnection}
+                      <Loader2 size={14} class="animate-spin" />
+                    {/if}
+                  {/snippet}
+                  {$_("settings.aiEnhancement.testConnection")}
+                </SettingsButton>
+              </div>
+            {/if}
+          </div>
         {/if}
       </section>
 
@@ -1351,7 +1367,6 @@
   </div>
 </div>
 
-<!-- Cloud authorization modal – rendered at root level for full-window overlay -->
 <!-- Cloud authorization modal – rendered at root level for full-window overlay -->
 <CloudAuthModal
   bind:open={showAuthModal}

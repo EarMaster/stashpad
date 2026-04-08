@@ -59,6 +59,7 @@ export interface Context {
     description?: string;
     rules: ContextRule[];
     lastUsed?: string;
+    updatedAt?: string;
 }
 
 /** Configuration for an OpenAI-compatible API provider preset */
@@ -123,7 +124,7 @@ export interface Settings {
     clearCompletedStrategy?: 'never' | 'on-close' | 'after-n-days';
     /** Number of days to keep completed stashes (if strategy is after-n-days) */
     clearCompletedDays?: number;
-    /** Number of lines of pasted text before it becomes an attachment. 0 = ask user, default 8 */
+    /** Number of bytes of pasted text before it becomes an attachment. 0 = ask user, default 500 */
     pasteAsAttachmentThreshold?: number;
     /** Last used timestamp for the default context */
     defaultContextLastUsed?: string;
@@ -174,6 +175,7 @@ export interface IStorageService {
     deleteCompletedStashes(contextId?: string): Promise<void>;
     triggerAutoCleanup(): Promise<void>;
     isWindows10(): Promise<boolean>;
+    getDeviceName(): Promise<string>;
 
     // Context management
     getContexts(): Promise<Context[]>;

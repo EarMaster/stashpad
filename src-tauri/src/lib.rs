@@ -68,6 +68,8 @@ pub struct StashItem {
     pub completed: bool,
     #[serde(default)]
     pub completed_at: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<u64>,
 }
 
 #[derive(serde::Deserialize)]
@@ -216,6 +218,8 @@ pub struct Context {
     pub rules: Vec<ContextRule>,
     #[serde(default)]
     pub last_used: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<u64>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
@@ -949,6 +953,15 @@ fn apply_window_effects_to_window(window: &tauri::WebviewWindow, enabled: Option
 // --- Commands ---
 
 #[tauri::command]
+fn get_device_name() -> String {
+    std::process::Command::new("hostname")
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_else(|_| "Unknown Device".to_string())
+}
+
+
+#[tauri::command]
 fn get_installation_source() -> String {
     if let Ok(exe_path) = std::env::current_exe() {
         let path_str = exe_path.to_string_lossy().to_lowercase();
@@ -1193,21 +1206,43 @@ async fn exchange_link_code_api(
         .json(&serde_json::json!({ "token": token }))
         .send()
         .await
-        .map_err(|e| format!("Failed to exchange token: {}", e))?;
+        .map_err(|e| format!("Failed to reach server: {}", e))?;
 
     if !response.status().is_success() {
-        let error_text = response.text().await.unwrap_or_else(|_| "Invalid or expired code".to_string());
-        return Err(error_text);
+        let status = response.status().as_u16();
+        let body = response.text().await.unwrap_or_default();
+
+        // The body may be a JSON error object like { "error": "..." }
+        // or an HTML page. Extract a clean message in either case.
+        let message = if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
+            json["error"]
+                .as_str()
+                .or_else(|| json["message"].as_str())
+                .unwrap_or("Unknown server error")
+                .to_string()
+        } else if body.trim_start().starts_with('<') || body.is_empty() {
+            // HTML page or empty body — return a generic message with the status
+            format!("Server returned an error (HTTP {})", status)
+        } else {
+            body
+        };
+
+        return Err(message);
     }
 
-    let data: serde_json::Value = response.json().await
+    let data: serde_json::Value = response
+        .json()
+        .await
         .map_err(|e| format!("Failed to parse response: {}", e))?;
 
     let access_token_val = data["token"]
         .as_str()
         .ok_or("Missing token in response")?
         .to_string();
-    let user_id_val = data["userId"]
+
+    // The server's AuthResponse uses snake_case field names (no rename_all),
+    // so the JSON field is "user_id", not "userId".
+    let user_id_val = data["user_id"]
         .as_str()
         .map(|s| s.to_string());
 
@@ -1223,18 +1258,19 @@ async fn exchange_link_code_api(
         subscription_period_end: None,
         last_sync_at: None,
     });
-    
+
     config.access_token = Some(access_token_val);
     config.user_id = user_id_val;
     config.enabled = true;
-    
+
     settings.cloud_config = Some(config.clone());
     persist_settings_to_disk(&settings);
-    
+
     let mut return_config = config;
     return_config.access_token = None;
     Ok(return_config)
 }
+
 
 #[tauri::command]
 async fn sync_stashes_api(
@@ -1257,12 +1293,11 @@ async fn sync_stashes_api(
         .await
         .map_err(|e| format!("Failed to sync stashes: {}", e))?;
 
-    if response.status() == 401 {
-        return Err("Authentication expired. Please log in again.".into());
-    }
-
     if !response.status().is_success() {
-        return Err(format!("Stash sync failed: {}", response.status()));
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        let snippet = if body.len() > 100 { &body[..100] } else { &body };
+        return Err(format!("Stash sync failed ({}): {}", status, snippet));
     }
 
     response.json().await.map_err(|e| format!("Failed to parse sync response: {}", e))
@@ -1380,7 +1415,10 @@ async fn sync_contexts_api(
     }
 
     if !response.status().is_success() {
-        return Err(format!("Context sync failed: {}", response.status()));
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        let snippet = if body.len() > 100 { &body[..100] } else { &body };
+        return Err(format!("Context sync failed ({}): {}", status, snippet));
     }
 
     response.json().await.map_err(|e| format!("Failed to parse sync response: {}", e))
@@ -1654,6 +1692,7 @@ fn save_stash(
                 created_at: "".into(),
                 completed: row.get(1)?,
                 completed_at: row.get(2)?,
+                updated_at: None,
             })
         }
     ).optional().unwrap_or(None);
@@ -2846,6 +2885,7 @@ pub fn run() {
             copy_to_clipboard,
             read_clipboard_text,
             start_drag,
+            get_device_name,
             get_settings,
             save_settings,
             is_windows_10,
@@ -2987,6 +3027,7 @@ mod tests {
             created_at: "2024-01-01".into(),
             completed: false,
             completed_at: None,
+            updated_at: None,
         };
         
         // New item, top
@@ -3011,6 +3052,7 @@ mod tests {
             created_at: "2024-01-01".into(),
             completed: false,
             completed_at: None,
+            updated_at: None,
         };
         
         let mut new = old.clone();
@@ -3040,6 +3082,7 @@ mod tests {
             created_at: "2024-01-01".into(),
             completed: false,
             completed_at: None,
+            updated_at: None,
         };
         
         let new = old.clone();

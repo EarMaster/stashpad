@@ -287,7 +287,7 @@ impl DbManager {
     // --- Context CRUD ---
 
     pub fn get_contexts(&self) -> Result<Vec<Context>> {
-        let mut stmt = self.conn.prepare("SELECT id, name, rules, last_used, description FROM contexts WHERE deleted = 0")?;
+        let mut stmt = self.conn.prepare("SELECT id, name, rules, last_used, updated_at, description FROM contexts WHERE deleted = 0")?;
         let rows = stmt.query_map([], |row| {
             let rules_str: String = row.get(2)?;
             let rules: Vec<ContextRule> = serde_json::from_str(&rules_str).unwrap_or_default();
@@ -296,7 +296,8 @@ impl DbManager {
                 name: row.get(1)?,
                 rules,
                 last_used: row.get(3)?,
-                description: row.get(4)?,
+                updated_at: row.get(4)?,
+                description: row.get(5)?,
             })
         })?;
 
@@ -347,7 +348,7 @@ impl DbManager {
 
     pub fn get_stashes(&self) -> Result<Vec<StashItem>> {
         // 1. Get all stashes
-        let mut stmt = self.conn.prepare("SELECT id, context_id, content, files, created_at, completed, completed_at, position, enhanced_content FROM stashes WHERE deleted = 0 ORDER BY position ASC")?;
+        let mut stmt = self.conn.prepare("SELECT id, context_id, content, files, created_at, completed, completed_at, position, updated_at, enhanced_content FROM stashes WHERE deleted = 0 ORDER BY position ASC")?;
         
         let stash_rows = stmt.query_map([], |row| {
             let files_str: String = row.get(3)?;
@@ -358,12 +359,13 @@ impl DbManager {
                 id: row.get(0)?,
                 context_id: row.get(1)?,
                 content: row.get(2)?,
-                enhanced_content: row.get(8)?,
+                enhanced_content: row.get(9)?,
                 files: serde_json::from_str(&files_str).unwrap_or_default(),
                 attachments: Vec::new(), // Populate later
                 created_at: row.get(4)?,
                 completed: row.get(5)?,
                 completed_at: row.get(6)?,
+                updated_at: row.get(8)?,
             })
         })?;
 
