@@ -144,7 +144,8 @@ export class CloudSyncService {
             try {
                 this.deviceName = await this.adapter.getDeviceName();
             } catch (e) {
-                console.error('Failed to get device name:', e);
+                const msg = e instanceof Error ? e.message : String(e);
+                console.error('Failed to get device name:', msg);
                 this.deviceName = 'Unknown Device';
             }
         }
@@ -326,7 +327,7 @@ export class CloudSyncService {
             console.log(`[CloudSync] Synced ${stashCount} stashes, ${contextCount} contexts`);
             return true;
         } catch (error) {
-            const message = error instanceof Error ? error.message : 'Unknown error';
+            const message = error instanceof Error ? error.message : String(error);
             console.error('[CloudSync] Sync failed:', message);
             this.setStatus('error', message);
             return false;
@@ -387,14 +388,24 @@ export class CloudSyncService {
         for (const serverStash of serverStashes) {
             const localStash = localMap.get(serverStash.id);
 
+            // Convert updatedAt from ISO string to Unix timestamp (seconds) for local DB
+            const stashToSave = {
+                ...serverStash,
+                updatedAt: serverStash.updatedAt 
+                    ? Math.floor(new Date(serverStash.updatedAt).getTime() / 1000) 
+                    : undefined
+            } as any;
+
             if (!localStash) {
-                toSave.push(serverStash);
+                toSave.push(stashToSave);
             } else {
                 const serverTime = new Date(serverStash.updatedAt || serverStash.createdAt).getTime();
-                const localTime = new Date(localStash.updatedAt || localStash.createdAt).getTime();
+                const localTime = typeof localStash.updatedAt === 'number'
+                    ? (localStash.updatedAt as number) * 1000
+                    : new Date(localStash.updatedAt || localStash.createdAt).getTime();
 
                 if (serverTime > localTime) {
-                    toSave.push(serverStash);
+                    toSave.push(stashToSave);
                 }
             }
         }
@@ -416,6 +427,9 @@ export class CloudSyncService {
 
         for (const serverCtx of serverContexts) {
             const localCtx = localMap.get(serverCtx.id);
+            const updatedAt = serverCtx.updatedAt 
+                ? Math.floor(new Date(serverCtx.updatedAt).getTime() / 1000) 
+                : undefined;
 
             if (!localCtx) {
                 // New from server
@@ -424,17 +438,21 @@ export class CloudSyncService {
                     name: serverCtx.name,
                     rules: serverCtx.rules as Context['rules'],
                     lastUsed: serverCtx.lastUsed || undefined,
+                    updatedAt
                 });
             } else {
                 const serverTime = new Date(serverCtx.updatedAt || serverCtx.lastUsed || 0).getTime();
-                const localTime = new Date(localCtx.lastUsed || 0).getTime();
+                const localTime = typeof localCtx.updatedAt === 'number'
+                    ? (localCtx.updatedAt as number) * 1000
+                    : new Date(localCtx.lastUsed || 0).getTime();
 
                 if (serverTime > localTime) {
                     toSave.push({
-                        ...localCtx,
+                        id: serverCtx.id,
                         name: serverCtx.name,
                         rules: serverCtx.rules as Context['rules'],
-                        lastUsed: serverCtx.lastUsed || localCtx.lastUsed,
+                        lastUsed: serverCtx.lastUsed || undefined,
+                        updatedAt
                     });
                 }
             }

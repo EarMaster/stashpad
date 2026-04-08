@@ -34,7 +34,7 @@ export interface StashItem {
     contextId?: string;
     completed?: boolean;
     completedAt?: string; // ISO Date string
-    updatedAt?: string; // ISO Date string
+    updatedAt?: string | number; // ISO Date string (string) or Unix timestamp (number)
     isDndShadowItem?: boolean; // Added by svelte-dnd-action during drag operations
 }
 
@@ -59,7 +59,7 @@ export interface Context {
     description?: string;
     rules: ContextRule[];
     lastUsed?: string;
-    updatedAt?: string;
+    updatedAt?: string | number;
 }
 
 /** Configuration for an OpenAI-compatible API provider preset */

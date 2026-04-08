@@ -40,7 +40,9 @@ use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial};
 #[serde(rename_all = "camelCase")]
 pub struct Attachment {
     pub id: String,
+    #[serde(default)]
     pub stash_id: String,
+    #[serde(default)]
     pub file_path: String,
     pub file_name: String,
     pub file_size: i64,
