@@ -234,5 +234,17 @@ export class DesktopStorageAdapter implements IStorageService {
     async getDeviceName(): Promise<string> {
         return await invoke('get_device_name');
     }
+
+    async loadStashesForSync(): Promise<StashItem[]> {
+        return await invoke('load_stashes_for_sync');
+    }
+
+    async getContextsForSync(): Promise<Context[]> {
+        return await invoke('get_contexts_for_sync');
+    }
+
+    async importStashes(stashes: StashItem[]): Promise<void> {
+        await invoke('import_stashes', { stashesList: stashes });
+    }
 }
 

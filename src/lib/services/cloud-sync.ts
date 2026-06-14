@@ -250,8 +250,8 @@ export class CloudSyncService {
         try {
             // Load local data
             const [localStashes, localContexts] = await Promise.all([
-                this.adapter.loadStashes(),
-                this.adapter.getContexts(),
+                this.adapter.loadStashesForSync(),
+                this.adapter.getContextsForSync(),
             ]);
 
             // Prepare stash sync payload
@@ -270,7 +270,7 @@ export class CloudSyncService {
                     updatedAt: typeof stash.updatedAt === 'number'
                         ? new Date(stash.updatedAt * 1000).toISOString()
                         : (stash.updatedAt as string || stash.createdAt),
-                    deleted: false,
+                    deleted: !!stash.deleted,
                     attachments: stash.attachments.map(att => ({
                         id: att.id,
                         fileName: att.fileName,
@@ -293,7 +293,7 @@ export class CloudSyncService {
                     updatedAt: typeof ctx.updatedAt === 'number'
                         ? new Date(ctx.updatedAt * 1000).toISOString()
                         : (ctx.updatedAt as string || ctx.lastUsed || new Date().toISOString()),
-                    deleted: false,
+                    deleted: !!ctx.deleted,
                 })),
             };
 
@@ -393,7 +393,8 @@ export class CloudSyncService {
                 ...serverStash,
                 updatedAt: serverStash.updatedAt 
                     ? Math.floor(new Date(serverStash.updatedAt).getTime() / 1000) 
-                    : undefined
+                    : undefined,
+                deleted: !!(serverStash as any).deletedAt || !!serverStash.deleted
             } as any;
 
             if (!localStash) {
@@ -411,7 +412,7 @@ export class CloudSyncService {
         }
 
         if (toSave.length > 0) {
-            await this.adapter.saveStashes(toSave);
+            await this.adapter.importStashes(toSave);
         }
     }
 
@@ -430,6 +431,7 @@ export class CloudSyncService {
             const updatedAt = serverCtx.updatedAt 
                 ? Math.floor(new Date(serverCtx.updatedAt).getTime() / 1000) 
                 : undefined;
+            const isDeleted = !!(serverCtx as any).deletedAt || !!(serverCtx as any).deleted;
 
             if (!localCtx) {
                 // New from server
@@ -438,7 +440,8 @@ export class CloudSyncService {
                     name: serverCtx.name,
                     rules: serverCtx.rules as Context['rules'],
                     lastUsed: serverCtx.lastUsed || undefined,
-                    updatedAt
+                    updatedAt,
+                    deleted: isDeleted
                 });
             } else {
                 const serverTime = new Date(serverCtx.updatedAt || serverCtx.lastUsed || 0).getTime();
@@ -452,7 +455,8 @@ export class CloudSyncService {
                         name: serverCtx.name,
                         rules: serverCtx.rules as Context['rules'],
                         lastUsed: serverCtx.lastUsed || undefined,
-                        updatedAt
+                        updatedAt,
+                        deleted: isDeleted
                     });
                 }
             }

@@ -318,14 +318,15 @@ impl DbManager {
         };
 
         self.conn.execute(
-            "INSERT OR REPLACE INTO contexts (id, name, rules, last_used, updated_at, deleted, description) VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6)",
+            "INSERT OR REPLACE INTO contexts (id, name, rules, last_used, updated_at, deleted, description) VALUES (?1, ?2, ?3, ?4, ?5, ?7, ?6)",
             params![
                 ctx.id,
                 name,
                 rules_json,
                 ctx.last_used,
-                now_ts(),
-                ctx.description
+                ctx.updated_at.unwrap_or_else(now_ts),
+                ctx.description,
+                if ctx.deleted { 1 } else { 0 }
             ],
         )?;
         Ok(())
@@ -408,6 +409,146 @@ impl DbManager {
         Ok(stashes)
     }
 
+    pub fn get_stashes_for_sync(&mut self) -> Result<Vec<StashItem>> {
+        let mut stmt = self.conn.prepare("SELECT id, context_id, content, files, created_at, completed, completed_at, position, updated_at, enhanced_content, deleted FROM stashes")?;
+        
+        let stash_rows = stmt.query_map([], |row| {
+            let files_str: String = row.get(3)?;
+            let deleted_int: i32 = row.get(10)?;
+            
+            Ok(StashItem {
+                id: row.get(0)?,
+                context_id: row.get(1)?,
+                content: row.get(2)?,
+                enhanced_content: row.get(9)?,
+                files: serde_json::from_str(&files_str).unwrap_or_default(),
+                attachments: Vec::new(),
+                created_at: row.get(4)?,
+                completed: row.get(5)?,
+                completed_at: row.get(6)?,
+                updated_at: row.get(8)?,
+                deleted: deleted_int != 0,
+            })
+        })?;
+
+        let mut stashes = Vec::new();
+        for s in stash_rows {
+            stashes.push(s?);
+        }
+
+        let mut att_stmt = self.conn.prepare("SELECT id, stash_id, file_path, file_name, file_size, mime_type, syntax, created_at FROM attachments")?;
+        
+        let att_rows = att_stmt.query_map([], |row| {
+             Ok(Attachment {
+                 id: row.get(0)?,
+                 stash_id: row.get(1)?,
+                 file_path: row.get(2)?,
+                 file_name: row.get(3)?,
+                 file_size: row.get(4)?,
+                 mime_type: row.get(5)?,
+                 syntax: row.get(6)?,
+                 created_at: row.get(7)?,
+             })
+        })?;
+
+        let mut attachments_map: std::collections::HashMap<String, Vec<Attachment>> = std::collections::HashMap::new();
+        for att in att_rows {
+            if let Ok(a) = att {
+                attachments_map.entry(a.stash_id.clone()).or_default().push(a);
+            }
+        }
+
+        for stash in &mut stashes {
+            if let Some(atts) = attachments_map.remove(&stash.id) {
+                stash.attachments = atts;
+            }
+        }
+
+        Ok(stashes)
+    }
+
+    pub fn get_contexts_for_sync(&mut self) -> Result<Vec<Context>> {
+        let mut stmt = self.conn.prepare("SELECT id, name, rules, last_used, updated_at, deleted, description FROM contexts")?;
+        let rows = stmt.query_map([], |row| {
+            let rules_json: String = row.get(2)?;
+            let deleted_int: i32 = row.get(5)?;
+            Ok(Context {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                rules: serde_json::from_str(&rules_json).unwrap_or_default(),
+                last_used: row.get(3)?,
+                updated_at: row.get(4)?,
+                deleted: deleted_int != 0,
+                description: row.get(6)?,
+            })
+        })?;
+
+        let mut contexts = Vec::new();
+        for r in rows {
+            contexts.push(r?);
+        }
+        Ok(contexts)
+    }
+
+    pub fn import_stashes(&mut self, stashes: &Vec<StashItem>) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        for stash in stashes {
+            let files_json = serde_json::to_string(&stash.files).unwrap_or_default();
+            
+            let existing_pos: Option<f64> = tx.query_row(
+                "SELECT position FROM stashes WHERE id = ?1",
+                params![stash.id],
+                |row| row.get(0)
+            ).optional()?;
+            
+            let final_pos = if let Some(p) = existing_pos {
+                p
+            } else {
+                let max_pos: Option<f64> = tx.query_row(
+                    "SELECT MAX(position) FROM stashes WHERE deleted = 0",
+                    [],
+                    |row| row.get(0)
+                ).optional()?;
+                max_pos.unwrap_or(0.0) + 1.0
+            };
+
+            tx.execute(
+                "INSERT OR REPLACE INTO stashes (id, context_id, content, enhanced_content, files, created_at, completed, completed_at, position, updated_at, deleted) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                params![
+                    stash.id,
+                    stash.context_id,
+                    stash.content,
+                    stash.enhanced_content,
+                    files_json,
+                    stash.created_at,
+                    stash.completed,
+                    stash.completed_at,
+                    final_pos,
+                    stash.updated_at.unwrap_or_else(now_ts),
+                    if stash.deleted { 1 } else { 0 }
+                ],
+            )?;
+
+            for att in &stash.attachments {
+                tx.execute(
+                    "INSERT OR REPLACE INTO attachments (id, stash_id, file_path, file_name, file_size, mime_type, syntax, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                    params![
+                        att.id,
+                        att.stash_id,
+                        att.file_path,
+                        att.file_name,
+                        att.file_size,
+                        att.mime_type,
+                        att.syntax,
+                        att.created_at
+                    ]
+                )?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     pub fn save_stash(&mut self, stash: &StashItem, position: Option<f64>) -> Result<()> {
         let files_json = serde_json::to_string(&stash.files).unwrap_or_default();
         
@@ -437,7 +578,7 @@ impl DbManager {
         };
 
         self.conn.execute(
-            "INSERT OR REPLACE INTO stashes (id, context_id, content, enhanced_content, files, created_at, completed, completed_at, position, updated_at, deleted) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 0)",
+            "INSERT OR REPLACE INTO stashes (id, context_id, content, enhanced_content, files, created_at, completed, completed_at, position, updated_at, deleted) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             params![
                 stash.id,
                 stash.context_id,
@@ -448,7 +589,8 @@ impl DbManager {
                 stash.completed,
                 stash.completed_at,
                 final_pos,
-                now_ts()
+                stash.updated_at.unwrap_or_else(now_ts),
+                if stash.deleted { 1 } else { 0 }
             ],
         )?;
 
@@ -563,6 +705,7 @@ mod tests {
             last_used: Some(chrono::Utc::now().to_rfc3339()),
             description: Some("Test description".to_string()),
             updated_at: None,
+            deleted: false,
         };
         
         db.save_context(&test_context).expect("Failed to save context");
@@ -587,6 +730,7 @@ mod tests {
             last_used: None,
             description: None,
             updated_at: None,
+            deleted: false,
         };
         
         db.save_context(&modified_default).expect("Save should succeed");
@@ -613,6 +757,7 @@ mod tests {
             completed: false,
             completed_at: None,
             updated_at: None,
+            deleted: false,
         };
         
         db.save_stash(&stash, None).expect("Failed to save stash");
@@ -640,6 +785,7 @@ mod tests {
             completed: false,
             completed_at: None,
             updated_at: None,
+            deleted: false,
         };
         
         db.save_stash(&stash, None).expect("Failed to save stash");
@@ -667,6 +813,7 @@ mod tests {
             completed: true,
             completed_at: Some(chrono::Utc::now().to_rfc3339()),
             updated_at: None,
+            deleted: false,
         };
         
         let active = StashItem {
@@ -680,6 +827,7 @@ mod tests {
             completed: false,
             completed_at: None,
             updated_at: None,
+            deleted: false,
         };
         
         db.save_stash(&completed, None).expect("Failed to save completed stash");
@@ -708,6 +856,7 @@ mod tests {
             completed: false,
             completed_at: None,
             updated_at: None,
+            deleted: false,
         };
         
         let stash2 = StashItem {
@@ -721,6 +870,7 @@ mod tests {
             completed: false,
             completed_at: None,
             updated_at: None,
+            deleted: false,
         };
         
         // Save without explicit position (should append)

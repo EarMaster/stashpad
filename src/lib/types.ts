@@ -36,6 +36,7 @@ export interface StashItem {
     completedAt?: string; // ISO Date string
     updatedAt?: string | number; // ISO Date string (string) or Unix timestamp (number)
     isDndShadowItem?: boolean; // Added by svelte-dnd-action during drag operations
+    deleted?: boolean;
 }
 
 export interface AppContext {
@@ -60,6 +61,7 @@ export interface Context {
     rules: ContextRule[];
     lastUsed?: string;
     updatedAt?: string | number;
+    deleted?: boolean;
 }
 
 /** Configuration for an OpenAI-compatible API provider preset */
@@ -192,6 +194,9 @@ export interface IStorageService {
     // Cloud sync proxy methods
     syncStashesApi(payload: unknown): Promise<unknown>;
     syncContextsApi(payload: unknown): Promise<unknown>;
+    loadStashesForSync(): Promise<StashItem[]>;
+    getContextsForSync(): Promise<Context[]>;
+    importStashes(stashes: StashItem[]): Promise<void>;
 
     // Apple Intelligence
     checkAppleIntelligenceAvailable(): Promise<boolean>;

@@ -72,6 +72,8 @@ pub struct StashItem {
     pub completed_at: Option<String>,
     #[serde(default)]
     pub updated_at: Option<u64>,
+    #[serde(default)]
+    pub deleted: bool,
 }
 
 #[derive(serde::Deserialize)]
@@ -222,6 +224,8 @@ pub struct Context {
     pub last_used: Option<String>,
     #[serde(default)]
     pub updated_at: Option<u64>,
+    #[serde(default)]
+    pub deleted: bool,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
@@ -1554,14 +1558,15 @@ fn save_contexts(state: State<Arc<DbState>>, contexts: Vec<Context>) {
         for ctx in &contexts {
             let rules_json = serde_json::to_string(&ctx.rules).unwrap_or_default();
             tx.execute(
-                "INSERT OR REPLACE INTO contexts (id, name, rules, last_used, updated_at, deleted, description) VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6)",
+                "INSERT OR REPLACE INTO contexts (id, name, rules, last_used, updated_at, deleted, description) VALUES (?1, ?2, ?3, ?4, ?5, ?7, ?6)",
                 params![
                     ctx.id,
                     ctx.name,
                     rules_json,
                     ctx.last_used,
-                    SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs(),
-                    ctx.description
+                    ctx.updated_at.unwrap_or_else(|| SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()),
+                    ctx.description,
+                    ctx.deleted as i32
                 ],
             )?;
         }
@@ -1715,6 +1720,21 @@ fn save_stash(
 #[tauri::command]
 fn load_stashes(state: State<Arc<DbState>>) -> Vec<StashItem> {
     state.db.lock().unwrap().get_stashes().unwrap_or_default()
+}
+
+#[tauri::command]
+fn load_stashes_for_sync(state: State<Arc<DbState>>) -> Vec<StashItem> {
+    state.db.lock().unwrap().get_stashes_for_sync().unwrap_or_default()
+}
+
+#[tauri::command]
+fn get_contexts_for_sync(state: State<Arc<DbState>>) -> Vec<Context> {
+    state.db.lock().unwrap().get_contexts_for_sync().unwrap_or_default()
+}
+
+#[tauri::command]
+fn import_stashes(state: State<Arc<DbState>>, stashes_list: Vec<StashItem>) -> Result<(), String> {
+    state.db.lock().unwrap().import_stashes(&stashes_list).map_err(|e| e.to_string())
 }
 
 fn get_stash_cache_path(id: &str, context_id: Option<&str>) -> std::path::PathBuf {
@@ -2876,6 +2896,9 @@ pub fn run() {
             save_stash,
             save_stashes,
             load_stashes,
+            load_stashes_for_sync,
+            get_contexts_for_sync,
+            import_stashes,
             delete_stash,
             delete_completed_stashes,
             trigger_auto_cleanup,
@@ -3030,6 +3053,7 @@ mod tests {
             completed: false,
             completed_at: None,
             updated_at: None,
+            deleted: false,
         };
         
         // New item, top
@@ -3055,6 +3079,7 @@ mod tests {
             completed: false,
             completed_at: None,
             updated_at: None,
+            deleted: false,
         };
         
         let mut new = old.clone();
@@ -3085,6 +3110,7 @@ mod tests {
             completed: false,
             completed_at: None,
             updated_at: None,
+            deleted: false,
         };
         
         let new = old.clone();
