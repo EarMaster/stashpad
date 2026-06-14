@@ -1700,6 +1700,7 @@ fn save_stash(
                 completed: row.get(1)?,
                 completed_at: row.get(2)?,
                 updated_at: None,
+                deleted: false,
             })
         }
     ).optional().unwrap_or(None);
