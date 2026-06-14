@@ -2736,6 +2736,14 @@ pub fn run() {
     let settings_state_for_setup = settings_state.clone();
 
     let mut builder = tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
+            println!("Single instance triggered: argv={:?}, cwd={:?}", argv, cwd);
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
         .setup(move |app| {
             // Apply initial window effects based on saved settings
             let settings = settings_state_for_setup.settings.lock().unwrap();

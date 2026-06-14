@@ -327,32 +327,43 @@
             onConfirm={() => {
                 if (contextToDelete !== null) {
                     removeContext(contextToDelete);
-                    contextToDelete = null;
+                    deleteConfirmationOpen = false;
+                    setTimeout(() => {
+                        contextToDelete = null;
+                    }, 300);
                 }
             }}
             onCancel={() => {
-                contextToDelete = null;
+                deleteConfirmationOpen = false;
+                setTimeout(() => {
+                    contextToDelete = null;
+                }, 300);
             }}
         />
     {/if}
 
-    {#if exportDialogOpen && exportContext}
+    {#if exportContext}
         <ExportDialog
             bind:open={exportDialogOpen}
             context={exportContext}
             stashes={getContextStashes(exportContext)}
-            onClose={() => (exportContext = null)}
+            onClose={() => {
+                setTimeout(() => {
+                    exportContext = null;
+                }, 300);
+            }}
         />
     {/if}
 
-    {#if importDialogOpen && importContext}
+    {#if importContext}
         <ImportDialog
             bind:open={importDialogOpen}
             context={importContext}
             existingStashes={getContextStashes(importContext)}
             onClose={() => {
-                importContext = null;
-                importDialogOpen = false;
+                setTimeout(() => {
+                    importContext = null;
+                }, 300);
             }}
             onImportComplete={() => {
                 load();

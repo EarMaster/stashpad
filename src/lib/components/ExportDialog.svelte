@@ -40,15 +40,17 @@
     let isCalculatingSize = $state(false);
 
     // Initialize selection when dialog opens
+    let hasOpened = $state(false);
     $effect(() => {
         if (open) {
+            hasOpened = true;
             // Reset selection: check active stashes, uncheck completed
             selectedIds = new Set(
                 stashes.filter((s) => !s.completed).map((s) => s.id),
             );
             includeAttachments = false;
             isExporting = false;
-        } else {
+        } else if (hasOpened) {
             // Ensure parent state is synchronized when dialog is closed/dismissed
             // via internal mechanisms (Esc key, backdrop click)
             onClose();
@@ -496,7 +498,6 @@
      */
     function handleClose() {
         open = false;
-        onClose();
     }
 
     /**

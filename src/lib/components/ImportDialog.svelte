@@ -80,8 +80,10 @@
     let unlistenDrop: (() => void) | null = null;
 
     // Reset state when dialog opens
+    let hasOpened = $state(false);
     $effect(() => {
         if (open) {
+            hasOpened = true;
             step = "select";
             parsedStashes = [];
             selectedIds = new Set();
@@ -93,7 +95,7 @@
             isDragging = false;
             importedMetadata = null;
             conflictDialogOpen = false;
-        } else {
+        } else if (hasOpened) {
             // Ensure parent state is synchronized when dialog is closed/dismissed
             // via internal mechanisms (Esc key, backdrop click)
             onClose();
@@ -721,7 +723,6 @@
      */
     function handleClose() {
         open = false;
-        onClose();
     }
 
     /**

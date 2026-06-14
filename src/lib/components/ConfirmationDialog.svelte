@@ -29,18 +29,22 @@
 
     let isConfirmed = $state(false);
     let confirmBtn = $state<HTMLButtonElement | null>(null);
+    let hasOpened = $state(false);
 
     let finalConfirmText = $derived(confirmText || $_("common.save"));
     let finalCancelText = $derived(cancelText || $_("common.cancel"));
 
     // Reset confirmed state when dialog opens
     $effect(() => {
-        if (open) isConfirmed = false;
+        if (open) {
+            isConfirmed = false;
+            hasOpened = true;
+        }
     });
 
     // Ensure parent state is synchronized when dialog is closed/dismissed
     $effect(() => {
-        if (!open && !isConfirmed) {
+        if (!open && !isConfirmed && hasOpened) {
             onCancel?.();
         }
     });
