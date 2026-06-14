@@ -297,6 +297,7 @@ impl DbManager {
                 rules,
                 last_used: row.get(3)?,
                 updated_at: row.get(4)?,
+                deleted: false,
                 description: row.get(5)?,
             })
         })?;
@@ -367,6 +368,7 @@ impl DbManager {
                 completed: row.get(5)?,
                 completed_at: row.get(6)?,
                 updated_at: row.get(8)?,
+                deleted: false,
             })
         })?;
 
