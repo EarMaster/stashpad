@@ -1,0 +1,501 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+
+// Copyright (C) 2026 Nico Wiedemann
+//
+// This file is part of Stashpad.
+// Stashpad is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+// See the GNU Affero General Public License for more details.
+
+use std::sync::Arc;
+use std::time::Duration;
+use tauri::State;
+use url::Url;
+use tiny_http::{Server, Response};
+use rusqlite::params;
+use rusqlite::OptionalExtension;
+use std::fs;
+use crate::models::{CloudConfig, Attachment, default_cloud_endpoint};
+use crate::state::{SettingsState, DbState, WsState};
+use crate::settings::persist_settings_to_disk;
+
+#[tauri::command]
+pub async fn start_cloud_auth(
+    app: tauri::AppHandle,
+    settings_state: State<'_, Arc<SettingsState>>,
+) -> Result<CloudConfig, String> {
+    let (endpoint, _enabled) = {
+        let settings = settings_state.settings.lock().unwrap();
+        let config = settings.cloud_config.as_ref().ok_or("Cloud config missing")?;
+        (config.endpoint.clone(), config.enabled)
+    };
+
+    // 1. Start local server on an ephemeral port to listen for callback
+    let server = Server::http("127.0.0.1:0").map_err(|e| e.to_string())?;
+    let callback_port = server.server_addr().to_ip().map(|a| a.port()).ok_or("Failed to get callback port")?;
+    
+    // 2. Generate a CSRF state parameter to verify the callback origin
+    let state_param = uuid::Uuid::new_v4().to_string();
+    
+    // 3. Open browser to cloud auth with state parameter and callback port
+    let auth_url = format!(
+        "{}/auth/github?state={}&callback_port={}",
+        endpoint.trim_end_matches('/'),
+        state_param,
+        callback_port
+    );
+    let _ = tauri_plugin_opener::OpenerExt::opener(&app).open_url(auth_url, None::<String>);
+
+    // 3. Wait for request (with a timeout of 5 minutes)
+    // In a real app, we'd use a thread or async task with a timeout.
+    // For simplicity in this scaffold, we'll block briefly or just take the first request.
+    
+    if let Some(request) = server.recv_timeout(Duration::from_secs(300)).map_err(|e| e.to_string())? {
+        let url_str = format!("http://localhost:{}{}", callback_port, request.url());
+        let url = Url::parse(&url_str).map_err(|e| e.to_string())?;
+        
+        let mut token = None;
+        let mut user_id = None;
+        let mut email = None;
+        let mut callback_state = None;
+        
+        for (key, value) in url.query_pairs() {
+            match key.as_ref() {
+                "token" => token = Some(value.into_owned()),
+                "userId" => user_id = Some(value.into_owned()),
+                "email" => email = Some(value.into_owned()),
+                "state" => callback_state = Some(value.into_owned()),
+                _ => {}
+            }
+        }
+        
+        // Verify the state parameter matches to prevent CSRF
+        if callback_state.as_deref() != Some(&state_param) {
+            let response = Response::from_string("Authentication failed: Invalid state parameter.")
+                .with_status_code(400);
+            let _ = request.respond(response);
+            return Err("Authentication failed: State parameter mismatch (CSRF protection)".into());
+        }
+        
+        if let (Some(t), Some(uid), Some(e)) = (token, user_id, email) {
+            let mut settings = settings_state.settings.lock().unwrap();
+            let mut config = settings.cloud_config.clone().unwrap_or(CloudConfig {
+                enabled: false,
+                endpoint: default_cloud_endpoint(),
+                user_id: None,
+                email: None,
+                access_token: None,
+                subscription_tier: None,
+                subscription_status: None,
+                subscription_period_end: None,
+                enterprise_owner_id: None,
+                last_sync_at: None,
+            });
+            
+            config.access_token = Some(t);
+            config.user_id = Some(uid);
+            config.email = Some(e);
+            config.enabled = true;
+            
+            settings.cloud_config = Some(config.clone());
+            persist_settings_to_disk(&settings);
+            
+            let mut return_config = config.clone();
+            return_config.access_token = None;
+            Ok(return_config)
+        } else {
+
+            let response = Response::from_string("Authentication failed: Missing parameters.")
+                .with_status_code(400);
+            let _ = request.respond(response);
+            Err("Authentication failed: Missing parameters".into())
+        }
+    } else {
+        Err("Authentication timed out".into())
+    }
+}
+
+/// Fetch account info from cloud service and update local subscription status
+#[tauri::command]
+pub async fn fetch_cloud_account(
+    settings_state: State<'_, Arc<SettingsState>>,
+) -> Result<CloudConfig, String> {
+    let (endpoint, token) = {
+        let settings = settings_state.settings.lock().unwrap();
+        let config = settings.cloud_config.as_ref().ok_or("Cloud config missing")?;
+        let token = config.access_token.clone().ok_or("Not authenticated")?;
+        (config.endpoint.clone(), token)
+    };
+
+    let client = reqwest::Client::new();
+    let response = client
+        .get(format!("{}/account", endpoint.trim_end_matches('/')))
+        .header("Authorization", format!("Bearer {}", token))
+        .send()
+        .await
+        .map_err(|e| format!("Failed to fetch account: {}", e))?;
+
+    if response.status() == 401 {
+        return Err("Authentication expired. Please log in again.".into());
+    }
+
+    if !response.status().is_success() {
+        return Err(format!("Failed to fetch account: {}", response.status()));
+    }
+
+    let account: serde_json::Value = response.json().await
+        .map_err(|e| format!("Failed to parse account: {}", e))?;
+
+    // Update local config with subscription info
+    let mut settings = settings_state.settings.lock().unwrap();
+    if let Some(ref mut config) = settings.cloud_config {
+        config.subscription_tier = account["subscriptionTier"].as_str().map(|s| s.to_string());
+        config.subscription_status = account["subscriptionStatus"].as_str().map(|s| s.to_string());
+        config.subscription_period_end = account["subscriptionPeriodEnd"].as_str().map(|s| s.to_string());
+        config.enterprise_owner_id = account["enterpriseOwnerId"].as_str().map(|s| s.to_string());
+        
+        let updated_config = config.clone();
+        persist_settings_to_disk(&settings);
+        
+        let mut return_config = updated_config;
+        return_config.access_token = None;
+        return Ok(return_config);
+    }
+
+    Err("Cloud config not found".into())
+}
+
+#[tauri::command]
+pub async fn exchange_link_code_api(
+    settings_state: State<'_, Arc<SettingsState>>,
+    token: String,
+) -> Result<CloudConfig, String> {
+    let endpoint = {
+        let settings = settings_state.settings.lock().unwrap();
+        let config = settings.cloud_config.as_ref().ok_or("Cloud config missing")?;
+        config.endpoint.clone()
+    };
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(format!("{}/auth/exchange-token", endpoint.trim_end_matches('/')))
+        .header("Content-Type", "application/json")
+        .json(&serde_json::json!({ "token": token }))
+        .send()
+        .await
+        .map_err(|e| format!("Failed to reach server: {}", e))?;
+
+    if !response.status().is_success() {
+        let status = response.status().as_u16();
+        let body = response.text().await.unwrap_or_default();
+
+        let message = if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
+            json["error"]
+                .as_str()
+                .or_else(|| json["message"].as_str())
+                .unwrap_or("Unknown server error")
+                .to_string()
+        } else if body.trim_start().starts_with('<') || body.is_empty() {
+            format!("Server returned an error (HTTP {})", status)
+        } else {
+            body
+        };
+
+        return Err(message);
+    }
+
+    let data: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse response: {}", e))?;
+
+    let access_token_val = data["token"]
+        .as_str()
+        .ok_or("Missing token in response")?
+        .to_string();
+
+    let user_id_val = data["user_id"]
+        .as_str()
+        .map(|s| s.to_string());
+
+    let mut settings = settings_state.settings.lock().unwrap();
+    let mut config = settings.cloud_config.clone().unwrap_or(CloudConfig {
+        enabled: false,
+        endpoint: default_cloud_endpoint(),
+        user_id: None,
+        email: None,
+        access_token: None,
+        subscription_tier: None,
+        subscription_status: None,
+        subscription_period_end: None,
+        enterprise_owner_id: None,
+        last_sync_at: None,
+    });
+
+    config.access_token = Some(access_token_val);
+    config.user_id = user_id_val;
+    config.enabled = true;
+
+    settings.cloud_config = Some(config.clone());
+    persist_settings_to_disk(&settings);
+
+    let mut return_config = config;
+    return_config.access_token = None;
+    Ok(return_config)
+}
+
+
+#[tauri::command]
+pub async fn sync_stashes_api(
+    settings_state: State<'_, Arc<SettingsState>>,
+    payload: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let (endpoint, token) = {
+        let settings = settings_state.settings.lock().unwrap();
+        let config = settings.cloud_config.as_ref().ok_or("Cloud config missing")?;
+        let token = config.access_token.clone().ok_or("Not authenticated")?;
+        (config.endpoint.clone(), token)
+    };
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(format!("{}/sync/stashes", endpoint.trim_end_matches('/')))
+        .header("Authorization", format!("Bearer {}", token))
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to sync stashes: {}", e))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        let snippet = if body.len() > 100 { &body[..100] } else { &body };
+        return Err(format!("Stash sync failed ({}): {}", status, snippet));
+    }
+
+    response.json().await.map_err(|e| format!("Failed to parse sync response: {}", e))
+}
+
+#[tauri::command]
+pub async fn upload_attachment_to_cloud(
+    state: State<'_, Arc<DbState>>,
+    settings_state: State<'_, Arc<SettingsState>>,
+    attachment_id: String,
+) -> Result<(), String> {
+    let (endpoint, token) = {
+        let settings = settings_state.settings.lock().unwrap();
+        let config = settings.cloud_config.as_ref().ok_or("Cloud config missing")?;
+        let token = config.access_token.clone().ok_or("Not authenticated")?;
+        (config.endpoint.clone(), token)
+    };
+
+    let attachment = {
+        let db = state.db.lock().unwrap();
+        let mut stmt = db.conn.prepare("SELECT id, stash_id, file_path, file_name, file_size, mime_type, syntax, created_at FROM attachments WHERE id = ?")
+            .map_err(|e| e.to_string())?;
+        stmt.query_row(params![attachment_id], |row| {
+            Ok(Attachment {
+                id: row.get(0)?,
+                stash_id: row.get(1)?,
+                file_path: row.get(2)?,
+                file_name: row.get(3)?,
+                file_size: row.get(4)?,
+                mime_type: row.get(5)?,
+                syntax: row.get(6)?,
+                created_at: row.get(7)?,
+            })
+        }).optional().map_err(|e| e.to_string())?
+            .ok_or_else(|| "Attachment not found".to_string())?
+    };
+
+    let client = reqwest::Client::new();
+    
+    // 1. Get presigned upload URL from cloud
+    let upload_req = serde_json::json!({
+        "id": attachment.id,
+        "stashId": attachment.stash_id,
+        "fileName": attachment.file_name,
+        "fileSize": attachment.file_size,
+        "mimeType": attachment.mime_type,
+        "syntax": attachment.syntax,
+    });
+
+    let upload_url_resp = client
+        .post(format!("{}/attachments/upload", endpoint.trim_end_matches('/')))
+        .header("Authorization", format!("Bearer {}", token))
+        .json(&upload_req)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to get upload URL: {}", e))?;
+
+    let status = upload_url_resp.status();
+    let resp_text = upload_url_resp.text().await
+        .map_err(|e| format!("Failed to read upload URL response: {}", e))?;
+
+    if !status.is_success() {
+        return Err(format!("Cloud rejected upload request: {} - {}", status, resp_text));
+    }
+
+    let upload_data: serde_json::Value = serde_json::from_str(&resp_text)
+        .map_err(|e| format!("Failed to parse upload URL response: {}", e))?;
+    
+    let upload_url = upload_data["uploadUrl"].as_str()
+        .ok_or_else(|| "No upload URL in response".to_string())?;
+
+    // 2. Read file content
+    let file_content = fs::read(&attachment.file_path)
+        .map_err(|e| format!("Failed to read attachment file: {}", e))?;
+
+    // 3. PUT file to R2
+    let put_resp = client
+        .put(upload_url)
+        .header("Content-Type", attachment.mime_type.unwrap_or_else(|| "application/octet-stream".to_string()))
+        .body(file_content)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to upload file to storage: {}", e))?;
+
+    if !put_resp.status().is_success() {
+        return Err(format!("File upload failed: {}", put_resp.status()));
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn sync_contexts_api(
+    settings_state: State<'_, Arc<SettingsState>>,
+    payload: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let (endpoint, token) = {
+        let settings = settings_state.settings.lock().unwrap();
+        let config = settings.cloud_config.as_ref().ok_or("Cloud config missing")?;
+        let token = config.access_token.clone().ok_or("Not authenticated")?;
+        (config.endpoint.clone(), token)
+    };
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(format!("{}/sync/contexts", endpoint.trim_end_matches('/')))
+        .header("Authorization", format!("Bearer {}", token))
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to sync contexts: {}", e))?;
+
+    if response.status() == 401 {
+        return Err("Authentication expired. Please log in again.".into());
+    }
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        let snippet = if body.len() > 100 { &body[..100] } else { &body };
+        return Err(format!("Context sync failed ({}): {}", status, snippet));
+    }
+
+    response.json().await.map_err(|e| format!("Failed to parse sync response: {}", e))
+}
+
+// --- WebSocket Sync Commands ---
+
+#[tauri::command]
+pub async fn connect_websocket(
+    app: tauri::AppHandle,
+    settings_state: State<'_, Arc<SettingsState>>,
+    ws_state: State<'_, Arc<WsState>>,
+) -> Result<(), String> {
+    // End any existing connection
+    disconnect_websocket(ws_state.clone()).await?;
+
+    let (endpoint, token, enabled) = {
+        let settings = settings_state.settings.lock().unwrap();
+        let config = settings.cloud_config.as_ref().ok_or("Cloud config missing")?;
+        (config.endpoint.clone(), config.access_token.clone(), config.enabled)
+    };
+
+    if !enabled || token.is_none() {
+        return Ok(()); // Nothing to do if disabled or not logged in
+    }
+    let token = token.unwrap();
+
+    // Convert http(s):// to ws(s)://
+    let ws_endpoint = endpoint
+        .replace("http://", "ws://")
+        .replace("https://", "wss://");
+    
+    // Append the token to the URL query string
+    let ws_url = format!("{}/ws?token={}", ws_endpoint.trim_end_matches('/'), urlencoding::encode(&token));
+
+    // Spawn a persistent task for the WebSocket connection with reconnect logic
+    let task_app = app.clone();
+    let handle = tauri::async_runtime::spawn(async move {
+        use futures_util::StreamExt;
+        use tokio_tungstenite::connect_async;
+        use tauri::Emitter;
+        
+        let mut retry_backoff = 1;
+
+        loop {
+            log::info!("[WebSocket] Attempting to connect to {}", ws_endpoint);
+            
+            match connect_async(ws_url.clone()).await {
+                Ok((mut ws_stream, _)) => {
+                    log::info!("[WebSocket] Connected successfully");
+                    retry_backoff = 1; // reset backoff on success
+
+                    // Read frames until connection is closed or error occurs
+                    while let Some(msg) = ws_stream.next().await {
+                        match msg {
+                            Ok(tokio_tungstenite::tungstenite::Message::Text(text)) => {
+                                // Parse the JSON and emit to the frontend
+                                if let Ok(json) = serde_json::from_str::<serde_json::Value>(text.as_str()) {
+                                    if let Some(msg_type) = json.get("type").and_then(|v| v.as_str()) {
+                                        if msg_type == "sync_available" {
+                                            log::debug!("[WebSocket] Received sync notification: {:?}", json);
+                                            let _ = task_app.emit("cloud:sync-notification", json);
+                                        }
+                                    }
+                                }
+                            }
+                            Ok(tokio_tungstenite::tungstenite::Message::Close(_)) => {
+                                log::info!("[WebSocket] Server closed connection");
+                                break;
+                            }
+                            Err(e) => {
+                                log::error!("[WebSocket] Error reading frame: {}", e);
+                                break;
+                            }
+                            _ => {} // Ignore ping/pong/binary
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::error!("[WebSocket] Connection failed: {}", e);
+                }
+            }
+
+            // Exponential backoff, max 60 seconds
+            log::info!("[WebSocket] Reconnecting in {} seconds...", retry_backoff);
+            tokio::time::sleep(std::time::Duration::from_secs(retry_backoff)).await;
+            retry_backoff = std::cmp::min(retry_backoff * 2, 60);
+        }
+    });
+
+    *ws_state.task_handle.lock().unwrap() = Some(handle);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn disconnect_websocket(ws_state: State<'_, Arc<WsState>>) -> Result<(), String> {
+    if let Some(handle) = ws_state.task_handle.lock().unwrap().take() {
+        log::info!("[WebSocket] Disconnecting client...");
+        handle.abort();
+    }
+    Ok(())
+}
