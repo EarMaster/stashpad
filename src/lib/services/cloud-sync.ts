@@ -182,7 +182,7 @@ export class CloudSyncService {
 
         return (
             config.enabled &&
-            (config.subscriptionTier === 'pro' || config.subscriptionTier === 'enterprise' || config.enterpriseOwnerId !== null)
+            (config.subscriptionTier === 'pro' || config.subscriptionTier === 'enterprise' || config.enterpriseOwnerId != null)
         );
     }
 
@@ -463,7 +463,9 @@ export class CloudSyncService {
         }
 
         if (toSave.length > 0) {
-            await this.adapter.saveContexts(toSave);
+            for (const ctx of toSave) {
+                await this.adapter.saveContext(ctx);
+            }
         }
     }
 

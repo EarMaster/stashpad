@@ -294,6 +294,9 @@ pub struct CloudConfig {
     /// When the current billing period ends
     #[serde(default)]
     pub subscription_period_end: Option<String>,
+    /// Enterprise owner ID if part of a team
+    #[serde(default)]
+    pub enterprise_owner_id: Option<String>,
     /// Last sync timestamp
     #[serde(default)]
     pub last_sync_at: Option<String>,
@@ -1119,6 +1122,7 @@ async fn start_cloud_auth(
                 subscription_tier: None,
                 subscription_status: None,
                 subscription_period_end: None,
+                enterprise_owner_id: None,
                 last_sync_at: None,
             });
             
@@ -1182,6 +1186,7 @@ async fn fetch_cloud_account(
         config.subscription_tier = account["subscriptionTier"].as_str().map(|s| s.to_string());
         config.subscription_status = account["subscriptionStatus"].as_str().map(|s| s.to_string());
         config.subscription_period_end = account["subscriptionPeriodEnd"].as_str().map(|s| s.to_string());
+        config.enterprise_owner_id = account["enterpriseOwnerId"].as_str().map(|s| s.to_string());
         
         let updated_config = config.clone();
         persist_settings_to_disk(&settings);
@@ -1262,6 +1267,7 @@ async fn exchange_link_code_api(
         subscription_tier: None,
         subscription_status: None,
         subscription_period_end: None,
+        enterprise_owner_id: None,
         last_sync_at: None,
     });
 
