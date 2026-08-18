@@ -21,6 +21,7 @@ use rusqlite::params;
 use crate::models::Context;
 use crate::utils::get_app_dir;
 use crate::state::DbState;
+use crate::db::WriteOrigin;
 use crate::settings::{get_settings_path, persist_settings_to_disk};
 
 pub fn get_contexts_path() -> PathBuf {
@@ -116,7 +117,9 @@ pub fn save_contexts(state: State<Arc<DbState>>, contexts: Vec<Context>) {
                     ctx.name,
                     rules_json,
                     ctx.last_used,
-                    ctx.updated_at.unwrap_or_else(|| SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()),
+                    // Local edit: always stamp now, never echo the value the UI just
+                    // read back, or the server's last-write-wins check will reject it.
+                    SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs(),
                     ctx.description,
                     ctx.deleted as i32
                 ],
@@ -133,9 +136,29 @@ pub fn save_contexts(state: State<Arc<DbState>>, contexts: Vec<Context>) {
 #[tauri::command]
 pub fn save_context(state: State<Arc<DbState>>, context: Context) {
     println!("Saving context: {} ({})", context.name, context.id);
-    if let Err(e) = state.db.lock().unwrap().save_context(&context) {
+    if let Err(e) = state
+        .db
+        .lock()
+        .unwrap()
+        .save_context(&context, WriteOrigin::LocalEdit)
+    {
         println!("Failed to save context: {}", e);
     }
+}
+
+/// Apply contexts pulled from the cloud.
+///
+/// Separate from `save_context` because the server's `updated_at` must survive intact:
+/// stamping it with the local clock here would make every pulled record look locally
+/// edited and push it straight back on the next sync.
+#[tauri::command]
+pub fn import_contexts(state: State<Arc<DbState>>, contexts: Vec<Context>) -> Result<(), String> {
+    state
+        .db
+        .lock()
+        .unwrap()
+        .import_contexts(&contexts)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

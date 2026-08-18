@@ -15,7 +15,10 @@
 -->
 
 <script lang="ts">
-   import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
+   import {
+      DesktopStorageAdapter,
+      setLocalMutationListener,
+   } from "$lib/services/desktop-adapter";
    import { CloudSyncService, type SyncStatus } from "$lib/services/cloud-sync";
    import { _ } from "$lib/i18n";
    import type { Settings, StashItem, Context, Attachment } from "$lib/types";
@@ -62,6 +65,10 @@
    const appWindow = getCurrentWindow();
    const adapter = new DesktopStorageAdapter();
    const cloudSync = new CloudSyncService(adapter);
+
+   // Every local write schedules a debounced sync. Registered once here rather than at
+   // each call site so no future mutation can silently skip syncing.
+   setLocalMutationListener(() => cloudSync.triggerSync());
 
    async function checkForUpdates(showNoUpdateMessage = false) {
       if (isCheckingForUpdates) return;
@@ -165,6 +172,7 @@
          unlistenMenuUpdate.then((f) => f());
          clearInterval(cleanupInterval);
          unsubscribeSync();
+         setLocalMutationListener(null);
          cloudSync.dispose();
          window.removeEventListener(
             "stashpad:prompt-reloaded",
@@ -454,8 +462,8 @@
    function handleStash(id?: string) {
       if (id) newlyAddedStashId = id;
       refreshTrigger++;
-      // Trigger cloud sync after local save (debounced)
-      cloudSync.triggerSync();
+      // No triggerSync() here: the adapter's mutation hook above already schedules it
+      // for every local write, this one included.
    }
 
    $effect(() => {
@@ -603,6 +611,7 @@
          }}
          onCheckForUpdates={() => checkForUpdates(true)}
          onTriggerSync={() => cloudSync.sync()}
+         onAuthChanged={() => cloudSync.onAuthenticated(settings)}
          {isCheckingForUpdates}
       />
    {:else if view === "Contexts"}

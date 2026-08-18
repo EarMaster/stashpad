@@ -20,7 +20,7 @@ use rusqlite::OptionalExtension;
 use crate::models::{StashItem, SaveOptions, Attachment, Context, Settings};
 use crate::state::{DbState, SettingsState};
 use crate::utils::get_app_dir;
-use crate::db::DbManager;
+use crate::db::{DbManager, WriteOrigin};
 
 pub fn get_effective_position(invert: bool, default_pos: &str) -> &str {
     if invert {
@@ -125,7 +125,7 @@ pub fn save_stash(
 
     let (new_stash, position_val) = calculate_stash_update(&stash, existing.as_ref(), effective_position_str, min_pos);
 
-    if let Err(e) = db.save_stash(&new_stash, position_val) {
+    if let Err(e) = db.save_stash(&new_stash, position_val, WriteOrigin::LocalEdit) {
         println!("Failed to save stash: {}", e);
     }
 }

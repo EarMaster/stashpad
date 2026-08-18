@@ -15,15 +15,45 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { IStorageService, StashItem, AppContext, Settings, FilePreviewData, Context, Attachment, CloudConfig } from '../types';
 
+/** Called after any local write so cloud sync can be scheduled. */
+type MutationListener = () => void;
+
+let mutationListener: MutationListener | null = null;
+
+/**
+ * Register a callback fired after every local mutation.
+ *
+ * Every component constructs its own `DesktopStorageAdapter`, so this module-level
+ * hook is the one place that sees all writes. Scheduling sync from here rather than
+ * from individual call sites is deliberate: `triggerSync()` previously had a single
+ * caller — new-stash creation — so editing, completing, deleting, reordering, moving
+ * between contexts, context CRUD, and attaching a file to an existing stash never
+ * scheduled a sync at all and waited on the 15-minute fallback poll.
+ */
+export function setLocalMutationListener(listener: MutationListener | null): void {
+    mutationListener = listener;
+}
+
+/** Notify the listener, never letting a sync failure break the local write. */
+function notifyMutation(): void {
+    try {
+        mutationListener?.();
+    } catch (e) {
+        console.warn('[DesktopAdapter] Mutation listener failed:', e);
+    }
+}
+
 export class DesktopStorageAdapter implements IStorageService {
     async saveStash(stash: StashItem, options?: { invertPosition?: boolean }): Promise<void> {
         const invertPosition = options?.invertPosition ?? false;
         // Wrap in 'options' object to match Rust SaveOptions struct
         await invoke('save_stash', { options: { stash, invertPosition } });
+        notifyMutation();
     }
 
     async saveStashes(stashesList: StashItem[]): Promise<void> {
         await invoke('save_stashes', { stashesList });
+        notifyMutation();
     }
 
     async loadStashes(): Promise<StashItem[]> {
@@ -37,7 +67,7 @@ export class DesktopStorageAdapter implements IStorageService {
     async saveAsset(file: File, contextId?: string, stashId?: string, syntax?: string): Promise<Attachment> {
         const buffer = await file.arrayBuffer();
         const bytes = new Uint8Array(buffer);
-        return await invoke('save_asset', {
+        const attachment: Attachment = await invoke('save_asset', {
             name: file.name,
             data: Array.from(bytes),
             context_id: contextId ?? null,
@@ -46,6 +76,8 @@ export class DesktopStorageAdapter implements IStorageService {
             stashId: stashId ?? null,
             syntax: syntax ?? null
         });
+        notifyMutation();
+        return attachment;
     }
 
     async getPreviousAppInfo(): Promise<AppContext> {
@@ -69,7 +101,7 @@ export class DesktopStorageAdapter implements IStorageService {
      * Files are organized hierarchically: cache/<contextId>/<stashId>/<filename>
      */
     async saveAssetFromPath(path: string, contextId?: string, stashId?: string, syntax?: string): Promise<Attachment> {
-        return await invoke('save_asset_from_path', {
+        const attachment: Attachment = await invoke('save_asset_from_path', {
             path,
             context_id: contextId ?? null,
             contextId: contextId ?? null,
@@ -77,6 +109,8 @@ export class DesktopStorageAdapter implements IStorageService {
             stashId: stashId ?? null,
             syntax: syntax ?? null
         });
+        notifyMutation();
+        return attachment;
     }
 
     /**
@@ -85,6 +119,7 @@ export class DesktopStorageAdapter implements IStorageService {
      */
     async deleteAsset(path: string): Promise<void> {
         await invoke('delete_asset', { path });
+        notifyMutation();
     }
 
     /**
@@ -107,14 +142,17 @@ export class DesktopStorageAdapter implements IStorageService {
 
     async deleteStash(id: string): Promise<void> {
         await invoke('delete_stash', { id });
+        notifyMutation();
     }
 
     async deleteCompletedStashes(contextId?: string): Promise<void> {
         await invoke('delete_completed_stashes', { contextId });
+        notifyMutation();
     }
 
     async triggerAutoCleanup(): Promise<void> {
         await invoke('trigger_auto_cleanup');
+        notifyMutation();
     }
 
     async isWindows10(): Promise<boolean> {
@@ -127,14 +165,17 @@ export class DesktopStorageAdapter implements IStorageService {
 
     async saveContexts(contexts: Context[]): Promise<void> {
         await invoke('save_contexts', { contexts });
+        notifyMutation();
     }
 
     async saveContext(context: Context): Promise<void> {
-        return await invoke('save_context', { context });
+        await invoke('save_context', { context });
+        notifyMutation();
     }
 
     async deleteContext(id: string): Promise<void> {
-        return await invoke('delete_context', { id });
+        await invoke('delete_context', { id });
+        notifyMutation();
     }
 
     async setAutostart(enabled: boolean): Promise<void> {
@@ -245,6 +286,24 @@ export class DesktopStorageAdapter implements IStorageService {
 
     async importStashes(stashes: StashItem[]): Promise<void> {
         await invoke('import_stashes', { stashesList: stashes });
+    }
+
+    /**
+     * Apply contexts pulled from the cloud, preserving their server timestamps.
+     * Distinct from `saveContext`, which is the local-edit path and stamps "now".
+     */
+    async importContexts(contexts: Context[]): Promise<void> {
+        await invoke('import_contexts', { contexts });
+    }
+
+    /** Fetch an attachment's bytes into the local cache; returns the file path. */
+    async downloadAttachmentFromCloud(attachmentId: string): Promise<string> {
+        return await invoke('download_attachment_from_cloud', { attachmentId });
+    }
+
+    /** Sign out of the cloud and erase the stored JWT from the OS keychain. */
+    async cloudLogout(): Promise<void> {
+        await invoke('cloud_logout');
     }
 }
 

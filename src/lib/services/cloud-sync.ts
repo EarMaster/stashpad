@@ -14,18 +14,23 @@
 
 /**
  * CloudSyncService - Manages background synchronization with Stashpad Cloud
- * 
- * Sync Strategy:
- * - Periodic sync every 5 minutes when cloud is enabled
- * - On-demand sync after local changes (debounced)
- * - Uses Last-Write-Wins (LWW) conflict resolution
+ *
+ * Sync strategy:
+ * - Real-time: a WebSocket notification from another device triggers an immediate sync
+ * - On-demand: any local mutation schedules a debounced sync (see `triggerSync`)
+ * - Fallback: a periodic poll in case the socket is down
+ * - Conflict resolution: Last-Write-Wins on `updatedAt`
+ *
+ * Timestamp units are a recurring trap here. Locally `updatedAt` is **Unix seconds**;
+ * the cloud API speaks **ISO-8601 strings**. Every conversion in this file is explicit,
+ * and comparisons are done at second granularity so a round-trip through the server
+ * cannot make a record look spuriously newer than its local copy.
  */
 
 import type { IStorageService, StashItem, Context, CloudConfig, Settings } from '../types';
-import { jwtDecode } from 'jwt-decode';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
-// 15 minutes in milliseconds for fallback polling
+// Fallback polling interval, used when the WebSocket is unavailable.
 const FALLBACK_SYNC_INTERVAL_MS = 15 * 60 * 1000;
 const DEBOUNCE_DELAY_MS = 2000;
 
@@ -34,6 +39,15 @@ export type SyncStatus = 'idle' | 'syncing' | 'success' | 'error' | 'offline' | 
 
 /** Sync event listener */
 export type SyncListener = (status: SyncStatus, message?: string) => void;
+
+/** Attachment metadata exchanged with the cloud API */
+interface SyncAttachmentInput {
+    id: string;
+    fileName: string;
+    fileSize: number;
+    mimeType: string | null;
+    syntax: string | null;
+}
 
 /** Stash format expected by the cloud API */
 interface SyncStashInput {
@@ -46,13 +60,7 @@ interface SyncStashInput {
     createdAt: string;
     updatedAt: string;
     deleted: boolean;
-    attachments: Array<{
-        id: string;
-        fileName: string;
-        fileSize: number;
-        mimeType: string | null;
-        syntax: string | null;
-    }>;
+    attachments: SyncAttachmentInput[];
 }
 
 /** Cloud sync request payload */
@@ -63,16 +71,26 @@ interface SyncRequest {
     stashes: SyncStashInput[];
 }
 
+/** A record the server refused to apply, with the reason why */
+interface RejectedRecord {
+    id: string;
+    reason: string;
+}
+
 /** Cloud sync response */
 interface SyncResponse {
     synced: StashItem[];
     serverTime: string;
+    rejected?: RejectedRecord[];
+    /** True when `synced` only contains records changed since `lastSyncAt` */
+    partial?: boolean;
 }
 
 /** Context format for cloud API */
 interface SyncContextInput {
     id: string;
     name: string;
+    description: string | null;
     rules: unknown[];
     lastUsed: string | null;
     updatedAt: string;
@@ -83,6 +101,7 @@ interface SyncContextInput {
 interface ContextSyncRequest {
     deviceId: string;
     deviceName: string | null;
+    lastSyncAt: string | null;
     contexts: SyncContextInput[];
 }
 
@@ -90,15 +109,50 @@ interface ContextSyncRequest {
 interface SyncContext {
     id: string;
     name: string;
+    description: string | null;
     rules: unknown[];
     lastUsed: string | null;
     updatedAt: string;
+    deletedAt?: string | null;
 }
 
 /** Context sync response */
 interface ContextSyncResponse {
     synced: SyncContext[];
     serverTime: string;
+    rejected?: RejectedRecord[];
+    partial?: boolean;
+}
+
+/** Subscription tiers entitled to cloud sync */
+const SYNC_ENTITLED_TIERS = ['pro', 'enterprise'];
+
+/**
+ * Convert a local `updatedAt` (Unix seconds, or an ISO string on legacy records) to
+ * milliseconds for comparison. Returns 0 when nothing usable is present.
+ */
+function localTimeToMs(value: string | number | undefined | null, fallback?: string): number {
+    if (typeof value === 'number') return value * 1000;
+    if (typeof value === 'string' && value.trim() !== '') {
+        const parsed = new Date(value).getTime();
+        if (!Number.isNaN(parsed)) return parsed;
+    }
+    if (fallback) {
+        const parsed = new Date(fallback).getTime();
+        if (!Number.isNaN(parsed)) return parsed;
+    }
+    return 0;
+}
+
+/**
+ * Truncate to whole seconds.
+ *
+ * The local DB stores seconds while the server keeps sub-second precision. Comparing
+ * the two directly made every server record look newer than its identical local copy,
+ * so each sync re-imported everything it had just pushed.
+ */
+function toSeconds(ms: number): number {
+    return Math.floor(ms / 1000);
 }
 
 /**
@@ -116,6 +170,17 @@ export class CloudSyncService {
     private isSyncing = false;
     private wsUnlisten: UnlistenFn | null = null;
     private initialized = false;
+    /**
+     * Last value `shouldSync()` returned.
+     *
+     * Held as a primitive on purpose. `updateSettings` used to derive the "before"
+     * state by calling `shouldSync()` against `this.settings` — but callers pass the
+     * same Svelte `$state` proxy every time and mutate it in place, so by the time the
+     * effect re-ran, `this.settings` already reflected the new value. Before and after
+     * were therefore always equal, the false -> true transition never fired, and sync
+     * simply never started after an in-session login.
+     */
+    private lastShouldSync = false;
 
     constructor(adapter: IStorageService) {
         this.adapter = adapter;
@@ -150,7 +215,14 @@ export class CloudSyncService {
             }
         }
 
-        if (this.shouldSync()) {
+        // Entitlement must be known before the gate below is evaluated, otherwise a
+        // device linked via the code flow never syncs until someone opens Settings.
+        await this.refreshEntitlement();
+
+        this.lastShouldSync = this.shouldSync();
+        this.initialized = true;
+
+        if (this.lastShouldSync) {
             this.startPeriodicSync();
             // Do an initial sync on startup
             await this.sync();
@@ -158,18 +230,72 @@ export class CloudSyncService {
     }
 
     /**
-     * Update settings and restart sync if needed
+     * Refresh the cached subscription tier from the cloud.
+     *
+     * `shouldSync()` gates on `subscriptionTier`, which was only ever populated by the
+     * Settings screen. A device linked without visiting it kept the tier `undefined`
+     * and silently never synced — no error, no status change.
+     *
+     * A failed fetch leaves the cached tier untouched rather than clearing it: an
+     * offline start must not look like a downgrade.
+     */
+    private async refreshEntitlement(): Promise<void> {
+        const config = this.settings?.cloudConfig;
+        if (!config?.enabled || !config.userId) return;
+
+        try {
+            const fresh = await this.adapter.fetchCloudAccount();
+            // A malformed or empty response must not overwrite a working config -
+            // spreading `undefined` here would silently strip `enabled` and the tier and
+            // disable sync until the next restart.
+            if (!fresh || typeof fresh !== 'object') {
+                console.warn('[CloudSync] Ignoring empty account response');
+                return;
+            }
+            if (this.settings) {
+                // Preserve the local sync cursor; the account endpoint doesn't know it.
+                this.settings.cloudConfig = { ...fresh, lastSyncAt: config.lastSyncAt };
+                await this.adapter.saveSettings(this.settings);
+            }
+        } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            if (this.isAuthError(msg)) {
+                this.setStatus('auth-error', 'Authentication expired. Please log in again.');
+                return;
+            }
+            console.warn('[CloudSync] Could not refresh subscription tier:', msg);
+        }
+    }
+
+    /**
+     * Update settings and start/stop sync when entitlement changes
      */
     updateSettings(settings: Settings): void {
-        const wasEnabled = this.shouldSync();
         this.settings = settings;
         const isEnabled = this.shouldSync();
+        const wasEnabled = this.lastShouldSync;
+        this.lastShouldSync = isEnabled;
 
         if (isEnabled && !wasEnabled) {
             this.startPeriodicSync();
-            this.sync(); // Trigger immediate sync upon enabling
+            void this.sync(); // Trigger immediate sync upon enabling
         } else if (!isEnabled && wasEnabled) {
             this.stopPeriodicSync();
+        }
+    }
+
+    /**
+     * Called after a successful login so sync starts without waiting for a restart.
+     */
+    async onAuthenticated(settings: Settings): Promise<void> {
+        this.settings = settings;
+        await this.refreshEntitlement();
+        this.updateSettings(this.settings);
+        if (!this.shouldSync()) {
+            this.setStatus(
+                'error',
+                'This account is not entitled to cloud sync. Check your subscription.'
+            );
         }
     }
 
@@ -182,7 +308,8 @@ export class CloudSyncService {
 
         return (
             config.enabled &&
-            (config.subscriptionTier === 'pro' || config.subscriptionTier === 'enterprise' || config.enterpriseOwnerId != null)
+            (SYNC_ENTITLED_TIERS.includes(config.subscriptionTier ?? '') ||
+                config.enterpriseOwnerId != null)
         );
     }
 
@@ -194,12 +321,12 @@ export class CloudSyncService {
 
         // Start periodic sync (now functions as a fallback)
         this.syncInterval = setInterval(() => {
-            this.sync();
+            void this.sync();
         }, FALLBACK_SYNC_INTERVAL_MS);
 
         // Connect to WebSocket for real-time sync notifications
         if (this.settings?.cloudConfig?.enabled) {
-            this.connectWebSocket();
+            void this.connectWebSocket();
         }
 
         console.log('[CloudSync] Periodic sync started');
@@ -214,11 +341,11 @@ export class CloudSyncService {
             this.syncInterval = null;
             console.log('[CloudSync] Periodic sync stopped');
         }
-        this.disconnectWebSocket();
+        void this.disconnectWebSocket();
     }
 
     /**
-     * Trigger a debounced sync (call after local changes)
+     * Trigger a debounced sync. Call after *any* local mutation.
      */
     triggerSync(): void {
         if (!this.shouldSync()) return;
@@ -228,7 +355,7 @@ export class CloudSyncService {
         }
 
         this.debounceTimer = setTimeout(() => {
-            this.sync();
+            void this.sync();
         }, DEBOUNCE_DELAY_MS);
     }
 
@@ -241,8 +368,6 @@ export class CloudSyncService {
         }
 
         const config = this.settings!.cloudConfig!;
-
-        // Token is stored in backend, so we rely on backend failure to detect expiration.
 
         this.isSyncing = true;
         this.setStatus('syncing');
@@ -267,11 +392,11 @@ export class CloudSyncService {
                     completed: !!stash.completed,
                     completedAt: stash.completedAt || null,
                     createdAt: stash.createdAt,
-                    updatedAt: typeof stash.updatedAt === 'number'
-                        ? new Date(stash.updatedAt * 1000).toISOString()
-                        : (stash.updatedAt as string || stash.createdAt),
+                    updatedAt: new Date(
+                        localTimeToMs(stash.updatedAt, stash.createdAt)
+                    ).toISOString(),
                     deleted: !!stash.deleted,
-                    attachments: stash.attachments.map(att => ({
+                    attachments: (stash.attachments || []).map(att => ({
                         id: att.id,
                         fileName: att.fileName,
                         fileSize: att.fileSize,
@@ -285,41 +410,52 @@ export class CloudSyncService {
             const contextRequest: ContextSyncRequest = {
                 deviceId: this.deviceId,
                 deviceName: this.deviceName,
+                lastSyncAt: config.lastSyncAt || null,
                 contexts: localContexts.map(ctx => ({
                     id: ctx.id,
                     name: ctx.name,
+                    // Without this the server has no description to return, and every
+                    // pull overwrote the local one with nothing.
+                    description: ctx.description || null,
                     rules: ctx.rules || [],
                     lastUsed: ctx.lastUsed || null,
-                    updatedAt: typeof ctx.updatedAt === 'number'
-                        ? new Date(ctx.updatedAt * 1000).toISOString()
-                        : (ctx.updatedAt as string || ctx.lastUsed || new Date().toISOString()),
+                    updatedAt: new Date(
+                        localTimeToMs(ctx.updatedAt, ctx.lastUsed) || Date.now()
+                    ).toISOString(),
                     deleted: !!ctx.deleted,
                 })),
             };
 
-            // Sync both in parallel
-            const [stashResponse, contextResponse] = await Promise.all([
-                this.callStashSyncApi(config, stashRequest),
-                this.callContextSyncApi(config, contextRequest),
-                this.uploadPendingAttachments(localStashes),
-            ]);
+            // Sync sequentially: contexts first, then stashes, then attachments.
+            // This prevents foreign key constraint database errors on the server.
+            const contextResponse = await this.callContextSyncApi(config, contextRequest);
+            const stashResponse = await this.callStashSyncApi(config, stashRequest);
 
             let stashCount = 0;
             let contextCount = 0;
 
-            if (stashResponse) {
-                await this.mergeServerStashes(stashResponse.synced, localStashes);
-                stashCount = stashResponse.synced.length;
-            }
-
             if (contextResponse) {
                 await this.mergeServerContexts(contextResponse.synced, localContexts);
                 contextCount = contextResponse.synced.length;
+                this.reportRejected('contexts', contextResponse.rejected);
             }
+
+            if (stashResponse) {
+                await this.mergeServerStashes(stashResponse.synced, localStashes);
+                stashCount = stashResponse.synced.length;
+                this.reportRejected('stashes', stashResponse.rejected);
+            }
+
+            // Upload after merging so attachments pulled in this cycle are already
+            // marked as present locally and are not immediately pushed back up.
+            await this.uploadPendingAttachments();
 
             // Update last sync timestamp
             if (this.settings?.cloudConfig && (stashResponse || contextResponse)) {
-                this.settings.cloudConfig.lastSyncAt = stashResponse?.serverTime || contextResponse?.serverTime || new Date().toISOString();
+                this.settings.cloudConfig.lastSyncAt =
+                    stashResponse?.serverTime ||
+                    contextResponse?.serverTime ||
+                    new Date().toISOString();
                 await this.adapter.saveSettings(this.settings);
             }
 
@@ -329,11 +465,27 @@ export class CloudSyncService {
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             console.error('[CloudSync] Sync failed:', message);
-            this.setStatus('error', message);
+            this.setStatus(this.isAuthError(message) ? 'auth-error' : 'error', message);
             return false;
         } finally {
             this.isSyncing = false;
         }
+    }
+
+    /** Does this error message indicate an expired or rejected session? */
+    private isAuthError(message: string): boolean {
+        return message.includes('Authentication expired') || message.includes('401');
+    }
+
+    /**
+     * Surface records the server refused. These are silent data loss otherwise.
+     */
+    private reportRejected(kind: string, rejected?: RejectedRecord[]): void {
+        if (!rejected?.length) return;
+        console.warn(
+            `[CloudSync] Server rejected ${rejected.length} ${kind}:`,
+            rejected.map(r => `${r.id}: ${r.reason}`).join('; ')
+        );
     }
 
     /**
@@ -348,8 +500,8 @@ export class CloudSyncService {
             return response as SyncResponse;
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
-            if (msg.includes('Authentication expired') || msg.includes('401')) {
-                this.setStatus('error', 'Authentication expired. Please log in again.');
+            if (this.isAuthError(msg)) {
+                this.setStatus('auth-error', 'Authentication expired. Please log in again.');
                 return null;
             }
             throw new Error(`Stash sync failed: ${msg}`);
@@ -368,7 +520,8 @@ export class CloudSyncService {
             return response as ContextSyncResponse;
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
-            if (msg.includes('Authentication expired') || msg.includes('401')) {
+            if (this.isAuthError(msg)) {
+                this.setStatus('auth-error', 'Authentication expired. Please log in again.');
                 return null;
             }
             throw new Error(`Context sync failed: ${msg}`);
@@ -388,32 +541,33 @@ export class CloudSyncService {
         for (const serverStash of serverStashes) {
             const localStash = localMap.get(serverStash.id);
 
-            // Convert updatedAt from ISO string to Unix timestamp (seconds) for local DB
+            const serverMs = localTimeToMs(serverStash.updatedAt, serverStash.createdAt);
+            // Convert to Unix seconds for the local DB.
             const stashToSave = {
                 ...serverStash,
-                updatedAt: serverStash.updatedAt 
-                    ? Math.floor(new Date(serverStash.updatedAt).getTime() / 1000) 
-                    : undefined,
-                deleted: !!(serverStash as any).deletedAt || !!serverStash.deleted
-            } as any;
+                updatedAt: toSeconds(serverMs),
+                deleted: !!(serverStash as any).deletedAt || !!serverStash.deleted,
+            } as StashItem;
 
             if (!localStash) {
                 toSave.push(stashToSave);
-            } else {
-                const serverTime = new Date(serverStash.updatedAt || serverStash.createdAt).getTime();
-                const localTime = typeof localStash.updatedAt === 'number'
-                    ? (localStash.updatedAt as number) * 1000
-                    : new Date(localStash.updatedAt || localStash.createdAt).getTime();
+                continue;
+            }
 
-                if (serverTime > localTime) {
-                    toSave.push(stashToSave);
-                }
+            const localMs = localTimeToMs(localStash.updatedAt, localStash.createdAt);
+            // Second granularity on both sides: the local column only stores seconds,
+            // so comparing raw milliseconds made every record look perpetually stale.
+            if (toSeconds(serverMs) > toSeconds(localMs)) {
+                toSave.push(stashToSave);
             }
         }
 
         if (toSave.length > 0) {
             await this.adapter.importStashes(toSave);
         }
+
+        // Fetch the bytes for anything we now know about but don't hold locally.
+        await this.downloadMissingAttachments(toSave);
     }
 
     /**
@@ -428,44 +582,37 @@ export class CloudSyncService {
 
         for (const serverCtx of serverContexts) {
             const localCtx = localMap.get(serverCtx.id);
-            const updatedAt = serverCtx.updatedAt 
-                ? Math.floor(new Date(serverCtx.updatedAt).getTime() / 1000) 
-                : undefined;
-            const isDeleted = !!(serverCtx as any).deletedAt || !!(serverCtx as any).deleted;
+            const serverMs = localTimeToMs(serverCtx.updatedAt, serverCtx.lastUsed ?? undefined);
+            const isDeleted = !!serverCtx.deletedAt || !!(serverCtx as any).deleted;
+
+            const candidate: Context = {
+                id: serverCtx.id,
+                name: serverCtx.name,
+                // Fall back to the local value: an older server record that predates
+                // description syncing must not blank out what this device already has.
+                description: serverCtx.description ?? localCtx?.description,
+                rules: serverCtx.rules as Context['rules'],
+                lastUsed: serverCtx.lastUsed || undefined,
+                updatedAt: toSeconds(serverMs),
+                deleted: isDeleted,
+            };
 
             if (!localCtx) {
-                // New from server
-                toSave.push({
-                    id: serverCtx.id,
-                    name: serverCtx.name,
-                    rules: serverCtx.rules as Context['rules'],
-                    lastUsed: serverCtx.lastUsed || undefined,
-                    updatedAt,
-                    deleted: isDeleted
-                });
-            } else {
-                const serverTime = new Date(serverCtx.updatedAt || serverCtx.lastUsed || 0).getTime();
-                const localTime = typeof localCtx.updatedAt === 'number'
-                    ? (localCtx.updatedAt as number) * 1000
-                    : new Date(localCtx.lastUsed || 0).getTime();
+                toSave.push(candidate);
+                continue;
+            }
 
-                if (serverTime > localTime) {
-                    toSave.push({
-                        id: serverCtx.id,
-                        name: serverCtx.name,
-                        rules: serverCtx.rules as Context['rules'],
-                        lastUsed: serverCtx.lastUsed || undefined,
-                        updatedAt,
-                        deleted: isDeleted
-                    });
-                }
+            const localMs = localTimeToMs(localCtx.updatedAt, localCtx.lastUsed);
+            if (toSeconds(serverMs) > toSeconds(localMs)) {
+                toSave.push(candidate);
             }
         }
 
         if (toSave.length > 0) {
-            for (const ctx of toSave) {
-                await this.adapter.saveContext(ctx);
-            }
+            // importContexts, not saveContext: the latter is the local-edit path and
+            // stamps the current time, which would make every pulled record look
+            // locally modified and bounce straight back to the server.
+            await this.adapter.importContexts(toSave);
         }
     }
 
@@ -504,7 +651,7 @@ export class CloudSyncService {
                     // Do not sync if the notification came from our own device (loop prevention)
                     if (event.payload.source_device !== this.deviceId) {
                         console.debug('[CloudSyncService] Received sync notification from', event.payload.source_device, '- triggering sync');
-                        this.sync();
+                        void this.sync();
                     }
                 });
             }
@@ -537,31 +684,42 @@ export class CloudSyncService {
     }
 
     /**
-     * Decode JWT and check if it has expired
-     * @returns true if valid, false if expired or invalid
+     * Push any attachment whose bytes aren't in the cloud yet.
+     *
+     * The Rust command is idempotent: it returns immediately for attachments already
+     * marked uploaded, and for metadata-only rows pulled from another device whose
+     * file hasn't been downloaded yet.
      */
-    private verifyAuth(token: string | null | undefined): boolean {
-        // Obsolete: Token is now stored securely in the Rust backend
-        return true;
-    }
-    /**
-     * Upload all pending attachments to the cloud
-     */
-    private async uploadPendingAttachments(localStashes: any[]): Promise<void> {
-        // Flatten attachments from all stashes
-        const attachments = localStashes.flatMap(s => s.attachments || []);
+    private async uploadPendingAttachments(): Promise<void> {
+        const stashes = await this.adapter.loadStashesForSync();
+        const attachments = stashes.flatMap(s => s.attachments || []);
 
         if (attachments.length === 0) return;
 
-        console.log(`[CloudSync] Checking ${attachments.length} attachments for upload...`);
-
-        // Upload each one.
         for (const att of attachments) {
             try {
-                // The backend command handles whether it's already there or needed
                 await this.adapter.uploadAttachmentToCloud(att.id);
             } catch (e) {
-                console.warn(`[CloudSync] Optional attachment upload failed for ${att.id}:`, e);
+                console.warn(`[CloudSync] Attachment upload failed for ${att.id}:`, e);
+            }
+        }
+    }
+
+    /**
+     * Download the bytes for attachments this device knows about but doesn't hold.
+     *
+     * Sync used to be upload-only, so a receiving device ended up with attachment rows
+     * whose `filePath` was empty — a file listed in the UI that could never be opened.
+     */
+    private async downloadMissingAttachments(stashes: StashItem[]): Promise<void> {
+        for (const stash of stashes) {
+            for (const att of stash.attachments || []) {
+                if (att.filePath && att.filePath.trim() !== '') continue;
+                try {
+                    await this.adapter.downloadAttachmentFromCloud(att.id);
+                } catch (e) {
+                    console.warn(`[CloudSync] Attachment download failed for ${att.id}:`, e);
+                }
             }
         }
     }

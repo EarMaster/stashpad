@@ -65,6 +65,7 @@
     onOpenContexts,
     onCheckForUpdates,
     onTriggerSync,
+    onAuthChanged,
     isCheckingForUpdates = false,
   } = $props<{
     settings: Settings;
@@ -74,6 +75,8 @@
     onOpenContexts: () => void;
     onCheckForUpdates: () => void;
     onTriggerSync?: () => void;
+    /** Fired after login/logout so the sync service can start or stop immediately. */
+    onAuthChanged?: () => void | Promise<void>;
     isCheckingForUpdates?: boolean;
   }>();
 
@@ -270,18 +273,26 @@
     }
   }
 
-  /** Clears all cloud auth data and disables sync. */
-  function handleCloudLogout() {
+  /** Clears all cloud auth data, erases the stored token, and disables sync. */
+  async function handleCloudLogout() {
+    // Must go through the backend command: save_settings deliberately restores a
+    // missing access_token (the webview never sees it), so clearing the fields here
+    // and saving would have left the JWT alive in the OS keychain indefinitely.
+    await adapter.cloudLogout();
+
     if (settings.cloudConfig) {
-      settings.cloudConfig.userId = undefined;
       settings.cloudConfig.userId = undefined;
       settings.cloudConfig.email = undefined;
       settings.cloudConfig.subscriptionTier = undefined;
       settings.cloudConfig.subscriptionStatus = undefined;
       settings.cloudConfig.subscriptionPeriodEnd = undefined;
+      settings.cloudConfig.enterpriseOwnerId = undefined;
+      settings.cloudConfig.lastSyncAt = undefined;
       settings.cloudConfig.enabled = false;
-      save();
     }
+
+    // Stop the sync loop and close the socket right away.
+    await onAuthChanged?.();
   }
 
   /** Opens the Stashpad account portal in the system browser. */
@@ -315,6 +326,8 @@
     showAuthModal = false;
     save();
     await refreshSubscription();
+    // Start syncing now instead of waiting for the next app start.
+    await onAuthChanged?.();
   }
 </script>
 

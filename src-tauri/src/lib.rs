@@ -18,7 +18,8 @@ use std::time::Duration;
 use std::thread;
 
 use tauri::menu::{Menu, MenuBuilder, MenuItemBuilder, SubmenuBuilder};
-use tauri::Color;
+use tauri::window::Color;
+use tauri::Manager;
 use active_win_pos_rs::get_active_window;
 
 mod models;
@@ -38,8 +39,7 @@ use utils::{
     get_system_prompt_path,
 };
 use settings::load_settings_from_disk;
-use contexts::load_contexts_from_disk;
-use stashes::{perform_startup_cleanup, load_stashes_for_sync, get_contexts_for_sync};
+use stashes::perform_startup_cleanup;
 use db::DbManager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -373,10 +373,12 @@ pub fn run() {
             utils::get_device_name,
             settings::get_settings,
             settings::save_settings,
+            settings::cloud_logout,
             utils::is_windows_10,
             contexts::get_contexts,
             contexts::save_contexts,
             contexts::save_context,
+            contexts::import_contexts,
             contexts::delete_context,
             utils::set_autostart,
             utils::get_autostart_enabled,
@@ -395,6 +397,7 @@ pub fn run() {
             sync::sync_stashes_api,
             sync::sync_contexts_api,
             sync::upload_attachment_to_cloud,
+            sync::download_attachment_from_cloud,
             sync::connect_websocket,
             sync::disconnect_websocket,
             utils::get_installation_source

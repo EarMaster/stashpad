@@ -1,7 +1,35 @@
-use crate::{Context, StashItem, Attachment, ContextRule}; 
+use crate::models::{Context, StashItem, Attachment, ContextRule}; 
 use rusqlite::{params, Connection, Result, OptionalExtension};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+/// Which clock owns `updated_at` for a given write.
+///
+/// This distinction is the difference between working and broken cross-device sync.
+/// Both paths used to share `updated_at.unwrap_or_else(now_ts)`, and because the UI
+/// spreads the loaded stash back into the object it saves (`{ ...item, completed }`),
+/// every local edit re-sent the timestamp the server had already stored. The server's
+/// last-write-wins check is `client.updated_at > server.updated_at`, so the comparison
+/// was `X > X` — false — and edits were silently discarded forever.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum WriteOrigin {
+    /// The user changed something on this device. Stamp the current time so the record
+    /// is genuinely newer than the server's copy.
+    LocalEdit,
+    /// Applying data received from the server. Preserve the incoming timestamp verbatim
+    /// so both sides keep comparing the same value and the merge converges.
+    SyncImport,
+}
+
+impl WriteOrigin {
+    /// Resolve the `updated_at` to persist for this write.
+    fn stamp(self, supplied: Option<u64>) -> u64 {
+        match self {
+            WriteOrigin::LocalEdit => now_ts(),
+            WriteOrigin::SyncImport => supplied.unwrap_or_else(now_ts),
+        }
+    }
+}
 
 pub struct DbManager {
     pub conn: Connection,
@@ -101,6 +129,22 @@ impl DbManager {
         if !syntax_exists {
             let _ = self.conn.execute("ALTER TABLE attachments ADD COLUMN syntax TEXT", []);
         }
+
+        // Tracks when this attachment's bytes were successfully pushed to the cloud.
+        // Without it every sync re-uploaded every file that ever existed, because the
+        // upload path had no idempotency check at all.
+        let uploaded_at_exists: bool = self.conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('attachments') WHERE name='uploaded_at'",
+                [],
+                |row| row.get(0).map(|c: i32| c > 0),
+            )
+            .unwrap_or(false);
+
+        if !uploaded_at_exists {
+            let _ = self.conn.execute("ALTER TABLE attachments ADD COLUMN uploaded_at INTEGER", []);
+        }
+
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_attachments_stash_id ON attachments(stash_id)", [])?;
 
         // Migrate enhanced_content column for AI enhancement feature
@@ -240,7 +284,7 @@ impl DbManager {
         Ok(())
     }
 
-    pub fn migrate_from_json(&mut self, stashes: Vec<crate::StashItem>, contexts: Vec<crate::Context>) -> Result<()> {
+    pub fn migrate_from_json(&mut self, stashes: Vec<StashItem>, contexts: Vec<Context>) -> Result<()> {
         let tx = self.conn.transaction()?;
 
         // Contexts
@@ -309,7 +353,7 @@ impl DbManager {
         Ok(contexts)
     }
 
-    pub fn save_context(&mut self, ctx: &Context) -> Result<()> {
+    pub fn save_context(&mut self, ctx: &Context, origin: WriteOrigin) -> Result<()> {
         // Protect default context from being renamed or having rules modified
         let (name, rules_json) = if ctx.id == "default" {
             // Force default context to keep its name and empty rules
@@ -325,11 +369,43 @@ impl DbManager {
                 name,
                 rules_json,
                 ctx.last_used,
-                ctx.updated_at.unwrap_or_else(now_ts),
+                origin.stamp(ctx.updated_at),
                 ctx.description,
                 if ctx.deleted { 1 } else { 0 }
             ],
         )?;
+        Ok(())
+    }
+
+    /// Apply contexts received from the server in one transaction, preserving their
+    /// timestamps so last-write-wins stays stable across devices.
+    pub fn import_contexts(&mut self, contexts: &[Context]) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        for ctx in contexts {
+            // The default context keeps its name and rules on every device.
+            let (name, rules_json) = if ctx.id == "default" {
+                ("Default".to_string(), "[]".to_string())
+            } else {
+                (
+                    ctx.name.clone(),
+                    serde_json::to_string(&ctx.rules).unwrap_or_default(),
+                )
+            };
+
+            tx.execute(
+                "INSERT OR REPLACE INTO contexts (id, name, rules, last_used, updated_at, deleted, description) VALUES (?1, ?2, ?3, ?4, ?5, ?7, ?6)",
+                params![
+                    ctx.id,
+                    name,
+                    rules_json,
+                    ctx.last_used,
+                    WriteOrigin::SyncImport.stamp(ctx.updated_at),
+                    ctx.description,
+                    if ctx.deleted { 1 } else { 0 }
+                ],
+            )?;
+        }
+        tx.commit()?;
         Ok(())
     }
 
@@ -526,7 +602,8 @@ impl DbManager {
                     stash.completed,
                     stash.completed_at,
                     final_pos,
-                    stash.updated_at.unwrap_or_else(now_ts),
+                    // Server-supplied value, preserved verbatim.
+                    WriteOrigin::SyncImport.stamp(stash.updated_at),
                     if stash.deleted { 1 } else { 0 }
                 ],
             )?;
@@ -551,7 +628,12 @@ impl DbManager {
         Ok(())
     }
 
-    pub fn save_stash(&mut self, stash: &StashItem, position: Option<f64>) -> Result<()> {
+    pub fn save_stash(
+        &mut self,
+        stash: &StashItem,
+        position: Option<f64>,
+        origin: WriteOrigin,
+    ) -> Result<()> {
         let files_json = serde_json::to_string(&stash.files).unwrap_or_default();
         
         // If position is NOT provided, we need to check if it's an update or insert
@@ -591,7 +673,7 @@ impl DbManager {
                 stash.completed,
                 stash.completed_at,
                 final_pos,
-                stash.updated_at.unwrap_or_else(now_ts),
+                origin.stamp(stash.updated_at),
                 if stash.deleted { 1 } else { 0 }
             ],
         )?;
@@ -655,7 +737,7 @@ impl DbManager {
     }
 }
 
-fn now_ts() -> u64 {
+pub fn now_ts() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -710,7 +792,7 @@ mod tests {
             deleted: false,
         };
         
-        db.save_context(&test_context).expect("Failed to save context");
+        db.save_context(&test_context, WriteOrigin::LocalEdit).expect("Failed to save context");
         
         let contexts = db.get_contexts().expect("Failed to get contexts");
         let saved = contexts.iter().find(|c| c.id == "test-project");
@@ -735,7 +817,7 @@ mod tests {
             deleted: false,
         };
         
-        db.save_context(&modified_default).expect("Save should succeed");
+        db.save_context(&modified_default, WriteOrigin::LocalEdit).expect("Save should succeed");
         
         let contexts = db.get_contexts().expect("Failed to get contexts");
         let default = contexts.iter().find(|c| c.id == "default").unwrap();
@@ -762,7 +844,7 @@ mod tests {
             deleted: false,
         };
         
-        db.save_stash(&stash, None).expect("Failed to save stash");
+        db.save_stash(&stash, None, WriteOrigin::LocalEdit).expect("Failed to save stash");
         
         let stashes = db.get_stashes().expect("Failed to get stashes");
         let saved = stashes.iter().find(|s| s.id == "test-stash-1");
@@ -790,7 +872,7 @@ mod tests {
             deleted: false,
         };
         
-        db.save_stash(&stash, None).expect("Failed to save stash");
+        db.save_stash(&stash, None, WriteOrigin::LocalEdit).expect("Failed to save stash");
         db.delete_stash("stash-to-delete").expect("Failed to delete stash");
         
         let stashes = db.get_stashes().expect("Failed to get stashes");
@@ -832,8 +914,8 @@ mod tests {
             deleted: false,
         };
         
-        db.save_stash(&completed, None).expect("Failed to save completed stash");
-        db.save_stash(&active, None).expect("Failed to save active stash");
+        db.save_stash(&completed, None, WriteOrigin::LocalEdit).expect("Failed to save completed stash");
+        db.save_stash(&active, None, WriteOrigin::LocalEdit).expect("Failed to save active stash");
         
         db.delete_completed_stashes(None).expect("Failed to delete completed stashes");
         
@@ -876,8 +958,8 @@ mod tests {
         };
         
         // Save without explicit position (should append)
-        db.save_stash(&stash1, None).expect("Failed to save stash1");
-        db.save_stash(&stash2, None).expect("Failed to save stash2");
+        db.save_stash(&stash1, None, WriteOrigin::LocalEdit).expect("Failed to save stash1");
+        db.save_stash(&stash2, None, WriteOrigin::LocalEdit).expect("Failed to save stash2");
         
         let stashes = db.get_stashes().expect("Failed to get stashes");
         
@@ -922,5 +1004,175 @@ mod tests {
         // Check if attachments were created
         let count: i32 = db.conn.query_row("SELECT COUNT(*) FROM attachments WHERE stash_id = 'v1-stash'", [], |row| row.get(0)).unwrap();
         assert_eq!(count, 1, "Should have 1 attachment after migration");
+    }
+
+    /// Build a stash carrying an explicit `updated_at`, as the UI does when it spreads
+    /// a loaded stash back into the object it saves.
+    fn stash_with_updated_at(id: &str, content: &str, updated_at: Option<u64>) -> StashItem {
+        StashItem {
+            id: id.to_string(),
+            context_id: Some("default".to_string()),
+            content: content.to_string(),
+            enhanced_content: None,
+            files: vec![],
+            attachments: vec![],
+            created_at: chrono::Utc::now().to_rfc3339(),
+            completed: false,
+            completed_at: None,
+            updated_at,
+            deleted: false,
+        }
+    }
+
+    fn stored_updated_at(db: &DbManager, id: &str) -> u64 {
+        db.conn
+            .query_row(
+                "SELECT updated_at FROM stashes WHERE id = ?1",
+                params![id],
+                |row| row.get(0),
+            )
+            .expect("stash should exist")
+    }
+
+    #[test]
+    fn local_edit_advances_updated_at_even_when_the_caller_supplies_one() {
+        // The regression that broke cross-device sync: the UI spreads the loaded stash
+        // back into what it saves, so `updated_at` echoed the value the server already
+        // had. The server's LWW check is `client > server`, so `X > X` was false and
+        // every edit was silently discarded. A local edit must always win.
+        let mut db = create_test_db();
+
+        let stale = 1_000_000_u64;
+        let stash = stash_with_updated_at("edit-me", "original", Some(stale));
+        db.save_stash(&stash, None, WriteOrigin::LocalEdit)
+            .expect("save should succeed");
+
+        assert!(
+            stored_updated_at(&db, "edit-me") > stale,
+            "a local edit must stamp the current time, not echo the supplied value"
+        );
+
+        // Simulate the UI round-trip: read it back, change a field, save again.
+        let loaded = db
+            .get_stashes()
+            .expect("load should succeed")
+            .into_iter()
+            .find(|s| s.id == "edit-me")
+            .expect("stash should be present");
+        let before = loaded.updated_at.expect("updated_at should be set");
+
+        let mut edited = loaded;
+        edited.content = "changed".to_string();
+        db.save_stash(&edited, None, WriteOrigin::LocalEdit)
+            .expect("second save should succeed");
+
+        assert!(
+            stored_updated_at(&db, "edit-me") >= before,
+            "editing must never move updated_at backwards"
+        );
+    }
+
+    #[test]
+    fn sync_import_preserves_the_server_timestamp() {
+        // The mirror of the rule above: data coming back from the server must keep its
+        // timestamp verbatim, or every pulled record would look locally modified and be
+        // pushed straight back on the next sync.
+        let mut db = create_test_db();
+
+        let server_ts = 1_700_000_000_u64;
+        let stash = stash_with_updated_at("from-server", "remote content", Some(server_ts));
+        db.import_stashes(&vec![stash]).expect("import should succeed");
+
+        assert_eq!(
+            stored_updated_at(&db, "from-server"),
+            server_ts,
+            "sync import must not restamp the server's timestamp"
+        );
+    }
+
+    #[test]
+    fn context_import_preserves_timestamp_and_description() {
+        // `save_context` is the local-edit path; imports need their own so pulled
+        // contexts keep the server clock. The description must survive too - it was
+        // absent from the sync payload entirely, so every pull blanked it.
+        let mut db = create_test_db();
+
+        let server_ts = 1_700_000_000_u64;
+        let ctx = Context {
+            id: "ctx-remote".to_string(),
+            name: "Remote".to_string(),
+            description: Some("Rust + Svelte".to_string()),
+            rules: vec![],
+            last_used: None,
+            updated_at: Some(server_ts),
+            deleted: false,
+        };
+
+        db.import_contexts(&[ctx]).expect("import should succeed");
+
+        let stored = db.get_contexts().expect("load should succeed");
+        let found = stored
+            .iter()
+            .find(|c| c.id == "ctx-remote")
+            .expect("context should be present");
+
+        assert_eq!(found.updated_at, Some(server_ts));
+        assert_eq!(found.description.as_deref(), Some("Rust + Svelte"));
+    }
+
+    #[test]
+    fn local_context_edit_advances_updated_at() {
+        let mut db = create_test_db();
+
+        let stale = 1_000_000_u64;
+        let ctx = Context {
+            id: "ctx-local".to_string(),
+            name: "Local".to_string(),
+            description: None,
+            rules: vec![],
+            last_used: None,
+            updated_at: Some(stale),
+            deleted: false,
+        };
+
+        db.save_context(&ctx, WriteOrigin::LocalEdit)
+            .expect("save should succeed");
+
+        let stored = db.get_contexts().expect("load should succeed");
+        let found = stored
+            .iter()
+            .find(|c| c.id == "ctx-local")
+            .expect("context should be present");
+
+        assert!(
+            found.updated_at.unwrap() > stale,
+            "a local context edit must stamp the current time"
+        );
+    }
+
+    #[test]
+    fn deleted_stashes_are_returned_to_sync_as_tombstones() {
+        // Other devices only learn about a deletion if the tombstone is sent, so
+        // get_stashes_for_sync must include deleted rows even though get_stashes hides
+        // them from the UI.
+        let mut db = create_test_db();
+
+        let stash = stash_with_updated_at("doomed", "bye", None);
+        db.save_stash(&stash, None, WriteOrigin::LocalEdit)
+            .expect("save should succeed");
+        db.delete_stash("doomed").expect("delete should succeed");
+
+        let visible = db.get_stashes().expect("load should succeed");
+        assert!(
+            !visible.iter().any(|s| s.id == "doomed"),
+            "deleted stash must be hidden from the UI"
+        );
+
+        let for_sync = db.get_stashes_for_sync().expect("sync load should succeed");
+        let tombstone = for_sync
+            .iter()
+            .find(|s| s.id == "doomed")
+            .expect("tombstone must be sent to the server");
+        assert!(tombstone.deleted, "tombstone must be flagged as deleted");
     }
 }

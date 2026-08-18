@@ -197,6 +197,12 @@ export interface IStorageService {
     loadStashesForSync(): Promise<StashItem[]>;
     getContextsForSync(): Promise<Context[]>;
     importStashes(stashes: StashItem[]): Promise<void>;
+    /** Apply cloud contexts while preserving their server timestamps. */
+    importContexts(contexts: Context[]): Promise<void>;
+    /** Fetch an attachment's bytes into the local cache; resolves to the file path. */
+    downloadAttachmentFromCloud(attachmentId: string): Promise<string>;
+    /** Sign out of the cloud and erase the stored JWT from the OS keychain. */
+    cloudLogout(): Promise<void>;
 
     // Apple Intelligence
     checkAppleIntelligenceAvailable(): Promise<boolean>;

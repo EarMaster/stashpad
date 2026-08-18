@@ -509,3 +509,19 @@ pub fn open_system_prompt_file() {
     }
 }
 
+#[tauri::command]
+pub fn get_previous_app_info(state: State<Arc<Mutex<TrackerState>>>) -> AppContext {
+    let state = state.lock().unwrap();
+    if let Some(app) = &state.last_external_app {
+        let mut app_ctx = app.clone();
+        app_ctx.detected_context_id = state.current_context_id.clone();
+        app_ctx
+    } else {
+        AppContext {
+            window_title: "".into(),
+            process_name: "".into(),
+            detected_context_id: None,
+        }
+    }
+}
+

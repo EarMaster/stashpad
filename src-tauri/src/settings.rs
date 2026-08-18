@@ -15,7 +15,7 @@
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tauri::State;
+use tauri::{State, Manager};
 use crate::models::{Settings, CloudConfig, default_cloud_endpoint};
 use crate::utils::get_app_dir;
 use crate::keychain::{
@@ -231,12 +231,37 @@ pub fn save_settings(app: tauri::AppHandle, state: State<Arc<SettingsState>>, mu
     // Toggle autostart
     if settings.autostart != old_autostart {
         use tauri_plugin_autostart::ManagerExt;
-        if let Ok(autostart_manager) = app.autolaunch() {
-            if settings.autostart {
-                let _ = autostart_manager.enable();
-            } else {
-                let _ = autostart_manager.disable();
-            }
+        let autostart_manager = app.autolaunch();
+        if settings.autostart {
+            let _ = autostart_manager.enable();
+        } else {
+            let _ = autostart_manager.disable();
         }
     }
+}
+
+/// Sign out of the cloud and destroy the stored credential.
+///
+/// `save_settings` deliberately restores a missing `access_token` so a frontend save
+/// cannot wipe it (the token is never exposed to the webview). That protection also
+/// meant clearing the fields in the UI left the JWT alive in the keychain forever, so
+/// logout needs its own command that erases it explicitly.
+#[tauri::command]
+pub fn cloud_logout(state: State<Arc<SettingsState>>) {
+    let mut settings = state.settings.lock().unwrap();
+
+    if let Some(ref mut config) = settings.cloud_config {
+        config.access_token = None;
+        config.user_id = None;
+        config.email = None;
+        config.subscription_tier = None;
+        config.subscription_status = None;
+        config.subscription_period_end = None;
+        config.enterprise_owner_id = None;
+        config.last_sync_at = None;
+        config.enabled = false;
+    }
+
+    crate::keychain::delete_cloud_token_from_keychain();
+    persist_settings_to_disk(&settings);
 }

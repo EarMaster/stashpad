@@ -23,6 +23,7 @@ use std::fs;
 use crate::models::{CloudConfig, Attachment, default_cloud_endpoint};
 use crate::state::{SettingsState, DbState, WsState};
 use crate::settings::persist_settings_to_disk;
+use crate::utils::get_app_dir;
 
 #[tauri::command]
 pub async fn start_cloud_auth(
@@ -271,6 +272,12 @@ pub async fn sync_stashes_api(
         .await
         .map_err(|e| format!("Failed to sync stashes: {}", e))?;
 
+    // Match the wording sync_contexts_api uses so the frontend can detect an expired
+    // session from either call and surface the "log in again" path.
+    if response.status() == 401 {
+        return Err("Authentication expired. Please log in again.".into());
+    }
+
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -294,24 +301,40 @@ pub async fn upload_attachment_to_cloud(
         (config.endpoint.clone(), token)
     };
 
-    let attachment = {
+    let (attachment, already_uploaded) = {
         let db = state.db.lock().unwrap();
-        let mut stmt = db.conn.prepare("SELECT id, stash_id, file_path, file_name, file_size, mime_type, syntax, created_at FROM attachments WHERE id = ?")
+        let mut stmt = db.conn.prepare("SELECT id, stash_id, file_path, file_name, file_size, mime_type, syntax, created_at, uploaded_at FROM attachments WHERE id = ?")
             .map_err(|e| e.to_string())?;
         stmt.query_row(params![attachment_id], |row| {
-            Ok(Attachment {
-                id: row.get(0)?,
-                stash_id: row.get(1)?,
-                file_path: row.get(2)?,
-                file_name: row.get(3)?,
-                file_size: row.get(4)?,
-                mime_type: row.get(5)?,
-                syntax: row.get(6)?,
-                created_at: row.get(7)?,
-            })
+            let uploaded_at: Option<u64> = row.get(8)?;
+            Ok((
+                Attachment {
+                    id: row.get(0)?,
+                    stash_id: row.get(1)?,
+                    file_path: row.get(2)?,
+                    file_name: row.get(3)?,
+                    file_size: row.get(4)?,
+                    mime_type: row.get(5)?,
+                    syntax: row.get(6)?,
+                    created_at: row.get(7)?,
+                },
+                uploaded_at.is_some(),
+            ))
         }).optional().map_err(|e| e.to_string())?
             .ok_or_else(|| "Attachment not found".to_string())?
     };
+
+    // Idempotency: without this every sync re-PUT the full body of every attachment
+    // that had ever been created.
+    if already_uploaded {
+        return Ok(());
+    }
+
+    // Attachments pulled from another device arrive as metadata only until their bytes
+    // are downloaded, so there is nothing local to push yet.
+    if attachment.file_path.trim().is_empty() {
+        return Ok(());
+    }
 
     let client = reqwest::Client::new();
     
@@ -364,7 +387,157 @@ pub async fn upload_attachment_to_cloud(
         return Err(format!("File upload failed: {}", put_resp.status()));
     }
 
+    // 4. Confirm the upload. Until this lands the server keeps the row invisible to
+    // sync, so no other device is shown a file whose bytes are not in storage yet.
+    let confirm_resp = client
+        .post(format!(
+            "{}/attachments/{}/confirm",
+            endpoint.trim_end_matches('/'),
+            attachment.id
+        ))
+        .header("Authorization", format!("Bearer {}", token))
+        .send()
+        .await
+        .map_err(|e| format!("Failed to confirm upload: {}", e))?;
+
+    if !confirm_resp.status().is_success() {
+        return Err(format!(
+            "Cloud rejected upload confirmation: {}",
+            confirm_resp.status()
+        ));
+    }
+
+    // 5. Record locally so we never re-upload these bytes.
+    {
+        let db = state.db.lock().unwrap();
+        db.conn
+            .execute(
+                "UPDATE attachments SET uploaded_at = ?2 WHERE id = ?1",
+                params![attachment.id, crate::db::now_ts()],
+            )
+            .map_err(|e| e.to_string())?;
+    }
+
     Ok(())
+}
+
+/// Download an attachment's bytes from the cloud into the local cache.
+///
+/// Sync previously only ever uploaded. A device receiving a stash got attachment
+/// metadata with an empty `file_path`, so the UI showed a file that could never be
+/// opened - and then tried to re-upload it, failing on `fs::read("")` every cycle.
+#[tauri::command]
+pub async fn download_attachment_from_cloud(
+    state: State<'_, Arc<DbState>>,
+    settings_state: State<'_, Arc<SettingsState>>,
+    attachment_id: String,
+) -> Result<String, String> {
+    let (endpoint, token) = {
+        let settings = settings_state.settings.lock().unwrap();
+        let config = settings.cloud_config.as_ref().ok_or("Cloud config missing")?;
+        let token = config.access_token.clone().ok_or("Not authenticated")?;
+        (config.endpoint.clone(), token)
+    };
+
+    // Resolve where this file belongs: cache/<context_id>/<stash_id>/<file_name>
+    let (file_name, stash_id, context_id, existing_path) = {
+        let db = state.db.lock().unwrap();
+        let mut stmt = db
+            .conn
+            .prepare(
+                "SELECT a.file_name, a.stash_id, s.context_id, a.file_path \
+                 FROM attachments a LEFT JOIN stashes s ON s.id = a.stash_id \
+                 WHERE a.id = ?",
+            )
+            .map_err(|e| e.to_string())?;
+        stmt.query_row(params![attachment_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, String>(3)?,
+            ))
+        })
+        .optional()
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "Attachment not found".to_string())?
+    };
+
+    // Already present locally - nothing to fetch.
+    if !existing_path.trim().is_empty() && std::path::Path::new(&existing_path).exists() {
+        return Ok(existing_path);
+    }
+
+    let client = reqwest::Client::new();
+
+    let meta_resp = client
+        .get(format!(
+            "{}/attachments/{}",
+            endpoint.trim_end_matches('/'),
+            attachment_id
+        ))
+        .header("Authorization", format!("Bearer {}", token))
+        .send()
+        .await
+        .map_err(|e| format!("Failed to request download URL: {}", e))?;
+
+    let status = meta_resp.status();
+    let body = meta_resp
+        .text()
+        .await
+        .map_err(|e| format!("Failed to read download URL response: {}", e))?;
+
+    if !status.is_success() {
+        return Err(format!("Cloud rejected download request: {} - {}", status, body));
+    }
+
+    let data: serde_json::Value =
+        serde_json::from_str(&body).map_err(|e| format!("Failed to parse download response: {}", e))?;
+    let download_url = data["downloadUrl"]
+        .as_str()
+        .ok_or_else(|| "No download URL in response".to_string())?;
+
+    let file_resp = client
+        .get(download_url)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to download attachment: {}", e))?;
+
+    if !file_resp.status().is_success() {
+        return Err(format!("Attachment download failed: {}", file_resp.status()));
+    }
+
+    let bytes = file_resp
+        .bytes()
+        .await
+        .map_err(|e| format!("Failed to read attachment body: {}", e))?;
+
+    // Mirror the layout save_asset uses so cleanup on delete keeps working.
+    let mut dir = get_app_dir().join("cache");
+    if let Some(cid) = context_id.as_deref() {
+        dir = dir.join(cid);
+    }
+    dir = dir.join(&stash_id);
+    fs::create_dir_all(&dir).map_err(|e| format!("Failed to create cache dir: {}", e))?;
+
+    let target = dir.join(&file_name);
+    fs::write(&target, &bytes).map_err(|e| format!("Failed to write attachment: {}", e))?;
+
+    let path_str = target.to_string_lossy().to_string();
+
+    {
+        let db = state.db.lock().unwrap();
+        // uploaded_at is set too: the bytes demonstrably already exist in the cloud, so
+        // this device must not push them back up.
+        db.conn
+            .execute(
+                "UPDATE attachments SET file_path = ?2, uploaded_at = ?3 WHERE id = ?1",
+                params![attachment_id, path_str, crate::db::now_ts()],
+            )
+            .map_err(|e| e.to_string())?;
+    }
+
+    Ok(path_str)
 }
 
 #[tauri::command]
@@ -435,44 +608,79 @@ pub async fn connect_websocket(
     // Spawn a persistent task for the WebSocket connection with reconnect logic
     let task_app = app.clone();
     let handle = tauri::async_runtime::spawn(async move {
-        use futures_util::StreamExt;
+        use futures_util::{SinkExt, StreamExt};
         use tokio_tungstenite::connect_async;
         use tauri::Emitter;
-        
+
+        // How often to ping the server. Idle WebSockets through a NAT or proxy are
+        // dropped silently; without traffic the client believes it is still connected
+        // and simply stops receiving sync notifications.
+        const PING_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
+        // A connection that survived this long counts as healthy, so the next drop
+        // starts backing off from scratch rather than from wherever it left off.
+        const HEALTHY_CONNECTION: std::time::Duration = std::time::Duration::from_secs(60);
+
         let mut retry_backoff = 1;
 
         loop {
             log::info!("[WebSocket] Attempting to connect to {}", ws_endpoint);
-            
-            match connect_async(ws_url.clone()).await {
-                Ok((mut ws_stream, _)) => {
-                    log::info!("[WebSocket] Connected successfully");
-                    retry_backoff = 1; // reset backoff on success
 
-                    // Read frames until connection is closed or error occurs
-                    while let Some(msg) = ws_stream.next().await {
-                        match msg {
-                            Ok(tokio_tungstenite::tungstenite::Message::Text(text)) => {
-                                // Parse the JSON and emit to the frontend
-                                if let Ok(json) = serde_json::from_str::<serde_json::Value>(text.as_str()) {
-                                    if let Some(msg_type) = json.get("type").and_then(|v| v.as_str()) {
-                                        if msg_type == "sync_available" {
-                                            log::debug!("[WebSocket] Received sync notification: {:?}", json);
-                                            let _ = task_app.emit("cloud:sync-notification", json);
+            match connect_async(ws_url.clone()).await {
+                Ok((ws_stream, _)) => {
+                    log::info!("[WebSocket] Connected successfully");
+                    let connected_at = std::time::Instant::now();
+
+                    // Split so the ping timer can write while the reader is parked on
+                    // the next frame - a select! over the unsplit stream would need two
+                    // simultaneous mutable borrows.
+                    let (mut ws_write, mut ws_read) = ws_stream.split();
+                    let mut ping_timer = tokio::time::interval(PING_INTERVAL);
+                    ping_timer.tick().await; // the first tick completes immediately
+
+                    loop {
+                        tokio::select! {
+                            frame = ws_read.next() => {
+                                let Some(msg) = frame else {
+                                    log::info!("[WebSocket] Stream ended");
+                                    break;
+                                };
+                                match msg {
+                                    Ok(tokio_tungstenite::tungstenite::Message::Text(text)) => {
+                                        // Parse the JSON and emit to the frontend
+                                        if let Ok(json) = serde_json::from_str::<serde_json::Value>(text.as_str()) {
+                                            if let Some(msg_type) = json.get("type").and_then(|v| v.as_str()) {
+                                                if msg_type == "sync_available" {
+                                                    log::debug!("[WebSocket] Received sync notification: {:?}", json);
+                                                    let _ = task_app.emit("cloud:sync-notification", json);
+                                                }
+                                            }
                                         }
                                     }
+                                    Ok(tokio_tungstenite::tungstenite::Message::Close(_)) => {
+                                        log::info!("[WebSocket] Server closed connection");
+                                        break;
+                                    }
+                                    Err(e) => {
+                                        log::error!("[WebSocket] Error reading frame: {}", e);
+                                        break;
+                                    }
+                                    _ => {} // Ignore pong/binary/ping
                                 }
                             }
-                            Ok(tokio_tungstenite::tungstenite::Message::Close(_)) => {
-                                log::info!("[WebSocket] Server closed connection");
-                                break;
+                            _ = ping_timer.tick() => {
+                                if let Err(e) = ws_write
+                                    .send(tokio_tungstenite::tungstenite::Message::Ping(Default::default()))
+                                    .await
+                                {
+                                    log::warn!("[WebSocket] Keepalive ping failed: {}", e);
+                                    break;
+                                }
                             }
-                            Err(e) => {
-                                log::error!("[WebSocket] Error reading frame: {}", e);
-                                break;
-                            }
-                            _ => {} // Ignore ping/pong/binary
                         }
+                    }
+
+                    if connected_at.elapsed() >= HEALTHY_CONNECTION {
+                        retry_backoff = 1;
                     }
                 }
                 Err(e) => {
