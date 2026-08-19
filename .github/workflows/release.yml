@@ -5,6 +5,14 @@ on:
       - 'v*'
   workflow_dispatch:
 
+# Two runs for the same tag - a re-run alongside the original, or a tag pushed twice -
+# would upload to the same release concurrently and race over its assets.
+# `cancel-in-progress` stays false: killing a half-uploaded release is worse than
+# waiting for it.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   release:
     permissions:
@@ -23,6 +31,10 @@ jobs:
             args: ''
 
     runs-on: ${{ matrix.platform }}
+    # A hung step otherwise runs to GitHub's 6 hour default before anyone notices. The
+    # slowest healthy build so far is ~20 minutes, so this fails fast while leaving
+    # generous headroom for a cold dependency cache.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with:
@@ -30,12 +42,9 @@ jobs:
           # the previous tag, and the default shallow clone has neither.
           fetch-depth: 0
 
-      - name: setup node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: 'npm'
-
+      # Must run *before* setup-node: this deletes $AGENT_TOOLSDIRECTORY, which is the
+      # tool cache setup-node installs Node into. Running it afterwards removes the very
+      # toolchain the next steps depend on.
       - name: Free Disk Space (Ubuntu)
         if: matrix.platform == 'ubuntu-22.04'
         run: |
@@ -43,7 +52,15 @@ jobs:
           sudo rm -rf /usr/local/lib/android
           sudo rm -rf /opt/ghc
           sudo rm -rf "/usr/local/share/boost"
-          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          if [ -n "${AGENT_TOOLSDIRECTORY:-}" ]; then
+            sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          fi
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
 
       - name: install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -53,9 +70,33 @@ jobs:
 
       - name: install dependencies (ubuntu only)
         if: matrix.platform == 'ubuntu-22.04'
+        # Bounded separately from the job: this step has hung indefinitely on the
+        # ubuntu-22.04 image while the same commit installed fine on ubuntu-latest, so
+        # it is worth failing in minutes rather than blocking the whole release.
+        timeout-minutes: 15
+        env:
+          DEBIAN_FRONTEND: noninteractive
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev pkg-config libasound2-dev
+          set -eu
+          # Wait for, rather than fail or block forever on, the dpkg/apt lock that
+          # unattended-upgrades can hold on a fresh runner.
+          APT_OPTS="-o DPkg::Lock::Timeout=120"
+
+          for attempt in 1 2 3; do
+            echo "::group::apt attempt $attempt"
+            if sudo apt-get $APT_OPTS update && sudo apt-get $APT_OPTS install -y \
+                 libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
+                 librsvg2-dev libssl-dev pkg-config libasound2-dev; then
+              echo "::endgroup::"
+              exit 0
+            fi
+            echo "::endgroup::"
+            echo "::warning::apt attempt $attempt failed; retrying"
+            sleep 15
+          done
+
+          echo "::error::Could not install Linux build dependencies after 3 attempts."
+          exit 1
 
       - name: install frontend dependencies
         run: npm ci
