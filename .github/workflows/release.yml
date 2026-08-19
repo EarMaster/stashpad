@@ -56,18 +56,71 @@ jobs:
       - name: install frontend dependencies
         run: npm ci
 
+      # Signing is enabled by exporting secrets into $GITHUB_ENV only when they are
+      # actually configured. Setting them directly on the build step would not work:
+      # a secret that does not exist expands to an empty string, leaving the variable
+      # *set but empty*, and the bundler then tries to sign with an empty key or
+      # identity and fails the build. Exporting conditionally leaves it truly unset, so
+      # builds keep succeeding unsigned until the secrets are added.
+      - name: Configure signing
+        shell: bash
+        env:
+          UPDATER_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          UPDATER_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          MAC_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          MAC_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          MAC_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          MAC_APPLE_ID: ${{ secrets.APPLE_ID }}
+          MAC_APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          MAC_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -eu
+
+          # Append to $GITHUB_ENV using heredoc syntax. A plain `echo "NAME=$value"`
+          # silently corrupts any value containing a newline, which private keys and
+          # base64 certificate blobs often do.
+          put_env() {
+            delim="EOF_$(date +%s%N)_$$"
+            {
+              printf '%s<<%s\n' "$1" "$delim"
+              printf '%s\n' "$2"
+              printf '%s\n' "$delim"
+            } >> "$GITHUB_ENV"
+          }
+
+          # Tauri's own update signature. Unrelated to Apple code signing: this is what
+          # lets an already-installed app verify an update really came from us. The
+          # public half lives in tauri.conf.json under plugins.updater.pubkey.
+          # Generate a keypair with: npm run tauri signer generate
+          if [ -n "$UPDATER_KEY" ]; then
+            put_env TAURI_SIGNING_PRIVATE_KEY "$UPDATER_KEY"
+            put_env TAURI_SIGNING_PRIVATE_KEY_PASSWORD "$UPDATER_KEY_PASSWORD"
+            echo "Updater signing enabled."
+          else
+            echo "::warning::TAURI_SIGNING_PRIVATE_KEY is not set - the updater manifest will be unsigned and installed apps cannot auto-update."
+          fi
+
+          # Apple code signing + notarization. Requires a paid Apple Developer Program
+          # membership for a "Developer ID Application" certificate. Without it macOS
+          # reports "App is damaged and cannot be opened" on download, because a
+          # quarantined app with no valid signature is refused outright on Apple Silicon.
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            if [ -n "$MAC_SIGNING_IDENTITY" ]; then
+              put_env APPLE_CERTIFICATE "$MAC_CERTIFICATE"
+              put_env APPLE_CERTIFICATE_PASSWORD "$MAC_CERTIFICATE_PASSWORD"
+              put_env APPLE_SIGNING_IDENTITY "$MAC_SIGNING_IDENTITY"
+              put_env APPLE_ID "$MAC_APPLE_ID"
+              put_env APPLE_PASSWORD "$MAC_APPLE_PASSWORD"
+              put_env APPLE_TEAM_ID "$MAC_TEAM_ID"
+              echo "macOS code signing enabled."
+            else
+              echo "::warning::Apple signing secrets are not configured - the macOS build will be unsigned and users will see 'App is damaged and cannot be opened'."
+            fi
+          fi
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Uncomment and configure these secrets when you have an Apple Developer account
-          # to properly code sign and notarize the macOS build, which prevents the 
-          # "App is damaged and cannot be opened" Gatekeeper error when users download it.
-          # APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          # APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          # APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          # APPLE_ID: ${{ secrets.APPLE_ID }}
-          # APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          # APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           tagName: ${{ github.ref_name }} # This determines the release; On manual run, it will use the branch name.
           releaseName: 'Stashpad v__VERSION__'

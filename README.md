@@ -25,7 +25,40 @@ Instead of interrupting your AI agent (like Claude, ChatGPT, or GitHub Copilot) 
 * **Styling:** Tailwind CSS.
 * **Architecture:** Implements an Adapter Pattern to allow future Web-App compatibility.
 
+## 📥 Download
+
+Grab the installer for your platform from the [latest release](https://github.com/EarMaster/stashpad/releases/latest).
+
+On macOS, pick the build that matches your chip — check  → About This Mac:
+
+| Mac | File |
+|---|---|
+| Apple Silicon (M1–M4) | `stashpad_<version>_aarch64.dmg` |
+| Intel | `stashpad_<version>_x64.dmg` |
+
+The `.app.tar.gz` files are used by the in-app updater and are not meant for manual installation.
+
+### ⚠️ macOS: "Stashpad is damaged and cannot be opened"
+
+Stashpad is not yet notarized by Apple, which requires a paid Apple Developer account.
+macOS flags anything downloaded from a browser and refuses to launch it when it cannot
+verify a signature, so it reports the app as damaged. **Nothing is actually wrong with
+the download.**
+
+To run it, remove the quarantine flag after dragging Stashpad to Applications:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/stashpad.app
+```
+
+Then open it normally. Right-click → Open does *not* help here: that path only works for
+the "unidentified developer" prompt, and on Apple Silicon an unsigned binary is refused
+outright.
+
 ## 🚀 Getting Started
+
+> The steps below are for building Stashpad from source. If you just want to use the
+> app, see [Download](#-download) above.
 
 ### Prerequisites
 * Node.js (v20+)
