@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "stashpad",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "identifier": "org.stashpad",
   "build": {
     "frontendDist": "../dist",
@@ -65,7 +65,6 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "//": "Required in Tauri v2: without it no latest.json is assembled, so tauri-action logs 'Signature not found for the updater JSON' and the updater bundles are never published, even when a valid signing key produced .sig files.",
     "createUpdaterArtifacts": true,
     "icon": [
       "../assets/stashpad/tauri/icons/32x32.png",
