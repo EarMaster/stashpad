@@ -367,7 +367,9 @@ pub async fn upload_attachment_to_cloud(
         .map_err(|e| format!("Failed to read upload URL response: {}", e))?;
 
     if !status.is_success() {
-        return Err(format!("Cloud rejected upload request: {} - {}", status, resp_text));
+        let msg = format!("Cloud rejected upload request for {}: {} - {}", attachment.id, status, resp_text);
+        log::error!("[Attachment] {}", msg);
+        return Err(msg);
     }
 
     let upload_data: serde_json::Value = serde_json::from_str(&resp_text)
@@ -378,7 +380,11 @@ pub async fn upload_attachment_to_cloud(
 
     // 2. Read file content
     let file_content = fs::read(&attachment.file_path)
-        .map_err(|e| format!("Failed to read attachment file: {}", e))?;
+        .map_err(|e| {
+            let msg = format!("Failed to read attachment file {}: {}", attachment.file_path, e);
+            log::error!("[Attachment] {}", msg);
+            msg
+        })?;
 
     // 3. PUT file to R2
     let put_resp = client
@@ -390,7 +396,9 @@ pub async fn upload_attachment_to_cloud(
         .map_err(|e| format!("Failed to upload file to storage: {}", e))?;
 
     if !put_resp.status().is_success() {
-        return Err(format!("File upload failed: {}", put_resp.status()));
+        let msg = format!("Storage rejected the file for {}: {}", attachment.id, put_resp.status());
+        log::error!("[Attachment] {}", msg);
+        return Err(msg);
     }
 
     // 4. Confirm the upload. Until this lands the server keeps the row invisible to
@@ -407,11 +415,17 @@ pub async fn upload_attachment_to_cloud(
         .map_err(|e| format!("Failed to confirm upload: {}", e))?;
 
     if !confirm_resp.status().is_success() {
-        return Err(format!(
-            "Cloud rejected upload confirmation: {}",
-            confirm_resp.status()
-        ));
+        let status = confirm_resp.status();
+        let body = confirm_resp.text().await.unwrap_or_default();
+        let msg = format!(
+            "Cloud rejected upload confirmation for {}: {} - {}",
+            attachment.id, status, body
+        );
+        log::error!("[Attachment] {}", msg);
+        return Err(msg);
     }
+
+    log::info!("[Attachment] Uploaded {} ({})", attachment.id, attachment.file_name);
 
     // 5. Record locally so we never re-upload these bytes.
     {

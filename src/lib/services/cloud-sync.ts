@@ -219,6 +219,15 @@ export class CloudSyncService {
      * simply never started after an in-session login.
      */
     private lastShouldSync = false;
+    /**
+     * Most recent attachment upload failure, if the last sync had one.
+     *
+     * Attachment uploads are best-effort - one failing must not abort the sync - but
+     * "best effort" previously meant a `console.warn` and nothing else, so uploads could
+     * fail on every cycle while the UI reported success. Reported alongside the sync
+     * status instead.
+     */
+    private lastAttachmentError: string | null = null;
 
     constructor(adapter: IStorageService) {
         this.adapter = adapter;
@@ -515,7 +524,15 @@ export class CloudSyncService {
                 await this.adapter.saveSettings(this.settings);
             }
 
-            this.setStatus('success', `Synced ${stashCount} stashes, ${contextCount} contexts`);
+            // Stashes syncing while attachments silently fail is not a success.
+            if (this.lastAttachmentError) {
+                this.setStatus(
+                    'error',
+                    `Attachments could not be uploaded: ${this.lastAttachmentError}`
+                );
+            } else {
+                this.setStatus('success', `Synced ${stashCount} stashes, ${contextCount} contexts`);
+            }
             console.log(`[CloudSync] Synced ${stashCount} stashes, ${contextCount} contexts`);
 
             // Confirming an upload publishes the file server-side but emits no WebSocket
@@ -839,15 +856,31 @@ export class CloudSyncService {
         if (attachments.length === 0) return false;
 
         let uploaded = false;
+        const failures: string[] = [];
+
         for (const att of attachments) {
             try {
                 if (await this.adapter.uploadAttachmentToCloud(att.id)) {
                     uploaded = true;
                 }
             } catch (e) {
-                console.warn(`[CloudSync] Attachment upload failed for ${att.id}:`, e);
+                const msg = e instanceof Error ? e.message : String(e);
+                console.warn(`[CloudSync] Attachment upload failed for ${att.id}:`, msg);
+                failures.push(msg);
             }
         }
+
+        // A swallowed console.warn was the only sign of this failing, so uploads could
+        // break indefinitely while the app still reported a healthy sync. Surface it.
+        if (failures.length > 0) {
+            this.lastAttachmentError = failures[0];
+            console.error(
+                `[CloudSync] ${failures.length} attachment upload(s) failed. First error: ${failures[0]}`
+            );
+        } else {
+            this.lastAttachmentError = null;
+        }
+
         return uploaded;
     }
 
