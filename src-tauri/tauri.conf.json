@@ -65,6 +65,8 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "//": "Required in Tauri v2: without it no latest.json is assembled, so tauri-action logs 'Signature not found for the updater JSON' and the updater bundles are never published, even when a valid signing key produced .sig files.",
+    "createUpdaterArtifacts": true,
     "icon": [
       "../assets/stashpad/tauri/icons/32x32.png",
       "../assets/stashpad/tauri/icons/128x128.png",

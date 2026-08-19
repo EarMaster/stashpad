@@ -25,6 +25,10 @@ jobs:
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history and tags: the release notes are built from the commits since
+          # the previous tag, and the default shallow clone has neither.
+          fetch-depth: 0
 
       - name: setup node
         uses: actions/setup-node@v4
@@ -118,13 +122,99 @@ jobs:
             fi
           fi
 
+      # Builds the release body: what actually changed, plus the macOS quarantine
+      # workaround when the build is unsigned. Runs on every platform because whichever
+      # job creates the release first supplies the body.
+      - name: Compose release notes
+        shell: bash
+        env:
+          MAC_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -eu
+
+          # Newlines are appended via $NL rather than written literally: a line at
+          # column 0 would terminate this YAML block scalar, and indenting the markdown
+          # would render it as code blocks in the release notes.
+          NL=$'\n'
+
+          # The tag before this one. Missing on the very first release, in which case
+          # the whole history is summarised.
+          PREV_TAG="$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)"
+          if [ -n "$PREV_TAG" ]; then
+            RANGE="${PREV_TAG}..${TAG}"
+            echo "Changelog range: $RANGE"
+          else
+            RANGE=""
+            echo "No previous tag found; summarising full history."
+          fi
+
+          # Subjects for one conventional-commit type, with the prefix stripped.
+          # `chore: bump version` is dropped - it is bookkeeping, not a change.
+          subjects_for() {
+            git log --no-merges --pretty=format:'%s' $RANGE \
+              | grep -E "^$1(\([^)]*\))?!?: " \
+              | grep -vE '^chore(\([^)]*\))?!?: bump version' \
+              | sed -E 's/^[a-z]+(\([^)]*\))?!?: //' \
+              || true
+          }
+
+          section() {
+            title="$1"; body="$2"
+            [ -z "$body" ] && return 0
+            CHANGES="$CHANGES$NL$NL### $title$NL"
+            CHANGES="$CHANGES$(printf '%s' "$body" | sed 's/^/- /')"
+          }
+
+          CHANGES=""
+          section 'Features' "$(subjects_for 'feat')"
+          section 'Fixes' "$(subjects_for 'fix')"
+          section 'Other' "$(subjects_for '(perf|refactor|build|docs|style|test|chore)')"
+
+          RELEASE_NOTES='See the assets below to download the latest version of Stashpad.'
+
+          # $CHANGES already starts with its own blank line.
+          if [ -n "$CHANGES" ]; then
+            RELEASE_NOTES="$RELEASE_NOTES${CHANGES}"
+          fi
+
+          if [ -n "$PREV_TAG" ]; then
+            RELEASE_NOTES="$RELEASE_NOTES$NL$NL"'**Full changelog:** '"https://github.com/${GITHUB_REPOSITORY}/compare/${PREV_TAG}...${TAG}"
+          fi
+
+          RELEASE_NOTES="$RELEASE_NOTES$NL$NL"'---'
+          RELEASE_NOTES="$RELEASE_NOTES$NL$NL"'**macOS:** choose `aarch64` for Apple Silicon (M1-M4) or `x64` for Intel.'
+
+          # Without notarization every macOS user sees "damaged and cannot be opened" and
+          # most will assume the download is broken, so the fix belongs in the release
+          # itself rather than only in the README.
+          if [ -z "$MAC_SIGNING_IDENTITY" ]; then
+            RELEASE_NOTES="$RELEASE_NOTES$NL$NL"'### ⚠️ macOS: "Stashpad is damaged and cannot be opened"'
+            RELEASE_NOTES="$RELEASE_NOTES$NL$NL"'The macOS builds are not notarized by Apple. macOS refuses to launch a downloaded app whose signature it cannot verify, and reports it as damaged - **the download is fine**.'
+            RELEASE_NOTES="$RELEASE_NOTES$NL$NL"'After dragging Stashpad to Applications, clear the quarantine flag:'
+            RELEASE_NOTES="$RELEASE_NOTES$NL$NL"'```bash'
+            RELEASE_NOTES="$RELEASE_NOTES$NL"'xattr -dr com.apple.quarantine /Applications/stashpad.app'
+            RELEASE_NOTES="$RELEASE_NOTES$NL"'```'
+            RELEASE_NOTES="$RELEASE_NOTES$NL$NL"'Right-click → Open does not help with this particular error; on Apple Silicon an unsigned binary is refused outright.'
+          fi
+
+          delim="EOF_$(date +%s%N)_$$"
+          {
+            printf '%s<<%s\n' RELEASE_BODY "$delim"
+            printf '%s\n' "$RELEASE_NOTES"
+            printf '%s\n' "$delim"
+          } >> "$GITHUB_ENV"
+
+          echo "--- release notes ---"
+          printf '%s\n' "$RELEASE_NOTES"
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ github.ref_name }} # This determines the release; On manual run, it will use the branch name.
           releaseName: 'Stashpad v__VERSION__'
-          releaseBody: 'See the assets below to download the latest version of Stashpad.'
+          releaseBody: ${{ env.RELEASE_BODY }}
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
