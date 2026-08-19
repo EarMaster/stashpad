@@ -51,7 +51,7 @@
       "endpoints": [
         "https://github.com/EarMaster/stashpad/releases/latest/download/latest.json"
       ],
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDNEREU3RkVGNDA2OEUxRDcKUldUWDRXaEE3My9lUGFaWXMrMnh3TjlKSWJRRDFHQTZ4emJpcDNMaHVyYnVUYXQ5UFZmMEU0dngK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IENEQUU5NDc0NEYyQkYwRDkKUldUWjhDdFBkSlN1elM3NUpJNVpGcFNWK3Z5RkJBV0N0WExvd3lIYWw3U2FnN1ljaVFnZGRUYlkK",
       "dialog": false
     },
     "deep-link": {
