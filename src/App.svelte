@@ -20,6 +20,7 @@
       setLocalMutationListener,
    } from "$lib/services/desktop-adapter";
    import { CloudSyncService, type SyncStatus } from "$lib/services/cloud-sync";
+   import { attachmentSync } from "$lib/stores/attachment-sync.svelte";
    import { _ } from "$lib/i18n";
    import type { Settings, StashItem, Context, Attachment } from "$lib/types";
    import Header from "$lib/components/Header.svelte";
@@ -69,6 +70,9 @@
    // Every local write schedules a debounced sync. Registered once here rather than at
    // each call site so no future mutation can silently skip syncing.
    setLocalMutationListener(() => cloudSync.triggerSync());
+
+   // The attachment download queue needs an adapter to fetch bytes with.
+   attachmentSync.setAdapter(adapter);
 
    async function checkForUpdates(showNoUpdateMessage = false) {
       if (isCheckingForUpdates) return;

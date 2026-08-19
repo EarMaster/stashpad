@@ -29,6 +29,7 @@
 
 import type { IStorageService, StashItem, Context, CloudConfig, Settings } from '../types';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { attachmentSync } from '../stores/attachment-sync.svelte';
 
 // Fallback polling interval, used when the WebSocket is unavailable.
 const FALLBACK_SYNC_INTERVAL_MS = 15 * 60 * 1000;
@@ -748,19 +749,22 @@ export class CloudSyncService {
      */
     private async downloadMissingAttachments(): Promise<void> {
         const stashes = await this.adapter.loadStashesForSync();
+        const missing: string[] = [];
 
         for (const stash of stashes) {
             if (stash.deleted) continue;
             for (const att of stash.attachments || []) {
                 // An empty filePath means the row is metadata pulled from another
                 // device and the bytes were never fetched.
-                if (att.filePath && att.filePath.trim() !== '') continue;
-                try {
-                    await this.adapter.downloadAttachmentFromCloud(att.id);
-                } catch (e) {
-                    console.warn(`[CloudSync] Attachment download failed for ${att.id}:`, e);
+                if (attachmentSync.isPending(att.id, att.filePath)) {
+                    missing.push(att.id);
                 }
             }
         }
+
+        // Hand off rather than downloading inline: the queue drains in the background
+        // so a large backlog cannot stall the sync cycle, and the UI can show each
+        // attachment as pending while it waits.
+        attachmentSync.enqueue(missing);
     }
 }

@@ -1,397 +1,401 @@
 {
-    "_meta": {
-        "codes": [
-            "de"
-        ],
-        "name": "Deutsch"
+  "_meta": {
+    "codes": [
+      "de"
+    ],
+    "name": "Deutsch"
+  },
+  "app": {
+    "name": "Stashpad",
+    "copyright": "© 2025-2026 Nico Wiedemann",
+    "license": "Lizenziert unter AGPL-3.0-only",
+    "madeWith": "Erstellt mit Tauri und Svelte 5"
+  },
+  "common": {
+    "back": "Zurück",
+    "save": "Speichern",
+    "cancel": "Abbrechen",
+    "delete": "Löschen",
+    "edit": "Bearbeiten",
+    "copy": "Kopieren",
+    "copied": "Kopiert!",
+    "clear": "Leeren",
+    "remove": "Entfernen",
+    "add": "Hinzufügen",
+    "loading": "Lädt…",
+    "active": "Aktiv",
+    "default": "Standard",
+    "unknown": "Unbekannt",
+    "close": "Schließen",
+    "minimize": "Minimieren",
+    "select": "Auswählen…"
+  },
+  "header": {
+    "autoContext": "Automatischer Kontext",
+    "manualContext": "Manueller Kontext",
+    "settings": "Einstellungen",
+    "checking": "Prüfe…"
+  },
+  "settings": {
+    "title": "Einstellungen",
+    "backToStash": "Zurück zum Stash",
+    "loadingSettings": "Einstellungen werden geladen…",
+    "contextManagement": {
+      "title": "Kontextverwaltung",
+      "manageContexts": "Kontexte verwalten",
+      "description": "Konfigurieren Sie benutzerdefinierte Kontexte und Auto-Wechsel-Regeln"
     },
-    "app": {
-        "name": "Stashpad",
-        "copyright": "© 2025-2026 Nico Wiedemann",
-        "license": "Lizenziert unter AGPL-3.0-only",
-        "madeWith": "Erstellt mit Tauri und Svelte 5"
+    "general": {
+      "title": "Allgemein",
+      "autoContextDetection": {
+        "label": "Automatische Kontexterkennung",
+        "description": "Automatisch den Stash-Kontext basierend auf dem aktiven Fenster wechseln",
+        "macPermissionWarning": "Erfordert die Berechtigung \"Bildschirmaufnahme\" auf macOS",
+        "grantPermission": "Berechtigung erteilen",
+        "restartNote": "Nach dem Erteilen der Berechtigung Stashpad neu starten."
+      },
+      "language": {
+        "label": "Sprache",
+        "description": "Wählen Sie Ihre bevorzugte Sprache",
+        "automatic": "Automatisch",
+        "automaticDescription": "Systemspracheinstellungen verwenden"
+      },
+      "newStashPosition": {
+        "label": "Position neuer Einträge",
+        "description": "Wo neue und gerade erledigte Einträge in der Liste platziert werden",
+        "top": "Oben in der Liste",
+        "bottom": "Unten in der Liste",
+        "shiftModifier": "Shift halten beim Hinzufügen, um diese Einstellung temporär umzukehren"
+      },
+      "stripTagsOnCopy": {
+        "label": "Tags beim Kopieren entfernen",
+        "description": "Beim Kopieren von Stash-Inhalten in die Zwischenablage #tags entfernen",
+        "shiftModifier": "Shift halten beim Kopieren, um diese Einstellung temporär umzukehren"
+      },
+      "pasteAsAttachment": {
+        "label": "Als Anhang einfügen",
+        "description": "Einfügegröße in Bytes, ab der Text als Anhang gespeichert wird",
+        "zeroNote": "Auf 0 setzen, um immer nachzufragen",
+        "shiftModifier": "Shift halten beim Einfügen, um immer als Text einzufügen",
+        "unit": "Bytes"
+      },
+      "autostart": {
+        "label": "Beim Start ausführen",
+        "description": "Stashpad automatisch beim Systemstart starten"
+      }
     },
-    "common": {
-        "back": "Zurück",
-        "save": "Speichern",
-        "cancel": "Abbrechen",
-        "delete": "Löschen",
-        "edit": "Bearbeiten",
-        "copy": "Kopieren",
-        "copied": "Kopiert!",
-        "clear": "Leeren",
-        "remove": "Entfernen",
-        "add": "Hinzufügen",
-        "loading": "Lädt…",
-        "active": "Aktiv",
-        "default": "Standard",
-        "unknown": "Unbekannt",
-        "close": "Schließen",
-        "minimize": "Minimieren",
-        "select": "Auswählen…"
+    "appearance": {
+      "title": "Erscheinungsbild",
+      "theme": {
+        "label": "Design",
+        "description": "Anwendungsdesign auswählen",
+        "light": "Hell",
+        "dark": "Dunkel",
+        "system": "System"
+      },
+      "visualEffects": {
+        "label": "Visuelle Effekte",
+        "description": "Transparenz und Unschärfe aktivieren",
+        "windows10Note": "⚠ Standardmäßig unter Windows 10 deaktiviert, um Ruckler beim Verschieben zu vermeiden. ⚠"
+      },
+      "uiScale": {
+        "label": "Größe der Benutzeroberfläche",
+        "description": "Passen Sie die Größe der Benutzeroberfläche an"
+      }
     },
-    "header": {
-        "autoContext": "Automatischer Kontext",
-        "manualContext": "Manueller Kontext",
-        "settings": "Einstellungen",
-        "checking": "Prüfe…"
+    "shortcuts": {
+      "title": "Tastenkürzel",
+      "switchContext": {
+        "label": "Kontext wechseln",
+        "description": "Kurz drücken zum Wechseln, gedrückt halten zum Durchblättern"
+      },
+      "toggleStashpad": {
+        "label": "Stashpad ein-/ausblenden",
+        "description": "Globales Tastenkürzel zum Ein-/Ausblenden des Fensters"
+      },
+      "clickToSet": "Klicken zum Festlegen…",
+      "pressShortcut": "Tastenkürzel drücken…",
+      "clearShortcut": "Tastenkürzel löschen"
     },
-    "settings": {
-        "title": "Einstellungen",
-        "backToStash": "Zurück zum Stash",
-        "loadingSettings": "Einstellungen werden geladen…",
-        "contextManagement": {
-            "title": "Kontextverwaltung",
-            "manageContexts": "Kontexte verwalten",
-            "description": "Konfigurieren Sie benutzerdefinierte Kontexte und Auto-Wechsel-Regeln"
-        },
-        "general": {
-            "title": "Allgemein",
-            "autoContextDetection": {
-                "label": "Automatische Kontexterkennung",
-                "description": "Automatisch den Stash-Kontext basierend auf dem aktiven Fenster wechseln",
-                "macPermissionWarning": "Erfordert die Berechtigung \"Bildschirmaufnahme\" auf macOS",
-                "grantPermission": "Berechtigung erteilen",
-                "restartNote": "Nach dem Erteilen der Berechtigung Stashpad neu starten."
-            },
-            "language": {
-                "label": "Sprache",
-                "description": "Wählen Sie Ihre bevorzugte Sprache",
-                "automatic": "Automatisch",
-                "automaticDescription": "Systemspracheinstellungen verwenden"
-            },
-            "newStashPosition": {
-                "label": "Position neuer Einträge",
-                "description": "Wo neue und gerade erledigte Einträge in der Liste platziert werden",
-                "top": "Oben in der Liste",
-                "bottom": "Unten in der Liste",
-                "shiftModifier": "Shift halten beim Hinzufügen, um diese Einstellung temporär umzukehren"
-            },
-            "stripTagsOnCopy": {
-                "label": "Tags beim Kopieren entfernen",
-                "description": "Beim Kopieren von Stash-Inhalten in die Zwischenablage #tags entfernen",
-                "shiftModifier": "Shift halten beim Kopieren, um diese Einstellung temporär umzukehren"
-            },
-            "pasteAsAttachment": {
-                "label": "Als Anhang einfügen",
-                "description": "Einfügegröße in Bytes, ab der Text als Anhang gespeichert wird",
-                "zeroNote": "Auf 0 setzen, um immer nachzufragen",
-                "shiftModifier": "Shift halten beim Einfügen, um immer als Text einzufügen",
-                "unit": "Bytes"
-            },
-            "autostart": {
-                "label": "Beim Start ausführen",
-                "description": "Stashpad automatisch beim Systemstart starten"
-            }
-        },
-        "appearance": {
-            "title": "Erscheinungsbild",
-            "theme": {
-                "label": "Design",
-                "description": "Anwendungsdesign auswählen",
-                "light": "Hell",
-                "dark": "Dunkel",
-                "system": "System"
-            },
-            "visualEffects": {
-                "label": "Visuelle Effekte",
-                "description": "Transparenz und Unschärfe aktivieren",
-                "windows10Note": "⚠ Standardmäßig unter Windows 10 deaktiviert, um Ruckler beim Verschieben zu vermeiden. ⚠"
-            },
-            "uiScale": {
-                "label": "Größe der Benutzeroberfläche",
-                "description": "Passen Sie die Größe der Benutzeroberfläche an"
-            }
-        },
-        "shortcuts": {
-            "title": "Tastenkürzel",
-            "switchContext": {
-                "label": "Kontext wechseln",
-                "description": "Kurz drücken zum Wechseln, gedrückt halten zum Durchblättern"
-            },
-            "toggleStashpad": {
-                "label": "Stashpad ein-/ausblenden",
-                "description": "Globales Tastenkürzel zum Ein-/Ausblenden des Fensters"
-            },
-            "clickToSet": "Klicken zum Festlegen…",
-            "pressShortcut": "Tastenkürzel drücken…",
-            "clearShortcut": "Tastenkürzel löschen"
-        },
-        "clearCompleted": {
-            "label": "Erledigte automatisch löschen",
-            "description": "Erledigte Stashes automatisch entfernen",
-            "never": "Nie",
-            "onClose": "Beim Neustart",
-            "afterNDays": "Nach {days} Tagen"
-        },
-        "clearCompletedDays": {
-            "label": "Aufbewahrungsdauer",
-            "description": "Tage, die erledigte Stashes aufbewahrt werden"
-        },
-        "aiEnhancement": {
-            "title": "Prompt Verbesserung",
-            "enable": {
-                "label": "Prompt Verbesserung aktivieren",
-                "description": "Stash-Inhalte mit KI-Modellen verbessern"
-            },
-            "provider": {
-                "label": "Anbieter",
-                "description": "Wählen Sie einen Anbieter oder Benutzerdefiniert",
-                "custom": "Benutzerdefiniert"
-            },
-            "endpoint": {
-                "label": "API-Endpunkt",
-                "description": "OpenAI-kompatibler API-Endpunkt"
-            },
-            "apiKey": {
-                "label": "API-Schlüssel",
-                "description": "Ihr API-Schlüssel (optional)",
-                "show": "API-Schlüssel anzeigen",
-                "hide": "API-Schlüssel verbergen"
-            },
-            "model": {
-                "label": "Modellname",
-                "description": "Der Name des KI-Modells (z. B. gpt-4o-mini)."
-            },
-            "systemPrompt": {
-                "label": "System-Prompt",
-                "description": "Die Anweisungen für die KI-Optimierung. Diese sind in einer externen Datei gespeichert.",
-                "edit": "Prompt-Datei bearbeiten",
-                "reloaded": "System-Prompt wurde von der Festplatte neu geladen"
-            },
-            "appleIntelligence": {
-                "info": "Apple Intelligence läuft vollständig auf Ihrem Gerät. Ihre Daten verlassen niemals Ihren Mac, und es ist kein API-Schlüssel oder eine Internetverbindung für die Verbesserung erforderlich."
-            },
-            "testConnection": "Verbindung testen",
-            "testSuccess": "Verbindung erfolgreich!",
-            "testFailed": "Verbindung fehlgeschlagen: {error}"
-        },
-        "updates": {
-            "checkForUpdates": "Nach Updates suchen…",
-            "checking": "Suche…",
-            "updateAvailable": "Update verfügbar",
-            "standalonePrompt": "Update auf {version} verfügbar!\n\nRelease-Hinweise:\n{notes}\n\nJetzt installieren?",
-            "packageManagerNotice": "Eine neue Version von Stashpad ({version}) ist verfügbar!\n\nDa Sie Stashpad über {pmName} installiert haben, führen Sie bitte folgenden Befehl aus:\n\n{cmd}",
-            "noUpdateTitle": "Kein Update verfügbar",
-            "noUpdateMessage": "Sie verwenden bereits die neueste Version von Stashpad."
-        },
-        "cloudSync": {
-            "title": "Cloud-Synchronisierung",
-            "enable": {
-                "label": "Cloud-Sync aktivieren",
-                "description": "Synchronisieren Sie Ihre Stashes und Kontexte geräteübergreifend"
-            },
-            "endpoint": {
-                "label": "API-Endpunkt",
-                "description": "Der Root-API-Endpunkt für den Cloud-Dienst"
-            },
-            "auth": {
-                "login": "Mit GitHub anmelden",
-                "logout": "Abmelden",
-                "loggedInAs": "Angemeldet als {email}",
-                "status": "Cloud-Sync",
-                "authenticated": "Aktiv",
-                "notAuthenticated": "Nicht aktiviert",
-                "enableButton": "Cloud-Sync aktivieren",
-                "modalTitle": "Cloud-Sync autorisieren",
-                "waitingForAuth": "Warte auf Autorisierung…\nDein Browser sollte sich automatisch öffnen.",
-                "openBrowserFallback": "Hier klicken, falls dein Browser sich nicht öffnet",
-                "enterCodeManually": "Code manuell eingeben",
-                "linkCodePlaceholder": "Verknüpfungscode einfügen…",
-                "link": "Verknüpfen",
-                "linking": "Verknüpfe…",
-                "authSuccess": "Cloud-Sync aktiviert!",
-                "lastSync": "Zuletzt synchronisiert: {time}",
-                "neverSynced": "Noch nie synchronisiert",
-                "syncing": "Synchronisiere…",
-                "syncSuccess": "Synchronisierung erfolgreich",
-                "syncError": "Synchronisierung fehlgeschlagen",
-                "sessionExpired": "Sitzung abgelaufen",
-                "loginAgain": "Erneut Anmelden"
-            }
-        }
+    "clearCompleted": {
+      "label": "Erledigte automatisch löschen",
+      "description": "Erledigte Stashes automatisch entfernen",
+      "never": "Nie",
+      "onClose": "Beim Neustart",
+      "afterNDays": "Nach {days} Tagen"
     },
-    "contexts": {
-        "title": "Kontexte",
-        "defaultContext": "Standard",
-        "back": "Zurück",
-        "loadingContexts": "Kontexte werden geladen…",
-        "manageDescription": "Verwalten Sie Ihre Kontexte und Auto-Wechsel-Regeln.",
-        "addContext": "Kontext hinzufügen",
-        "addRule": "Regel hinzufügen",
-        "newContext": "Neuer Kontext",
-        "contextNamePlaceholder": "Kontextname",
-        "removeContext": "Entfernen",
-        "shiftClickToSkip": "Umschalt+Klick zum Überspringen der Bestätigung",
-        "deleteConfirm": "Diesen Kontext löschen?",
-        "autoSwitchRules": "Auto-Wechsel-Regeln",
-        "noRules": "Keine Regeln definiert. Dieser Kontext wird nur bei manueller Auswahl aktiv.",
-        "noContexts": "Keine benutzerdefinierten Kontexte definiert. Stashes gehen zu \"Standard\".",
-        "description": {
-            "label": "Beschreibung",
-            "placeholder": "Beschreibe das Projekt. Gib Informationen über dein Projekt, deinen Techstack, Konventionen usw. an. Dies ist besonders hilfreich, wenn du die KI-Verbesserung nutzt."
-        },
-        "export": "Exportieren",
-        "exportContext": "Alle Stashes als Markdown-Datei exportieren",
-        "exportTitle": "Kontext als Markdown exportieren",
-        "exportDialog": {
-            "title": "Kontext exportieren",
-            "selectStashes": "Stashes zum Exportieren auswählen",
-            "includeAttachments": "Anhänge einschließen (als ZIP exportieren)",
-            "selectAll": "Alle auswählen",
-            "deselectAll": "Alle abwählen",
-            "export": "Exportieren",
-            "noStashesSelected": "Keine Stashes ausgewählt",
-            "estimatedSize": "Geschätzte Dateigröße",
-            "file": "Datei",
-            "files": "Dateien"
-        },
-        "import": "Importieren",
-        "importContext": "Stashes aus Datei importieren",
-        "importDialog": {
-            "title": "Stashes importieren",
-            "selectFile": "Datei auswählen",
-            "selectFileDesc": "Wähle eine Stashpad-Exportdatei zum Importieren",
-            "selectStashes": "Stashes zum Importieren auswählen",
-            "supportedFormats": "Unterstützt .md und .zip Dateien aus Stashpad",
-            "chooseFile": "Datei wählen",
-            "parsing": "Lädt…",
-            "import": "Importieren",
-            "noStashesFound": "Keine Stashes in Datei gefunden",
-            "duplicate": "Duplikat",
-            "duplicateTooltip": "Dieser Stash existiert möglicherweise bereits in deiner Warteschlange",
-            "duplicatesFound": "{count} mögliche Duplikate gefunden",
-            "dropToImport": "oder Datei hier ablegen"
-        },
-        "rules": {
-            "process": "Prozessname",
-            "title": "Fenstertitel",
-            "contains": "enthält",
-            "exact": "ist exakt",
-            "valuePlaceholder": "Wert (z.B. 'code', 'Projekt X')",
-            "matchCase": "Groß-/Kleinschreibung",
-            "useRegex": "RegEx verwenden"
-        },
-        "stats": {
-            "stash": "Stash",
-            "stashes": "Stashes",
-            "storage": "Speicher verwendet",
-            "used": "verwendet",
-            "lastUsed": "zuletzt verwendet"
-        }
+    "clearCompletedDays": {
+      "label": "Aufbewahrungsdauer",
+      "description": "Tage, die erledigte Stashes aufbewahrt werden"
     },
-    "contextSwitcher": {
-        "searchPlaceholder": "Kontexte suchen…",
-        "selectContext": "Kontext auswählen",
-        "switchContext": "Kontext wechseln",
-        "moveStashTo": "Stash verschieben nach…",
-        "sortByLastUsed": "Nach letzter Verwendung sortieren",
-        "sortAlphabetically": "Alphabetisch sortieren",
-        "noContextsFound": "Keine Kontexte gefunden",
-        "autoContextDetection": "Automatische Kontexterkennung",
-        "manageContexts": "Kontexte verwalten…",
-        "createContext": "Erstelle \"{name}\"",
-        "holdShiftToCopy": "Umschalt halten zum Kopieren statt Verschieben",
-        "alwaysThereForYou": "Immer für dich da…",
-        "time": {
-            "justNow": "gerade eben",
-            "minute": "vor {count} Minute",
-            "minutes": "vor {count} Minuten",
-            "hour": "vor {count} Stunde",
-            "hours": "vor {count} Stunden",
-            "yesterday": "Gestern",
-            "daysAgo": "vor {count} Tagen"
-        }
+    "aiEnhancement": {
+      "title": "Prompt Verbesserung",
+      "enable": {
+        "label": "Prompt Verbesserung aktivieren",
+        "description": "Stash-Inhalte mit KI-Modellen verbessern"
+      },
+      "provider": {
+        "label": "Anbieter",
+        "description": "Wählen Sie einen Anbieter oder Benutzerdefiniert",
+        "custom": "Benutzerdefiniert"
+      },
+      "endpoint": {
+        "label": "API-Endpunkt",
+        "description": "OpenAI-kompatibler API-Endpunkt"
+      },
+      "apiKey": {
+        "label": "API-Schlüssel",
+        "description": "Ihr API-Schlüssel (optional)",
+        "show": "API-Schlüssel anzeigen",
+        "hide": "API-Schlüssel verbergen"
+      },
+      "model": {
+        "label": "Modellname",
+        "description": "Der Name des KI-Modells (z. B. gpt-4o-mini)."
+      },
+      "systemPrompt": {
+        "label": "System-Prompt",
+        "description": "Die Anweisungen für die KI-Optimierung. Diese sind in einer externen Datei gespeichert.",
+        "edit": "Prompt-Datei bearbeiten",
+        "reloaded": "System-Prompt wurde von der Festplatte neu geladen"
+      },
+      "appleIntelligence": {
+        "info": "Apple Intelligence läuft vollständig auf Ihrem Gerät. Ihre Daten verlassen niemals Ihren Mac, und es ist kein API-Schlüssel oder eine Internetverbindung für die Verbesserung erforderlich."
+      },
+      "testConnection": "Verbindung testen",
+      "testSuccess": "Verbindung erfolgreich!",
+      "testFailed": "Verbindung fehlgeschlagen: {error}"
     },
-    "queue": {
-        "active": "Aktiv",
-        "stashQueue": "Stash-Warteschlange",
-        "completed": "Erledigt",
-        "clearCompleted": "Erledigte löschen",
-        "deleteAllCompleted": "Alle erledigten Stashes löschen",
-        "noActiveStashes": "Keine aktiven Stashes",
-        "noActiveStashesFound": "Keine aktiven Stashes mit diesen Filtern gefunden.",
-        "filterByTags": "Nach Tags filtern",
-        "queueEmpty": "Warteschlange ist leer",
-        "backToTop": "Nach oben",
-        "sortOldest": "Sortieren: Älteste zuerst",
-        "sortNewest": "Sortieren: Neueste zuerst",
-        "restoreOrder": "Manuelle Sortierung wiederherstellen",
-        "completeAll": "Alle erledigen",
-        "completeAllConfirm": "Alle aktiven Stashes als erledigt markieren?",
-        "stashAdded": "Stash hinzugefügt"
+    "updates": {
+      "checkForUpdates": "Nach Updates suchen…",
+      "checking": "Suche…",
+      "updateAvailable": "Update verfügbar",
+      "standalonePrompt": "Update auf {version} verfügbar!\n\nRelease-Hinweise:\n{notes}\n\nJetzt installieren?",
+      "packageManagerNotice": "Eine neue Version von Stashpad ({version}) ist verfügbar!\n\nDa Sie Stashpad über {pmName} installiert haben, führen Sie bitte folgenden Befehl aus:\n\n{cmd}",
+      "noUpdateTitle": "Kein Update verfügbar",
+      "noUpdateMessage": "Sie verwenden bereits die neueste Version von Stashpad."
     },
-    "stashCard": {
-        "emptyStash": "-- leer --",
-        "copied": "Kopiert!",
-        "attachment": "{count} Anhang ({size})",
-        "attachments": "{count} Anhänge ({size})",
-        "restoreToActive": "Zur aktiven Warteschlange wiederherstellen",
-        "markAsCompleted": "Als erledigt markieren",
-        "dragToAIContext": "Zum KI-Kontext ziehen",
-        "dragAllAttachments": "Alle Anhänge ziehen",
-        "editPlaceholder": "Stash-Inhalt bearbeiten…",
-        "copyToClipboard": "In Zwischenablage kopieren",
-        "editContent": "Inhalt bearbeiten",
-        "moveToTop": "Nach oben verschieben",
-        "moveToBottom": "Nach unten verschieben",
-        "moveToContext": "Zu anderem Kontext verschieben",
-        "deleteStash": "Stash löschen",
-        "deleteStashConfirm": "Diesen Stash löschen?",
-        "shiftClickDelete": "Umschalt+Klick zum Überspringen der Bestätigung",
-        "dragToReorder": "Zum Neuordnen ziehen",
-        "limitExceeded": "Limit überschritten",
-        "fileTooLarge": "Datei zu groß. Maximale Größe ist {limit}.",
-        "stashSizeExceeded": "Gesamtgröße des Stashes ({limit}) überschritten.",
-        "enhanceWithAI": "Mit KI verbessern",
-        "enhancing": "Wird verbessert…",
-        "enhanceError": "Verbesserung fehlgeschlagen: {error}",
-        "hasBeenEnhanced": "Verbessert mit KI",
-        "viewOriginal": "Original anzeigen",
-        "viewEnhanced": "Verbessert anzeigen",
-        "regenerateEnhanced": "Neu generieren",
-        "removeEnhanced": "Verbesserte Version entfernen",
-        "contentEdited": "Originalinhalt wurde bearbeitet. Verbesserte Version neu generieren?",
-        "regenerate": "Neu generieren",
-        "keepEnhanced": "Beibehalten"
-    },
-    "editor": {
-        "placeholder": "Stash hier eingeben… (Cmd+Enter zum Speichern)",
-        "addStash": "Stashen",
-        "saving": "Speichere…",
-        "dropFiles": "Anhänge hier ablegen",
-        "dragFilesHere": "oder hierher ziehen…",
-        "addFile": "Anhänge hinzufügen",
-        "bold": "Fett",
-        "italic": "Kursiv",
-        "heading": "Überschrift",
-        "list": "Liste",
-        "orderedList": "Nummerierte Liste",
-        "code": "Code",
-        "link": "Link",
-        "expand": "Editor maximieren",
-        "collapse": "Editor minimieren",
-        "pasteChoice": {
-            "title": "Wie möchten Sie einfügen?",
-            "description": "Der eingefügte Inhalt kann als Text hinzugefügt oder als Dateianhang gespeichert werden.",
-            "inline": "Als Text einfügen",
-            "attachment": "Als Anhang speichern"
-        }
-    },
-    "shortcutInput": {
-        "ariaLabel": "Tastenkürzel-Eingabe. Drücken Sie Enter, um ein neues Tastenkürzel aufzuzeichnen."
-    },
-    "exitDialog": {
-        "title": "Entwurf verwerfen?",
-        "description": "Sie haben ungespeicherte Inhalte im Editor. Möchten Sie wirklich beenden?",
-        "discardAndExit": "Verwerfen & Beenden"
-    },
-    "filePreview": {
-        "clickToPreview": "Klicken für Anhang-Vorschau",
-        "dragOrClickToPreview": "Ziehen zum Exportieren, klicken für Vorschau",
-        "openLocation": "Speicherort öffnen",
-        "unsupportedType": "Vorschau für diesen Anhang-Typ nicht verfügbar",
-        "videoNotSupported": "Ihr Browser unterstützt keine Videowiedergabe",
-        "selectLanguage": "Sprache für Syntaxhervorhebung auswählen"
+    "cloudSync": {
+      "title": "Cloud-Synchronisierung",
+      "enable": {
+        "label": "Cloud-Sync aktivieren",
+        "description": "Synchronisieren Sie Ihre Stashes und Kontexte geräteübergreifend"
+      },
+      "endpoint": {
+        "label": "API-Endpunkt",
+        "description": "Der Root-API-Endpunkt für den Cloud-Dienst"
+      },
+      "auth": {
+        "login": "Mit GitHub anmelden",
+        "logout": "Abmelden",
+        "loggedInAs": "Angemeldet als {email}",
+        "status": "Cloud-Sync",
+        "authenticated": "Aktiv",
+        "notAuthenticated": "Nicht aktiviert",
+        "enableButton": "Cloud-Sync aktivieren",
+        "modalTitle": "Cloud-Sync autorisieren",
+        "waitingForAuth": "Warte auf Autorisierung…\nDein Browser sollte sich automatisch öffnen.",
+        "openBrowserFallback": "Hier klicken, falls dein Browser sich nicht öffnet",
+        "enterCodeManually": "Code manuell eingeben",
+        "linkCodePlaceholder": "Verknüpfungscode einfügen…",
+        "link": "Verknüpfen",
+        "linking": "Verknüpfe…",
+        "authSuccess": "Cloud-Sync aktiviert!",
+        "lastSync": "Zuletzt synchronisiert: {time}",
+        "neverSynced": "Noch nie synchronisiert",
+        "syncing": "Synchronisiere…",
+        "syncSuccess": "Synchronisierung erfolgreich",
+        "syncError": "Synchronisierung fehlgeschlagen",
+        "sessionExpired": "Sitzung abgelaufen",
+        "loginAgain": "Erneut Anmelden"
+      }
     }
+  },
+  "contexts": {
+    "title": "Kontexte",
+    "defaultContext": "Standard",
+    "back": "Zurück",
+    "loadingContexts": "Kontexte werden geladen…",
+    "manageDescription": "Verwalten Sie Ihre Kontexte und Auto-Wechsel-Regeln.",
+    "addContext": "Kontext hinzufügen",
+    "addRule": "Regel hinzufügen",
+    "newContext": "Neuer Kontext",
+    "contextNamePlaceholder": "Kontextname",
+    "removeContext": "Entfernen",
+    "shiftClickToSkip": "Umschalt+Klick zum Überspringen der Bestätigung",
+    "deleteConfirm": "Diesen Kontext löschen?",
+    "autoSwitchRules": "Auto-Wechsel-Regeln",
+    "noRules": "Keine Regeln definiert. Dieser Kontext wird nur bei manueller Auswahl aktiv.",
+    "noContexts": "Keine benutzerdefinierten Kontexte definiert. Stashes gehen zu \"Standard\".",
+    "description": {
+      "label": "Beschreibung",
+      "placeholder": "Beschreibe das Projekt. Gib Informationen über dein Projekt, deinen Techstack, Konventionen usw. an. Dies ist besonders hilfreich, wenn du die KI-Verbesserung nutzt."
+    },
+    "export": "Exportieren",
+    "exportContext": "Alle Stashes als Markdown-Datei exportieren",
+    "exportTitle": "Kontext als Markdown exportieren",
+    "exportDialog": {
+      "title": "Kontext exportieren",
+      "selectStashes": "Stashes zum Exportieren auswählen",
+      "includeAttachments": "Anhänge einschließen (als ZIP exportieren)",
+      "selectAll": "Alle auswählen",
+      "deselectAll": "Alle abwählen",
+      "export": "Exportieren",
+      "noStashesSelected": "Keine Stashes ausgewählt",
+      "estimatedSize": "Geschätzte Dateigröße",
+      "file": "Datei",
+      "files": "Dateien"
+    },
+    "import": "Importieren",
+    "importContext": "Stashes aus Datei importieren",
+    "importDialog": {
+      "title": "Stashes importieren",
+      "selectFile": "Datei auswählen",
+      "selectFileDesc": "Wähle eine Stashpad-Exportdatei zum Importieren",
+      "selectStashes": "Stashes zum Importieren auswählen",
+      "supportedFormats": "Unterstützt .md und .zip Dateien aus Stashpad",
+      "chooseFile": "Datei wählen",
+      "parsing": "Lädt…",
+      "import": "Importieren",
+      "noStashesFound": "Keine Stashes in Datei gefunden",
+      "duplicate": "Duplikat",
+      "duplicateTooltip": "Dieser Stash existiert möglicherweise bereits in deiner Warteschlange",
+      "duplicatesFound": "{count} mögliche Duplikate gefunden",
+      "dropToImport": "oder Datei hier ablegen"
+    },
+    "rules": {
+      "process": "Prozessname",
+      "title": "Fenstertitel",
+      "contains": "enthält",
+      "exact": "ist exakt",
+      "valuePlaceholder": "Wert (z.B. 'code', 'Projekt X')",
+      "matchCase": "Groß-/Kleinschreibung",
+      "useRegex": "RegEx verwenden"
+    },
+    "stats": {
+      "stash": "Stash",
+      "stashes": "Stashes",
+      "storage": "Speicher verwendet",
+      "used": "verwendet",
+      "lastUsed": "zuletzt verwendet"
+    }
+  },
+  "contextSwitcher": {
+    "searchPlaceholder": "Kontexte suchen…",
+    "selectContext": "Kontext auswählen",
+    "switchContext": "Kontext wechseln",
+    "moveStashTo": "Stash verschieben nach…",
+    "sortByLastUsed": "Nach letzter Verwendung sortieren",
+    "sortAlphabetically": "Alphabetisch sortieren",
+    "noContextsFound": "Keine Kontexte gefunden",
+    "autoContextDetection": "Automatische Kontexterkennung",
+    "manageContexts": "Kontexte verwalten…",
+    "createContext": "Erstelle \"{name}\"",
+    "holdShiftToCopy": "Umschalt halten zum Kopieren statt Verschieben",
+    "alwaysThereForYou": "Immer für dich da…",
+    "time": {
+      "justNow": "gerade eben",
+      "minute": "vor {count} Minute",
+      "minutes": "vor {count} Minuten",
+      "hour": "vor {count} Stunde",
+      "hours": "vor {count} Stunden",
+      "yesterday": "Gestern",
+      "daysAgo": "vor {count} Tagen"
+    }
+  },
+  "queue": {
+    "active": "Aktiv",
+    "stashQueue": "Stash-Warteschlange",
+    "completed": "Erledigt",
+    "clearCompleted": "Erledigte löschen",
+    "deleteAllCompleted": "Alle erledigten Stashes löschen",
+    "noActiveStashes": "Keine aktiven Stashes",
+    "noActiveStashesFound": "Keine aktiven Stashes mit diesen Filtern gefunden.",
+    "filterByTags": "Nach Tags filtern",
+    "queueEmpty": "Warteschlange ist leer",
+    "backToTop": "Nach oben",
+    "sortOldest": "Sortieren: Älteste zuerst",
+    "sortNewest": "Sortieren: Neueste zuerst",
+    "restoreOrder": "Manuelle Sortierung wiederherstellen",
+    "completeAll": "Alle erledigen",
+    "completeAllConfirm": "Alle aktiven Stashes als erledigt markieren?",
+    "stashAdded": "Stash hinzugefügt"
+  },
+  "stashCard": {
+    "emptyStash": "-- leer --",
+    "copied": "Kopiert!",
+    "attachment": "{count} Anhang ({size})",
+    "attachments": "{count} Anhänge ({size})",
+    "restoreToActive": "Zur aktiven Warteschlange wiederherstellen",
+    "markAsCompleted": "Als erledigt markieren",
+    "dragToAIContext": "Zum KI-Kontext ziehen",
+    "dragAllAttachments": "Alle Anhänge ziehen",
+    "editPlaceholder": "Stash-Inhalt bearbeiten…",
+    "copyToClipboard": "In Zwischenablage kopieren",
+    "editContent": "Inhalt bearbeiten",
+    "moveToTop": "Nach oben verschieben",
+    "moveToBottom": "Nach unten verschieben",
+    "moveToContext": "Zu anderem Kontext verschieben",
+    "deleteStash": "Stash löschen",
+    "deleteStashConfirm": "Diesen Stash löschen?",
+    "shiftClickDelete": "Umschalt+Klick zum Überspringen der Bestätigung",
+    "dragToReorder": "Zum Neuordnen ziehen",
+    "limitExceeded": "Limit überschritten",
+    "fileTooLarge": "Datei zu groß. Maximale Größe ist {limit}.",
+    "stashSizeExceeded": "Gesamtgröße des Stashes ({limit}) überschritten.",
+    "enhanceWithAI": "Mit KI verbessern",
+    "enhancing": "Wird verbessert…",
+    "enhanceError": "Verbesserung fehlgeschlagen: {error}",
+    "hasBeenEnhanced": "Verbessert mit KI",
+    "viewOriginal": "Original anzeigen",
+    "viewEnhanced": "Verbessert anzeigen",
+    "regenerateEnhanced": "Neu generieren",
+    "removeEnhanced": "Verbesserte Version entfernen",
+    "contentEdited": "Originalinhalt wurde bearbeitet. Verbesserte Version neu generieren?",
+    "regenerate": "Neu generieren",
+    "keepEnhanced": "Beibehalten"
+  },
+  "editor": {
+    "placeholder": "Stash hier eingeben… (Cmd+Enter zum Speichern)",
+    "addStash": "Stashen",
+    "saving": "Speichere…",
+    "dropFiles": "Anhänge hier ablegen",
+    "dragFilesHere": "oder hierher ziehen…",
+    "addFile": "Anhänge hinzufügen",
+    "bold": "Fett",
+    "italic": "Kursiv",
+    "heading": "Überschrift",
+    "list": "Liste",
+    "orderedList": "Nummerierte Liste",
+    "code": "Code",
+    "link": "Link",
+    "expand": "Editor maximieren",
+    "collapse": "Editor minimieren",
+    "pasteChoice": {
+      "title": "Wie möchten Sie einfügen?",
+      "description": "Der eingefügte Inhalt kann als Text hinzugefügt oder als Dateianhang gespeichert werden.",
+      "inline": "Als Text einfügen",
+      "attachment": "Als Anhang speichern"
+    }
+  },
+  "shortcutInput": {
+    "ariaLabel": "Tastenkürzel-Eingabe. Drücken Sie Enter, um ein neues Tastenkürzel aufzuzeichnen."
+  },
+  "exitDialog": {
+    "title": "Entwurf verwerfen?",
+    "description": "Sie haben ungespeicherte Inhalte im Editor. Möchten Sie wirklich beenden?",
+    "discardAndExit": "Verwerfen & Beenden"
+  },
+  "filePreview": {
+    "clickToPreview": "Klicken für Anhang-Vorschau",
+    "dragOrClickToPreview": "Ziehen zum Exportieren, klicken für Vorschau",
+    "openLocation": "Speicherort öffnen",
+    "unsupportedType": "Vorschau für diesen Anhang-Typ nicht verfügbar",
+    "videoNotSupported": "Ihr Browser unterstützt keine Videowiedergabe",
+    "selectLanguage": "Sprache für Syntaxhervorhebung auswählen"
+  },
+  "attachments": {
+    "syncing": "{name} wird aus der Cloud geladen…",
+    "downloadFailed": "{name} konnte nicht geladen werden — zum Wiederholen klicken"
+  }
 }

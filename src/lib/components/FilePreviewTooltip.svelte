@@ -19,16 +19,53 @@
     import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
     import type { FilePreviewData } from "$lib/types";
     import { convertFileSrc } from "@tauri-apps/api/core";
-    import { FileText, Image, Video, File } from "lucide-svelte";
+    import {
+        FileText,
+        Image,
+        Video,
+        File,
+        CloudDownload,
+        CloudOff,
+        Loader2,
+    } from "lucide-svelte";
     import Tooltip from "./Tooltip.svelte";
+    import { attachmentSync } from "$lib/stores/attachment-sync.svelte";
+    import { formatBytes } from "$lib/utils/format";
 
-    let { filePath, fileName, onclick } = $props<{
+    let {
+        filePath,
+        fileName,
+        attachmentId = "",
+        fileSize = 0,
+        onclick,
+    } = $props<{
         filePath: string;
         fileName: string;
-        onclick?: () => void;
+        /** Attachment id, used to track cloud download state. */
+        attachmentId?: string;
+        /** Size in bytes, shown while the file is still downloading. */
+        fileSize?: number;
+        onclick?: (resolvedPath: string) => void;
     }>();
 
     const adapter = new DesktopStorageAdapter();
+
+    /**
+     * An attachment synced from another device exists as metadata before its bytes do.
+     * `filePath` is empty until the download completes, so the file is real but not yet
+     * openable - show it as pending rather than letting the preview fail.
+     */
+    const resolvedPath = $derived(
+        attachmentId ? attachmentSync.pathFor(attachmentId, filePath) : filePath,
+    );
+    const isPending = $derived(resolvedPath.trim() === "");
+    const syncStatus = $derived(
+        attachmentId ? attachmentSync.status(attachmentId) : undefined,
+    );
+    const hasFailed = $derived(isPending && syncStatus === "error");
+
+    /** True while the user is waiting on a download they explicitly asked for. */
+    let isAwaitingOpen = $state(false);
 
     let isHovering = $state(false);
     let isLoading = $state(false);
@@ -41,7 +78,35 @@
 
     let hoverTimeout: ReturnType<typeof setTimeout> | null = null;
 
+    /**
+     * Open the attachment, fetching it first if this device does not have it yet.
+     *
+     * Clicking is treated as an explicit request, so the file jumps the download queue
+     * ahead of any backlog the user has not asked for.
+     */
+    async function handleClick() {
+        if (!isPending) {
+            onclick?.(resolvedPath);
+            return;
+        }
+
+        if (!attachmentId || isAwaitingOpen) return;
+
+        isAwaitingOpen = true;
+        try {
+            const path = await attachmentSync.request(attachmentId, filePath);
+            onclick?.(path);
+        } catch (e) {
+            console.error("Failed to download attachment:", e);
+        } finally {
+            isAwaitingOpen = false;
+        }
+    }
+
     async function handleMouseEnter(event: MouseEvent) {
+        // No local file to preview yet.
+        if (isPending) return;
+
         // Clear any existing timeout
         if (hoverTimeout) {
             clearTimeout(hoverTimeout);
@@ -61,7 +126,7 @@
 
             // Load preview data
             try {
-                previewData = await adapter.readFileForPreview(filePath);
+                previewData = await adapter.readFileForPreview(resolvedPath);
             } catch (e) {
                 console.error("Failed to load preview:", e);
                 error = $_(
@@ -126,7 +191,9 @@
 
     function handleDragStart(event: DragEvent) {
         event.preventDefault();
-        adapter.startDrag("", [filePath]);
+        // Nothing on disk to hand to the OS yet.
+        if (isPending) return;
+        adapter.startDrag("", [resolvedPath]);
     }
 
     function getVideoSrc(content: string): string {
@@ -173,20 +240,37 @@
         return "other";
     }
 
-    const fileType = $derived(getFileIcon(filePath));
+    // Derive from the name, not the path: a pending attachment has no path yet, but its
+    // filename is always known.
+    const fileType = $derived(getFileIcon(fileName || filePath));
 </script>
 
 <!-- File Badge with Hover Trigger (Draggable) -->
 <button
-    class="group/file inline-flex items-center gap-1 rounded-full border border-border bg-secondary/50 px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-secondary hover:text-foreground hover:border-primary/50 transition-all cursor-pointer max-w-[150px]"
+    class="group/file inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] transition-all max-w-[180px] {isPending
+        ? 'border-dashed border-border/70 bg-secondary/20 text-muted-foreground/70 cursor-progress'
+        : 'border-border bg-secondary/50 text-muted-foreground hover:bg-secondary hover:text-foreground hover:border-primary/50 cursor-pointer'}"
     onmouseenter={handleMouseEnter}
     onmouseleave={handleMouseLeave}
-    {onclick}
-    draggable="true"
+    onclick={handleClick}
+    draggable={!isPending}
     ondragstart={handleDragStart}
+    title={isPending
+        ? hasFailed
+            ? $_("attachments.downloadFailed", { values: { name: fileName } })
+            : $_("attachments.syncing", { values: { name: fileName } })
+        : fileName}
 >
-    <!-- File Type Icon -->
-    {#if fileType === "image"}
+    <!-- File Type Icon, or sync state when the bytes are not here yet -->
+    {#if isPending}
+        {#if hasFailed}
+            <CloudOff size={10} class="shrink-0 text-destructive/70" />
+        {:else if syncStatus === "downloading" || isAwaitingOpen}
+            <Loader2 size={10} class="shrink-0 animate-spin" />
+        {:else}
+            <CloudDownload size={10} class="shrink-0" />
+        {/if}
+    {:else if fileType === "image"}
         <Image size={10} class="shrink-0" />
     {:else if fileType === "video"}
         <Video size={10} class="shrink-0" />
@@ -195,7 +279,13 @@
     {:else}
         <File size={10} class="shrink-0" />
     {/if}
+
     <span class="truncate">{fileName}</span>
+
+    <!-- Size is the only metadata we have before the file arrives, so surface it -->
+    {#if isPending && fileSize > 0}
+        <span class="shrink-0 tabular-nums opacity-60">{formatBytes(fileSize)}</span>
+    {/if}
 </button>
 
 <!-- Use reusable Tooltip component -->

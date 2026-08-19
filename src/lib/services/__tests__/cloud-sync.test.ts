@@ -14,6 +14,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { CloudSyncService } from '../cloud-sync';
+import { attachmentSync } from '$lib/stores/attachment-sync.svelte';
 import type { IStorageService, Settings, CloudConfig, StashItem, Context } from '$lib/types';
 
 vi.mock('@tauri-apps/api/event', () => ({
@@ -74,6 +75,10 @@ describe('CloudSyncService', () => {
     beforeEach(() => {
         localStorage.clear();
         vi.useFakeTimers();
+        // Downloads are delegated to the shared queue singleton; clear what an earlier
+        // test left behind so ids can be reused.
+        attachmentSync.statuses = {};
+        attachmentSync.resolved = {};
     });
 
     afterEach(() => {
@@ -427,6 +432,9 @@ describe('CloudSyncService', () => {
                 }),
             });
 
+            // Sync hands downloads to the queue, so it needs the same adapter.
+            attachmentSync.setAdapter(adapter);
+
             const service = new CloudSyncService(adapter);
             await service.initialize(settingsWith(cloudConfig()));
             await flushPromises();
@@ -510,6 +518,7 @@ describe('CloudSyncService', () => {
 
         it('does not re-download an attachment already present locally', async () => {
             const adapter = createAdapter({
+                downloadAttachmentFromCloud: vi.fn().mockResolvedValue('/cache/c/s/shot.png'),
                 loadStashesForSync: vi.fn().mockResolvedValue([
                     {
                         id: 's1',
@@ -546,6 +555,8 @@ describe('CloudSyncService', () => {
                     serverTime: '2026-08-18T12:00:00Z',
                 }),
             });
+
+            attachmentSync.setAdapter(adapter);
 
             const service = new CloudSyncService(adapter);
             await service.initialize(settingsWith(cloudConfig()));

@@ -601,7 +601,9 @@
               <FilePreviewTooltip
                 filePath={attachment.filePath}
                 fileName={attachment.fileName}
-                onclick={() => openFilePreview(attachment.filePath)}
+                attachmentId={attachment.id}
+                fileSize={attachment.fileSize}
+                onclick={(resolvedPath) => openFilePreview(resolvedPath)}
               />
             {/each}
           </div>
