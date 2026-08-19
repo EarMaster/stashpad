@@ -128,12 +128,41 @@ interface ContextSyncResponse {
 /** Subscription tiers entitled to cloud sync */
 const SYNC_ENTITLED_TIERS = ['pro', 'enterprise'];
 
-/** Stable fingerprint of a stash's attachment set, for change detection. */
-function attachmentFingerprint(stash: { attachments?: Array<{ id: string }> }): string {
-    return (stash.attachments || [])
-        .map(a => a.id)
-        .sort()
-        .join(',');
+/**
+ * Does the server know about attachments this device does not have?
+ *
+ * Deliberately one-directional. The server withholds attachments whose bytes are not
+ * confirmed in storage yet, so a freshly added local attachment is legitimately absent
+ * from the server's copy of the same stash. Treating "the server has fewer" as a change
+ * worth importing destroys attachments the user just added, before they are ever
+ * uploaded.
+ *
+ * Attachments therefore only ever arrive through a merge, never disappear through one;
+ * local removal happens solely by explicit user action.
+ */
+function hasUnknownAttachments(
+    serverStash: { attachments?: Array<{ id: string }> },
+    localStash: { attachments?: Array<{ id: string }> }
+): boolean {
+    const localIds = new Set((localStash.attachments || []).map(a => a.id));
+    return (serverStash.attachments || []).some(a => !localIds.has(a.id));
+}
+
+/**
+ * Union of the local and server attachment lists, keyed by id.
+ *
+ * The local entry wins on conflict because it carries `filePath`, which the server has
+ * no concept of and never sends back. Taking the server's entry would blank the path and
+ * strand the file the device already holds.
+ */
+function mergeAttachments(
+    localStash: { attachments?: StashItem['attachments'] },
+    serverStash: { attachments?: StashItem['attachments'] }
+): StashItem['attachments'] {
+    const merged = new Map<string, StashItem['attachments'][number]>();
+    for (const att of serverStash.attachments || []) merged.set(att.id, att);
+    for (const att of localStash.attachments || []) merged.set(att.id, att);
+    return [...merged.values()];
 }
 
 /**
@@ -457,7 +486,7 @@ export class CloudSyncService {
 
             // Upload after merging so attachments pulled in this cycle are already
             // marked as present locally and are not immediately pushed back up.
-            const uploadedAttachments = await this.uploadPendingAttachments();
+            const uploadedAttachments = await this.uploadPendingAttachments(localStashes);
 
             // Update last sync timestamp
             if (this.settings?.cloudConfig && (stashResponse || contextResponse)) {
@@ -577,7 +606,12 @@ export class CloudSyncService {
             // Second granularity on both sides: the local column only stores seconds,
             // so comparing raw milliseconds made every record look perpetually stale.
             if (toSeconds(serverMs) > toSeconds(localMs)) {
-                toSave.push(stashToSave);
+                // The server's content wins, but its attachment list is not authoritative
+                // - it omits anything not yet confirmed uploaded - so union the two.
+                toSave.push({
+                    ...stashToSave,
+                    attachments: mergeAttachments(localStash, stashToSave),
+                });
                 continue;
             }
 
@@ -587,8 +621,14 @@ export class CloudSyncService {
             // compares. Without this the receiving device rejects the record as "not
             // newer" and the attachment never arrives, even though the stash itself
             // syncs perfectly.
-            if (attachmentFingerprint(stashToSave) !== attachmentFingerprint(localStash)) {
-                toSave.push(stashToSave);
+            if (hasUnknownAttachments(stashToSave, localStash)) {
+                // Merge rather than replace: the server's list omits anything not yet
+                // confirmed uploaded, so adopting it wholesale would drop attachments
+                // this device added moments ago and has not finished uploading.
+                toSave.push({
+                    ...stashToSave,
+                    attachments: mergeAttachments(localStash, stashToSave),
+                });
             }
         }
 
@@ -596,10 +636,25 @@ export class CloudSyncService {
             await this.adapter.importStashes(toSave);
         }
 
-        // Fetch the bytes for anything we know about but don't hold locally. Driven off
-        // the local DB rather than what just changed, so an attachment can never be
-        // stranded because its parent stash happened not to be re-imported this cycle.
-        await this.downloadMissingAttachments();
+        // Queue bytes for every attachment we know of but do not hold. Built from the
+        // data already in hand: re-reading the whole stash list here meant loading every
+        // stash three times per sync, which is a visible stall once there are a few
+        // hundred of them.
+        const knownPaths = new Map<string, string>();
+        for (const stash of localStashes) {
+            for (const att of stash.attachments || []) knownPaths.set(att.id, att.filePath || '');
+        }
+        for (const stash of serverStashes) {
+            for (const att of stash.attachments || []) {
+                if (!knownPaths.has(att.id)) knownPaths.set(att.id, '');
+            }
+        }
+
+        attachmentSync.enqueue(
+            [...knownPaths.entries()]
+                .filter(([id, path]) => attachmentSync.isPending(id, path))
+                .map(([id]) => id)
+        );
     }
 
     /**
@@ -722,9 +777,13 @@ export class CloudSyncService {
      * marked uploaded, and for metadata-only rows pulled from another device whose
      * file hasn't been downloaded yet.
      */
-    private async uploadPendingAttachments(): Promise<boolean> {
-        const stashes = await this.adapter.loadStashesForSync();
-        const attachments = stashes.flatMap(s => s.attachments || []);
+    private async uploadPendingAttachments(stashes: StashItem[]): Promise<boolean> {
+        // Only attachments this device actually holds bytes for. Metadata-only rows
+        // pulled from another device have nothing to upload, and skipping them here
+        // avoids a pointless IPC round-trip per attachment on every single sync.
+        const attachments = stashes
+            .flatMap(s => s.attachments || [])
+            .filter(att => att.filePath && att.filePath.trim() !== '');
 
         if (attachments.length === 0) return false;
 
@@ -741,30 +800,4 @@ export class CloudSyncService {
         return uploaded;
     }
 
-    /**
-     * Download the bytes for attachments this device knows about but doesn't hold.
-     *
-     * Sync used to be upload-only, so a receiving device ended up with attachment rows
-     * whose `filePath` was empty — a file listed in the UI that could never be opened.
-     */
-    private async downloadMissingAttachments(): Promise<void> {
-        const stashes = await this.adapter.loadStashesForSync();
-        const missing: string[] = [];
-
-        for (const stash of stashes) {
-            if (stash.deleted) continue;
-            for (const att of stash.attachments || []) {
-                // An empty filePath means the row is metadata pulled from another
-                // device and the bytes were never fetched.
-                if (attachmentSync.isPending(att.id, att.filePath)) {
-                    missing.push(att.id);
-                }
-            }
-        }
-
-        // Hand off rather than downloading inline: the queue drains in the background
-        // so a large backlog cannot stall the sync cycle, and the UI can show each
-        // attachment as pending while it waits.
-        attachmentSync.enqueue(missing);
-    }
 }

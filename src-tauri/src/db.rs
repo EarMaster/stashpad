@@ -591,7 +591,11 @@ impl DbManager {
             };
 
             tx.execute(
-                "INSERT OR REPLACE INTO stashes (id, context_id, content, enhanced_content, files, created_at, completed, completed_at, position, updated_at, deleted) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                // Upsert, never INSERT OR REPLACE: REPLACE deletes the existing row first, and
+                // attachments reference stashes ON DELETE CASCADE, so replacing a stash
+                // silently destroys every attachment hanging off it. ON CONFLICT updates
+                // the row in place and leaves the children alone.
+                "INSERT INTO stashes (id, context_id, content, enhanced_content, files, created_at, completed, completed_at, position, updated_at, deleted) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11) ON CONFLICT(id) DO UPDATE SET context_id=excluded.context_id, content=excluded.content, enhanced_content=excluded.enhanced_content, files=excluded.files, created_at=excluded.created_at, completed=excluded.completed, completed_at=excluded.completed_at, position=excluded.position, updated_at=excluded.updated_at, deleted=excluded.deleted",
                 params![
                     stash.id,
                     stash.context_id,
@@ -610,7 +614,10 @@ impl DbManager {
 
             for att in &stash.attachments {
                 tx.execute(
-                    "INSERT OR REPLACE INTO attachments (id, stash_id, file_path, file_name, file_size, mime_type, syntax, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                    // Never blank an existing local path: the server has no concept of a
+                    // local file_path and always sends it empty, so an incoming empty
+                    // value means "unknown", not "cleared".
+                    "INSERT INTO attachments (id, stash_id, file_path, file_name, file_size, mime_type, syntax, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8) ON CONFLICT(id) DO UPDATE SET stash_id=excluded.stash_id, file_path=CASE WHEN TRIM(excluded.file_path)='' THEN attachments.file_path ELSE excluded.file_path END, file_name=excluded.file_name, file_size=excluded.file_size, mime_type=excluded.mime_type, syntax=excluded.syntax",
                     params![
                         att.id,
                         att.stash_id,
@@ -662,7 +669,11 @@ impl DbManager {
         };
 
         self.conn.execute(
-            "INSERT OR REPLACE INTO stashes (id, context_id, content, enhanced_content, files, created_at, completed, completed_at, position, updated_at, deleted) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            // Upsert, never INSERT OR REPLACE: REPLACE deletes the existing row first, and
+                // attachments reference stashes ON DELETE CASCADE, so replacing a stash
+                // silently destroys every attachment hanging off it. ON CONFLICT updates
+                // the row in place and leaves the children alone.
+                "INSERT INTO stashes (id, context_id, content, enhanced_content, files, created_at, completed, completed_at, position, updated_at, deleted) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11) ON CONFLICT(id) DO UPDATE SET context_id=excluded.context_id, content=excluded.content, enhanced_content=excluded.enhanced_content, files=excluded.files, created_at=excluded.created_at, completed=excluded.completed, completed_at=excluded.completed_at, position=excluded.position, updated_at=excluded.updated_at, deleted=excluded.deleted",
             params![
                 stash.id,
                 stash.context_id,
@@ -681,7 +692,10 @@ impl DbManager {
         // UPSERT attachments (crucial for new stashes where save_asset might have failed FK)
         for att in &stash.attachments {
             self.conn.execute(
-                "INSERT OR REPLACE INTO attachments (id, stash_id, file_path, file_name, file_size, mime_type, syntax, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                // Never blank an existing local path: the server has no concept of a
+                    // local file_path and always sends it empty, so an incoming empty
+                    // value means "unknown", not "cleared".
+                    "INSERT INTO attachments (id, stash_id, file_path, file_name, file_size, mime_type, syntax, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8) ON CONFLICT(id) DO UPDATE SET stash_id=excluded.stash_id, file_path=CASE WHEN TRIM(excluded.file_path)='' THEN attachments.file_path ELSE excluded.file_path END, file_name=excluded.file_name, file_size=excluded.file_size, mime_type=excluded.mime_type, syntax=excluded.syntax",
                 params![
                     att.id,
                     att.stash_id,
@@ -1147,6 +1161,105 @@ mod tests {
         assert!(
             found.updated_at.unwrap() > stale,
             "a local context edit must stamp the current time"
+        );
+    }
+
+    #[test]
+    fn importing_a_stash_never_destroys_its_attachments() {
+        // The data-loss regression: the server withholds attachments whose bytes are not
+        // confirmed uploaded, so a sync moments after adding one returns that stash with
+        // an empty attachment list. Combined with INSERT OR REPLACE - which deletes the
+        // row, cascading to attachments - the file the user just attached was wiped
+        // before it could ever be uploaded.
+        let mut db = create_test_db();
+        db.conn
+            .execute_batch("PRAGMA foreign_keys = ON;")
+            .expect("enable foreign keys");
+
+        let mut stash = stash_with_updated_at("s-att", "has a file", Some(1_700_000_000));
+        stash.attachments = vec![Attachment {
+            id: "att-1".to_string(),
+            stash_id: "s-att".to_string(),
+            file_path: "/cache/ctx/s-att/shot.png".to_string(),
+            file_name: "shot.png".to_string(),
+            file_size: 123,
+            mime_type: Some("image/png".to_string()),
+            syntax: None,
+            created_at: "2026-08-19T10:00:00Z".to_string(),
+        }];
+
+        db.save_stash(&stash, None, WriteOrigin::LocalEdit)
+            .expect("save should succeed");
+
+        let count: i64 = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM attachments WHERE stash_id = 's-att'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1, "attachment should exist after the local save");
+
+        // Now the server echoes the stash back with no attachments, as it does until the
+        // upload is confirmed.
+        let mut from_server = stash.clone();
+        from_server.attachments = vec![];
+        from_server.content = "has a file".to_string();
+        db.import_stashes(&vec![from_server])
+            .expect("import should succeed");
+
+        let count: i64 = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM attachments WHERE stash_id = 's-att'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            count, 1,
+            "importing a stash whose server copy lists no attachments must not delete them"
+        );
+    }
+
+    #[test]
+    fn import_preserves_a_local_file_path_against_an_empty_one() {
+        // The server never sends file_path, so it deserializes to "". Writing that over a
+        // real path would strand a file the device already holds on disk.
+        let mut db = create_test_db();
+
+        let mut stash = stash_with_updated_at("s-path", "content", Some(1_700_000_000));
+        stash.attachments = vec![Attachment {
+            id: "att-2".to_string(),
+            stash_id: "s-path".to_string(),
+            file_path: "/cache/ctx/s-path/real.png".to_string(),
+            file_name: "real.png".to_string(),
+            file_size: 10,
+            mime_type: None,
+            syntax: None,
+            created_at: "2026-08-19T10:00:00Z".to_string(),
+        }];
+        db.save_stash(&stash, None, WriteOrigin::LocalEdit)
+            .expect("save should succeed");
+
+        // Same attachment arriving from the server, with no path.
+        let mut from_server = stash.clone();
+        from_server.attachments[0].file_path = String::new();
+        db.import_stashes(&vec![from_server])
+            .expect("import should succeed");
+
+        let path: String = db
+            .conn
+            .query_row(
+                "SELECT file_path FROM attachments WHERE id = 'att-2'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            path, "/cache/ctx/s-path/real.png",
+            "an empty incoming path means unknown, not cleared"
         );
     }
 

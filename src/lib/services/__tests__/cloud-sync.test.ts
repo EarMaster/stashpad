@@ -484,6 +484,51 @@ describe('CloudSyncService', () => {
             expect(imported[0].attachments).toHaveLength(1);
         });
 
+        it('never drops a local attachment the server has not confirmed yet', async () => {
+            // Data-loss regression. The server withholds attachments whose bytes are not
+            // confirmed uploaded, so seconds after adding one the server's copy of that
+            // stash legitimately lists no attachments. Adopting that list wholesale
+            // destroyed the file the user had just attached, before it was ever uploaded.
+            const local: StashItem = {
+                id: 's1',
+                content: 'note',
+                createdAt: '2026-08-18T10:00:00Z',
+                updatedAt: 1755512000,
+                attachments: [
+                    { id: 'a1', fileName: 'shot.png', fileSize: 10, filePath: '/cache/c/s/shot.png' },
+                ],
+            } as unknown as StashItem;
+
+            const adapter = createAdapter({
+                loadStashesForSync: vi.fn().mockResolvedValue([local]),
+                syncStashesApi: vi.fn().mockResolvedValue({
+                    synced: [
+                        {
+                            id: 's1',
+                            content: 'note edited elsewhere',
+                            createdAt: '2026-08-18T10:00:00Z',
+                            // Newer, so the server's content wins...
+                            updatedAt: new Date(1755512500 * 1000).toISOString(),
+                            // ...but it knows nothing of the unconfirmed attachment.
+                            attachments: [],
+                        },
+                    ],
+                    serverTime: '2026-08-18T12:00:00Z',
+                }),
+            });
+
+            const service = new CloudSyncService(adapter);
+            await service.initialize(settingsWith(cloudConfig()));
+            await flushPromises();
+
+            const imported = (adapter.importStashes as any).mock.calls[0][0];
+            expect(imported[0].content).toBe('note edited elsewhere');
+            expect(imported[0].attachments).toHaveLength(1);
+            expect(imported[0].attachments[0].id).toBe('a1');
+            // The local path must survive; the server never sends one.
+            expect(imported[0].attachments[0].filePath).toBe('/cache/c/s/shot.png');
+        });
+
         it('schedules a follow-up sync after uploading, so peers are notified', async () => {
             // Confirming an upload emits no WebSocket notification of its own; without a
             // second pass the other device waits for the 15-minute fallback poll.
