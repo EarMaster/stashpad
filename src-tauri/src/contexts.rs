@@ -153,7 +153,7 @@ pub fn save_context(state: State<Arc<DbState>>, context: Context) {
 /// stamping it with the local clock here would make every pulled record look locally
 /// edited and push it straight back on the next sync.
 #[tauri::command]
-pub fn import_contexts(state: State<Arc<DbState>>, contexts: Vec<Context>) -> Result<(), String> {
+pub async fn import_contexts(state: State<'_, Arc<DbState>>, contexts: Vec<Context>) -> Result<(), String> {
     state
         .db
         .lock()
@@ -172,8 +172,8 @@ pub fn delete_context(state: State<Arc<DbState>>, id: String) {
 
 /// Contexts with local changes the server has not acknowledged yet.
 #[tauri::command]
-pub fn claim_pending_contexts(state: State<Arc<DbState>>) -> Vec<Context> {
-    state.db.lock().unwrap().claim_pending_contexts().unwrap_or_default()
+pub async fn claim_pending_contexts(state: State<'_, Arc<DbState>>) -> Result<Vec<Context>, String> {
+    Ok(state.db.lock().unwrap().claim_pending_contexts().unwrap_or_default())
 }
 
 /// Clear the pending flag for contexts the server accepted.

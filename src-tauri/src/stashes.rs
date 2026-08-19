@@ -131,22 +131,22 @@ pub fn save_stash(
 }
 
 #[tauri::command]
-pub fn load_stashes(state: State<Arc<DbState>>) -> Vec<StashItem> {
-    state.db.lock().unwrap().get_stashes().unwrap_or_default()
+pub async fn load_stashes(state: State<'_, Arc<DbState>>) -> Result<Vec<StashItem>, String> {
+    Ok(state.db.lock().unwrap().get_stashes().unwrap_or_default())
 }
 
 #[tauri::command]
-pub fn load_stashes_for_sync(state: State<Arc<DbState>>) -> Vec<StashItem> {
-    state.db.lock().unwrap().get_stashes_for_sync().unwrap_or_default()
+pub async fn load_stashes_for_sync(state: State<'_, Arc<DbState>>) -> Result<Vec<StashItem>, String> {
+    Ok(state.db.lock().unwrap().get_stashes_for_sync().unwrap_or_default())
 }
 
 #[tauri::command]
-pub fn get_contexts_for_sync(state: State<Arc<DbState>>) -> Vec<Context> {
-    state.db.lock().unwrap().get_contexts_for_sync().unwrap_or_default()
+pub async fn get_contexts_for_sync(state: State<'_, Arc<DbState>>) -> Result<Vec<Context>, String> {
+    Ok(state.db.lock().unwrap().get_contexts_for_sync().unwrap_or_default())
 }
 
 #[tauri::command]
-pub fn import_stashes(state: State<Arc<DbState>>, stashes_list: Vec<StashItem>) -> Result<(), String> {
+pub async fn import_stashes(state: State<'_, Arc<DbState>>, stashes_list: Vec<StashItem>) -> Result<(), String> {
     state.db.lock().unwrap().import_stashes(&stashes_list).map_err(|e| e.to_string())
 }
 
@@ -251,13 +251,14 @@ pub fn perform_startup_cleanup(db: &mut DbManager, settings: &Settings) {
 }
 
 #[tauri::command]
-pub fn save_stashes(state: State<Arc<DbState>>, stashes_list: Vec<StashItem>) {
-    // This is used for REORDERING.
+pub async fn save_stashes(state: State<'_, Arc<DbState>>, stashes_list: Vec<StashItem>) -> Result<(), String> {
+    // This is used for REORDERING, which rewrites a row per visible stash.
     println!("Saving stash order ({} items)", stashes_list.len());
     let mut db = state.db.lock().unwrap();
     if let Err(e) = db.update_stash_positions(&stashes_list) {
         println!("Failed to update stash positions: {}", e);
     }
+    Ok(())
 }
  
 #[tauri::command]
@@ -675,8 +676,8 @@ pub fn read_file_for_preview(path: String) -> Result<crate::models::FilePreviewD
 /// Sync pushes only these instead of the whole table: with a few hundred stashes a full
 /// push means a database round-trip per record on the server, on every local edit.
 #[tauri::command]
-pub fn claim_pending_stashes(state: State<Arc<DbState>>) -> Vec<StashItem> {
-    state.db.lock().unwrap().claim_pending_stashes().unwrap_or_default()
+pub async fn claim_pending_stashes(state: State<'_, Arc<DbState>>) -> Result<Vec<StashItem>, String> {
+    Ok(state.db.lock().unwrap().claim_pending_stashes().unwrap_or_default())
 }
 
 /// Clear the pending flag for stashes the server accepted.

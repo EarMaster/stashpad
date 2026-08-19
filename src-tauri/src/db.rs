@@ -531,7 +531,14 @@ impl DbManager {
     }
 
     pub fn get_stashes_for_sync(&mut self) -> Result<Vec<StashItem>> {
-        let mut stmt = self.conn.prepare("SELECT id, context_id, content, files, created_at, completed, completed_at, position, updated_at, enhanced_content, deleted FROM stashes")?;
+        self.load_stashes_for_sync_where("")
+    }
+
+    /// Shared loader for the sync payload. `filter` is a trusted, hard-coded SQL
+    /// fragment - never caller input.
+    fn load_stashes_for_sync_where(&mut self, filter: &str) -> Result<Vec<StashItem>> {
+        let sql = format!("SELECT id, context_id, content, files, created_at, completed, completed_at, position, updated_at, enhanced_content, deleted FROM stashes {}", filter);
+        let mut stmt = self.conn.prepare(&sql)?;
         
         let stash_rows = stmt.query_map([], |row| {
             let files_str: String = row.get(3)?;
@@ -636,22 +643,21 @@ impl DbManager {
 
     /// Stashes with local changes the server has not acknowledged, marked in flight.
     pub fn claim_pending_stashes(&mut self) -> Result<Vec<StashItem>> {
-        let pending = self.claim_pending("stashes")?;
-        Ok(self
-            .get_stashes_for_sync()?
-            .into_iter()
-            .filter(|s| pending.contains(&s.id))
-            .collect())
+        // Claiming moves every pending row to the in-flight state, so selecting on it
+        // returns exactly what was claimed. Filtering in SQL rather than loading the
+        // whole table and discarding most of it: with a few hundred stashes that read
+        // is the bulk of a sync's local cost, and it runs on every keystroke-triggered
+        // sync.
+        self.claim_pending("stashes")?;
+        self.load_stashes_for_sync_where("WHERE pending_sync = 2")
     }
 
     /// Contexts with local changes the server has not acknowledged, marked in flight.
     pub fn claim_pending_contexts(&mut self) -> Result<Vec<Context>> {
-        let pending = self.claim_pending("contexts")?;
-        Ok(self
-            .get_contexts_for_sync()?
-            .into_iter()
-            .filter(|c| pending.contains(&c.id))
-            .collect())
+        // Same reasoning as claim_pending_stashes: select the claimed rows rather than
+        // loading every context and discarding most of them.
+        self.claim_pending("contexts")?;
+        self.load_contexts_for_sync_where("WHERE pending_sync = 2")
     }
 
     /// Mark records the server accepted as synced.
@@ -676,7 +682,14 @@ impl DbManager {
     }
 
     pub fn get_contexts_for_sync(&mut self) -> Result<Vec<Context>> {
-        let mut stmt = self.conn.prepare("SELECT id, name, rules, last_used, updated_at, deleted, description FROM contexts")?;
+        self.load_contexts_for_sync_where("")
+    }
+
+    /// Shared loader for the context sync payload. `filter` is a trusted, hard-coded SQL
+    /// fragment - never caller input.
+    fn load_contexts_for_sync_where(&mut self, filter: &str) -> Result<Vec<Context>> {
+        let sql = format!("SELECT id, name, rules, last_used, updated_at, deleted, description FROM contexts {}", filter);
+        let mut stmt = self.conn.prepare(&sql)?;
         let rows = stmt.query_map([], |row| {
             let rules_json: String = row.get(2)?;
             let deleted_int: i32 = row.get(5)?;
