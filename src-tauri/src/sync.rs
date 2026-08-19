@@ -289,11 +289,17 @@ pub async fn sync_stashes_api(
 }
 
 #[tauri::command]
+/// Push an attachment's bytes to the cloud.
+///
+/// Returns `true` only when bytes were actually uploaded, so the caller can schedule a
+/// follow-up sync: confirming an upload publishes the file server-side but sends no
+/// WebSocket notification of its own, and other devices would otherwise not hear about
+/// it until the next fallback poll.
 pub async fn upload_attachment_to_cloud(
     state: State<'_, Arc<DbState>>,
     settings_state: State<'_, Arc<SettingsState>>,
     attachment_id: String,
-) -> Result<(), String> {
+) -> Result<bool, String> {
     let (endpoint, token) = {
         let settings = settings_state.settings.lock().unwrap();
         let config = settings.cloud_config.as_ref().ok_or("Cloud config missing")?;
@@ -327,13 +333,13 @@ pub async fn upload_attachment_to_cloud(
     // Idempotency: without this every sync re-PUT the full body of every attachment
     // that had ever been created.
     if already_uploaded {
-        return Ok(());
+        return Ok(false);
     }
 
     // Attachments pulled from another device arrive as metadata only until their bytes
     // are downloaded, so there is nothing local to push yet.
     if attachment.file_path.trim().is_empty() {
-        return Ok(());
+        return Ok(false);
     }
 
     let client = reqwest::Client::new();
@@ -418,7 +424,7 @@ pub async fn upload_attachment_to_cloud(
             .map_err(|e| e.to_string())?;
     }
 
-    Ok(())
+    Ok(true)
 }
 
 /// Download an attachment's bytes from the cloud into the local cache.

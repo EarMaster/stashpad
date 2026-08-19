@@ -32,7 +32,7 @@ function createAdapter(overrides: Partial<IStorageService> = {}) {
         syncContextsApi: vi.fn().mockResolvedValue({ synced: [], serverTime: '2026-08-18T12:00:00Z' }),
         importStashes: vi.fn().mockResolvedValue(undefined),
         importContexts: vi.fn().mockResolvedValue(undefined),
-        uploadAttachmentToCloud: vi.fn().mockResolvedValue(undefined),
+        uploadAttachmentToCloud: vi.fn().mockResolvedValue(false),
         downloadAttachmentFromCloud: vi.fn().mockResolvedValue('/cache/file.png'),
         connectWebSocket: vi.fn().mockResolvedValue(undefined),
         disconnectWebSocket: vi.fn().mockResolvedValue(undefined),
@@ -397,7 +397,20 @@ describe('CloudSyncService', () => {
         it('downloads bytes for a pulled attachment that has no local file', async () => {
             // Sync used to be upload-only, leaving the receiving device with attachment
             // rows whose filePath was empty - a file the UI listed but could never open.
+            // Downloads are driven off the local DB, so model the row having been
+            // imported: an empty filePath means the bytes were never fetched.
             const adapter = createAdapter({
+                loadStashesForSync: vi.fn().mockResolvedValue([
+                    {
+                        id: 's1',
+                        content: 'with file',
+                        createdAt: '2026-08-18T10:00:00Z',
+                        updatedAt: 1755512000,
+                        attachments: [
+                            { id: 'a1', fileName: 'shot.png', fileSize: 10, filePath: '' },
+                        ],
+                    },
+                ]),
                 syncStashesApi: vi.fn().mockResolvedValue({
                     synced: [
                         {
@@ -421,8 +434,98 @@ describe('CloudSyncService', () => {
             expect(adapter.downloadAttachmentFromCloud).toHaveBeenCalledWith('a1');
         });
 
+        it('imports a stash whose attachments changed even when updatedAt is unchanged', async () => {
+            // The bug that left attachments unsynced while stashes synced instantly.
+            // Confirming an upload publishes the file but touches only the server-side
+            // cursor, never the client clock last-write-wins compares - so the receiving
+            // device saw an equal timestamp, rejected the record, and never learned the
+            // attachment existed.
+            const local: StashItem = {
+                id: 's1',
+                content: 'same content',
+                createdAt: '2026-08-18T10:00:00Z',
+                updatedAt: 1755512000,
+                attachments: [],
+            } as unknown as StashItem;
+
+            const adapter = createAdapter({
+                loadStashesForSync: vi.fn().mockResolvedValue([local]),
+                syncStashesApi: vi.fn().mockResolvedValue({
+                    synced: [
+                        {
+                            id: 's1',
+                            content: 'same content',
+                            createdAt: '2026-08-18T10:00:00Z',
+                            // Identical second - LWW alone would reject this.
+                            updatedAt: new Date(1755512000 * 1000).toISOString(),
+                            attachments: [
+                                { id: 'a1', fileName: 'shot.png', fileSize: 10, filePath: '' },
+                            ],
+                        },
+                    ],
+                    serverTime: '2026-08-18T12:00:00Z',
+                }),
+            });
+
+            const service = new CloudSyncService(adapter);
+            await service.initialize(settingsWith(cloudConfig()));
+            await flushPromises();
+
+            expect(adapter.importStashes).toHaveBeenCalled();
+            const imported = (adapter.importStashes as any).mock.calls[0][0];
+            expect(imported[0].attachments).toHaveLength(1);
+        });
+
+        it('schedules a follow-up sync after uploading, so peers are notified', async () => {
+            // Confirming an upload emits no WebSocket notification of its own; without a
+            // second pass the other device waits for the 15-minute fallback poll.
+            const adapter = createAdapter({
+                uploadAttachmentToCloud: vi.fn().mockResolvedValue(true),
+                loadStashesForSync: vi.fn().mockResolvedValue([
+                    {
+                        id: 's1',
+                        content: 'has file',
+                        createdAt: '2026-08-18T10:00:00Z',
+                        updatedAt: 1755512000,
+                        attachments: [
+                            { id: 'a1', fileName: 'x.png', fileSize: 1, filePath: '/tmp/x.png' },
+                        ],
+                    },
+                ]),
+            });
+
+            const service = new CloudSyncService(adapter);
+            await service.initialize(settingsWith(cloudConfig()));
+            await flushPromises();
+
+            const afterFirst = (adapter.syncStashesApi as any).mock.calls.length;
+
+            await vi.advanceTimersByTimeAsync(DEBOUNCE_MS + 100);
+            await flushPromises();
+
+            expect((adapter.syncStashesApi as any).mock.calls.length).toBeGreaterThan(
+                afterFirst,
+            );
+        });
+
         it('does not re-download an attachment already present locally', async () => {
             const adapter = createAdapter({
+                loadStashesForSync: vi.fn().mockResolvedValue([
+                    {
+                        id: 's1',
+                        content: 'with file',
+                        createdAt: '2026-08-18T10:00:00Z',
+                        updatedAt: 1755512000,
+                        attachments: [
+                            {
+                                id: 'a1',
+                                fileName: 'shot.png',
+                                fileSize: 10,
+                                filePath: '/cache/c/s/shot.png',
+                            },
+                        ],
+                    },
+                ]),
                 syncStashesApi: vi.fn().mockResolvedValue({
                     synced: [
                         {

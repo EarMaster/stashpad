@@ -213,7 +213,8 @@ export interface IStorageService {
     checkSystemPromptExists(): Promise<boolean>;
     createSystemPromptFile(): Promise<void>;
     openSystemPromptFile(): Promise<void>;
-    uploadAttachmentToCloud(attachmentId: string): Promise<void>;
+    /** Uploads the attachment's bytes. Resolves true only if bytes were actually sent. */
+    uploadAttachmentToCloud(attachmentId: string): Promise<boolean>;
 }
 
 /**

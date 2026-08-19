@@ -127,6 +127,14 @@ interface ContextSyncResponse {
 /** Subscription tiers entitled to cloud sync */
 const SYNC_ENTITLED_TIERS = ['pro', 'enterprise'];
 
+/** Stable fingerprint of a stash's attachment set, for change detection. */
+function attachmentFingerprint(stash: { attachments?: Array<{ id: string }> }): string {
+    return (stash.attachments || [])
+        .map(a => a.id)
+        .sort()
+        .join(',');
+}
+
 /**
  * Convert a local `updatedAt` (Unix seconds, or an ISO string on legacy records) to
  * milliseconds for comparison. Returns 0 when nothing usable is present.
@@ -448,7 +456,7 @@ export class CloudSyncService {
 
             // Upload after merging so attachments pulled in this cycle are already
             // marked as present locally and are not immediately pushed back up.
-            await this.uploadPendingAttachments();
+            const uploadedAttachments = await this.uploadPendingAttachments();
 
             // Update last sync timestamp
             if (this.settings?.cloudConfig && (stashResponse || contextResponse)) {
@@ -461,6 +469,16 @@ export class CloudSyncService {
 
             this.setStatus('success', `Synced ${stashCount} stashes, ${contextCount} contexts`);
             console.log(`[CloudSync] Synced ${stashCount} stashes, ${contextCount} contexts`);
+
+            // Confirming an upload publishes the file server-side but emits no WebSocket
+            // notification of its own, so other devices would not hear about it until
+            // their next fallback poll. One more pass makes the stash endpoint broadcast.
+            // This terminates: the second pass uploads nothing, so it does not re-arm.
+            if (uploadedAttachments) {
+                console.log('[CloudSync] Attachments uploaded - notifying other devices');
+                this.triggerSync();
+            }
+
             return true;
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
@@ -559,6 +577,17 @@ export class CloudSyncService {
             // so comparing raw milliseconds made every record look perpetually stale.
             if (toSeconds(serverMs) > toSeconds(localMs)) {
                 toSave.push(stashToSave);
+                continue;
+            }
+
+            // Attachment metadata can change without the stash's own updatedAt moving.
+            // Confirming an upload publishes the file to other devices but touches only
+            // the server-side cursor, never the client clock that last-write-wins
+            // compares. Without this the receiving device rejects the record as "not
+            // newer" and the attachment never arrives, even though the stash itself
+            // syncs perfectly.
+            if (attachmentFingerprint(stashToSave) !== attachmentFingerprint(localStash)) {
+                toSave.push(stashToSave);
             }
         }
 
@@ -566,8 +595,10 @@ export class CloudSyncService {
             await this.adapter.importStashes(toSave);
         }
 
-        // Fetch the bytes for anything we now know about but don't hold locally.
-        await this.downloadMissingAttachments(toSave);
+        // Fetch the bytes for anything we know about but don't hold locally. Driven off
+        // the local DB rather than what just changed, so an attachment can never be
+        // stranded because its parent stash happened not to be re-imported this cycle.
+        await this.downloadMissingAttachments();
     }
 
     /**
@@ -690,19 +721,23 @@ export class CloudSyncService {
      * marked uploaded, and for metadata-only rows pulled from another device whose
      * file hasn't been downloaded yet.
      */
-    private async uploadPendingAttachments(): Promise<void> {
+    private async uploadPendingAttachments(): Promise<boolean> {
         const stashes = await this.adapter.loadStashesForSync();
         const attachments = stashes.flatMap(s => s.attachments || []);
 
-        if (attachments.length === 0) return;
+        if (attachments.length === 0) return false;
 
+        let uploaded = false;
         for (const att of attachments) {
             try {
-                await this.adapter.uploadAttachmentToCloud(att.id);
+                if (await this.adapter.uploadAttachmentToCloud(att.id)) {
+                    uploaded = true;
+                }
             } catch (e) {
                 console.warn(`[CloudSync] Attachment upload failed for ${att.id}:`, e);
             }
         }
+        return uploaded;
     }
 
     /**
@@ -711,9 +746,14 @@ export class CloudSyncService {
      * Sync used to be upload-only, so a receiving device ended up with attachment rows
      * whose `filePath` was empty — a file listed in the UI that could never be opened.
      */
-    private async downloadMissingAttachments(stashes: StashItem[]): Promise<void> {
+    private async downloadMissingAttachments(): Promise<void> {
+        const stashes = await this.adapter.loadStashesForSync();
+
         for (const stash of stashes) {
+            if (stash.deleted) continue;
             for (const att of stash.attachments || []) {
+                // An empty filePath means the row is metadata pulled from another
+                // device and the bytes were never fetched.
                 if (att.filePath && att.filePath.trim() !== '') continue;
                 try {
                     await this.adapter.downloadAttachmentFromCloud(att.id);
