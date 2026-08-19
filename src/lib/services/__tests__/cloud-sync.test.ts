@@ -671,6 +671,44 @@ describe('CloudSyncService', () => {
             expect(imported[0].attachments[0].filePath).toBe('/cache/c/s/shot.png');
         });
 
+        it('does not upload attachments belonging to a deleted stash', async () => {
+            // Otherwise they are retried on every sync forever: the files are still on
+            // disk, so nothing ever marks them done, and each cycle re-sends megabytes
+            // for records the user has thrown away.
+            const adapter = createAdapter({
+                uploadAttachmentToCloud: vi.fn().mockResolvedValue(true),
+                loadStashesForSync: vi.fn().mockResolvedValue([
+                    {
+                        id: 'alive',
+                        content: 'kept',
+                        createdAt: '2026-08-18T10:00:00Z',
+                        updatedAt: 1755512000,
+                        deleted: false,
+                        attachments: [
+                            { id: 'keep-me', fileName: 'a.png', fileSize: 1, filePath: '/tmp/a.png' },
+                        ],
+                    },
+                    {
+                        id: 'tombstone',
+                        content: 'deleted',
+                        createdAt: '2026-08-18T10:00:00Z',
+                        updatedAt: 1755512000,
+                        deleted: true,
+                        attachments: [
+                            { id: 'skip-me', fileName: 'b.png', fileSize: 1, filePath: '/tmp/b.png' },
+                        ],
+                    },
+                ]),
+            });
+
+            const service = new CloudSyncService(adapter);
+            await service.initialize(settingsWith(cloudConfig()));
+            await flushPromises();
+
+            expect(adapter.uploadAttachmentToCloud).toHaveBeenCalledWith('keep-me');
+            expect(adapter.uploadAttachmentToCloud).not.toHaveBeenCalledWith('skip-me');
+        });
+
         it('schedules a follow-up sync after uploading, so peers are notified', async () => {
             // Confirming an upload emits no WebSocket notification of its own; without a
             // second pass the other device waits for the 15-minute fallback poll.

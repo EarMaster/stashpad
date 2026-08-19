@@ -846,10 +846,13 @@ export class CloudSyncService {
      * file hasn't been downloaded yet.
      */
     private async uploadPendingAttachments(stashes: StashItem[]): Promise<boolean> {
-        // Only attachments this device actually holds bytes for. Metadata-only rows
-        // pulled from another device have nothing to upload, and skipping them here
-        // avoids a pointless IPC round-trip per attachment on every single sync.
+        // Only attachments this device actually holds bytes for, belonging to stashes
+        // that still exist. Metadata-only rows pulled from another device have nothing
+        // to upload, and a deleted stash's files are not worth sending - without this
+        // they are retried on every sync forever, which for a handful of screenshots is
+        // megabytes of pointless transfer per cycle.
         const attachments = stashes
+            .filter(s => !s.deleted)
             .flatMap(s => s.attachments || [])
             .filter(att => att.filePath && att.filePath.trim() !== '');
 
