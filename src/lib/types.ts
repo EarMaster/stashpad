@@ -199,6 +199,12 @@ export interface IStorageService {
     importStashes(stashes: StashItem[]): Promise<void>;
     /** Apply cloud contexts while preserving their server timestamps. */
     importContexts(contexts: Context[]): Promise<void>;
+    /** Records changed locally, marked in flight so a concurrent edit stays queued. */
+    claimPendingStashes(): Promise<StashItem[]>;
+    claimPendingContexts(): Promise<Context[]>;
+    /** Mark records the server accepted as synced. */
+    markStashesSynced(ids: string[]): Promise<void>;
+    markContextsSynced(ids: string[]): Promise<void>;
     /** Fetch an attachment's bytes into the local cache; resolves to the file path. */
     downloadAttachmentFromCloud(attachmentId: string): Promise<string>;
     /** Sign out of the cloud and erase the stored JWT from the OS keychain. */

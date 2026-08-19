@@ -111,7 +111,8 @@ pub fn save_contexts(state: State<Arc<DbState>>, contexts: Vec<Context>) {
         for ctx in &contexts {
             let rules_json = serde_json::to_string(&ctx.rules).unwrap_or_default();
             tx.execute(
-                "INSERT OR REPLACE INTO contexts (id, name, rules, last_used, updated_at, deleted, description) VALUES (?1, ?2, ?3, ?4, ?5, ?7, ?6)",
+                // pending_sync = 1: a local edit still has to reach the server.
+                "INSERT OR REPLACE INTO contexts (id, name, rules, last_used, updated_at, deleted, description, pending_sync) VALUES (?1, ?2, ?3, ?4, ?5, ?7, ?6, 1)",
                 params![
                     ctx.id,
                     ctx.name,
@@ -167,4 +168,24 @@ pub fn delete_context(state: State<Arc<DbState>>, id: String) {
     if let Err(e) = state.db.lock().unwrap().delete_context(&id) {
         println!("Failed to delete context: {}", e);
     }
+}
+
+/// Contexts with local changes the server has not acknowledged yet.
+#[tauri::command]
+pub fn claim_pending_contexts(state: State<Arc<DbState>>) -> Vec<Context> {
+    state.db.lock().unwrap().claim_pending_contexts().unwrap_or_default()
+}
+
+/// Clear the pending flag for contexts the server accepted.
+#[tauri::command]
+pub fn mark_contexts_synced(
+    state: State<Arc<DbState>>,
+    ids: Vec<String>,
+) -> Result<(), String> {
+    state
+        .db
+        .lock()
+        .unwrap()
+        .mark_synced("contexts", &ids)
+        .map_err(|e| e.to_string())
 }

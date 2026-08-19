@@ -417,12 +417,28 @@ export class CloudSyncService {
                 this.adapter.getContextsForSync(),
             ]);
 
+            // Push only what changed. Without a sync cursor this device has never
+            // successfully synced, so send everything once to give the server a complete
+            // picture - the same reason every row starts out flagged as pending.
+            // Claiming marks these records in flight, so an edit made while the request
+            // is running stays queued instead of being acknowledged away.
+            const fullPush = !config.lastSyncAt;
+            const [pushStashes, pushContexts] = fullPush
+                ? [localStashes, localContexts]
+                : await Promise.all([
+                      this.adapter.claimPendingStashes(),
+                      this.adapter.claimPendingContexts(),
+                  ]);
+
+            const sentStashIds = pushStashes.map(s => s.id);
+            const sentContextIds = pushContexts.map(c => c.id);
+
             // Prepare stash sync payload
             const stashRequest: SyncRequest = {
                 deviceId: this.deviceId,
                 deviceName: this.deviceName,
                 lastSyncAt: config.lastSyncAt || null,
-                stashes: localStashes.map(stash => ({
+                stashes: pushStashes.map(stash => ({
                     id: stash.id,
                     contextId: stash.contextId || null,
                     content: stash.content,
@@ -449,7 +465,7 @@ export class CloudSyncService {
                 deviceId: this.deviceId,
                 deviceName: this.deviceName,
                 lastSyncAt: config.lastSyncAt || null,
-                contexts: localContexts.map(ctx => ({
+                contexts: pushContexts.map(ctx => ({
                     id: ctx.id,
                     name: ctx.name,
                     // Without this the server has no description to return, and every
@@ -476,12 +492,14 @@ export class CloudSyncService {
                 await this.mergeServerContexts(contextResponse.synced, localContexts);
                 contextCount = contextResponse.synced.length;
                 this.reportRejected('contexts', contextResponse.rejected);
+                await this.acknowledgePush('contexts', sentContextIds, contextResponse.rejected);
             }
 
             if (stashResponse) {
                 await this.mergeServerStashes(stashResponse.synced, localStashes);
                 stashCount = stashResponse.synced.length;
                 this.reportRejected('stashes', stashResponse.rejected);
+                await this.acknowledgePush('stashes', sentStashIds, stashResponse.rejected);
             }
 
             // Upload after merging so attachments pulled in this cycle are already
@@ -517,6 +535,39 @@ export class CloudSyncService {
             return false;
         } finally {
             this.isSyncing = false;
+        }
+    }
+
+    /**
+     * Clear the pending flag for records the server took.
+     *
+     * Only reached when the call succeeded: a failed push leaves every flag set, so
+     * nothing is lost, it simply goes out again next time. Records the server rejected
+     * keep their flag too - they are still unsynced, whatever the reason.
+     *
+     * Only records still in the in-flight state are cleared, so one edited while the
+     * request was running stays queued rather than being silently skipped.
+     */
+    private async acknowledgePush(
+        kind: 'stashes' | 'contexts',
+        sentIds: string[],
+        rejected?: RejectedRecord[]
+    ): Promise<void> {
+        if (sentIds.length === 0) return;
+
+        const refused = new Set((rejected || []).map(r => r.id));
+        const accepted = sentIds.filter(id => !refused.has(id));
+        if (accepted.length === 0) return;
+
+        try {
+            if (kind === 'stashes') {
+                await this.adapter.markStashesSynced(accepted);
+            } else {
+                await this.adapter.markContextsSynced(accepted);
+            }
+        } catch (e) {
+            // Leaving the flags set only costs a redundant push next cycle.
+            console.warn(`[CloudSync] Could not clear pending flags for ${kind}:`, e);
         }
     }
 

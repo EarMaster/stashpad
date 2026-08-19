@@ -145,6 +145,47 @@ impl DbManager {
             let _ = self.conn.execute("ALTER TABLE attachments ADD COLUMN uploaded_at INTEGER", []);
         }
 
+        // Marks a record as having local changes the server has not acknowledged yet, so
+        // sync can push only what changed instead of the entire table every time.
+        //
+        // Deliberately a flag rather than a timestamp comparison: `updated_at` is the
+        // client's clock while the sync cursor is the server's, and comparing the two is
+        // exactly the mistake that made records invisible to sync before.
+        //
+        // Existing rows default to 1, so the first sync after upgrading pushes
+        // everything once and the server ends up with a complete picture.
+        for table in ["stashes", "contexts"] {
+            let has_flag: bool = self
+                .conn
+                .query_row(
+                    &format!(
+                        "SELECT COUNT(*) FROM pragma_table_info('{}') WHERE name='pending_sync'",
+                        table
+                    ),
+                    [],
+                    |row| row.get(0).map(|c: i32| c > 0),
+                )
+                .unwrap_or(false);
+
+            if !has_flag {
+                let _ = self.conn.execute(
+                    &format!(
+                        "ALTER TABLE {} ADD COLUMN pending_sync INTEGER NOT NULL DEFAULT 1",
+                        table
+                    ),
+                    [],
+                );
+            }
+
+            let _ = self.conn.execute(
+                &format!(
+                    "CREATE INDEX IF NOT EXISTS idx_{}_pending ON {}(pending_sync)",
+                    table, table
+                ),
+                [],
+            );
+        }
+
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_attachments_stash_id ON attachments(stash_id)", [])?;
 
         // Migrate enhanced_content column for AI enhancement feature
@@ -363,7 +404,7 @@ impl DbManager {
         };
 
         self.conn.execute(
-            "INSERT OR REPLACE INTO contexts (id, name, rules, last_used, updated_at, deleted, description) VALUES (?1, ?2, ?3, ?4, ?5, ?7, ?6)",
+            "INSERT OR REPLACE INTO contexts (id, name, rules, last_used, updated_at, deleted, description, pending_sync) VALUES (?1, ?2, ?3, ?4, ?5, ?7, ?6, ?8)",
             params![
                 ctx.id,
                 name,
@@ -371,7 +412,9 @@ impl DbManager {
                 ctx.last_used,
                 origin.stamp(ctx.updated_at),
                 ctx.description,
-                if ctx.deleted { 1 } else { 0 }
+                if ctx.deleted { 1 } else { 0 },
+                // Local edits still need pushing; server data is already in sync.
+                if origin == WriteOrigin::LocalEdit { 1 } else { 0 }
             ],
         )?;
         Ok(())
@@ -393,7 +436,7 @@ impl DbManager {
             };
 
             tx.execute(
-                "INSERT OR REPLACE INTO contexts (id, name, rules, last_used, updated_at, deleted, description) VALUES (?1, ?2, ?3, ?4, ?5, ?7, ?6)",
+                "INSERT OR REPLACE INTO contexts (id, name, rules, last_used, updated_at, deleted, description, pending_sync) VALUES (?1, ?2, ?3, ?4, ?5, ?7, ?6, 0)",
                 params![
                     ctx.id,
                     name,
@@ -416,7 +459,7 @@ impl DbManager {
         }
 
         self.conn.execute(
-            "UPDATE contexts SET deleted = 1, updated_at = ?2 WHERE id = ?1",
+            "UPDATE contexts SET deleted = 1, updated_at = ?2, pending_sync = 1 WHERE id = ?1",
             params![id, now_ts()],
         )?;
         Ok(())
@@ -545,6 +588,93 @@ impl DbManager {
         Ok(stashes)
     }
 
+    /// Only these two tables carry the sync flag. Guards against interpolating an
+    /// arbitrary caller-supplied name into SQL.
+    fn is_syncable_table(table: &str) -> bool {
+        table == "stashes" || table == "contexts"
+    }
+
+    /// Take ownership of everything waiting to be pushed, marking it in flight.
+    ///
+    /// `pending_sync` is a small state machine rather than a boolean:
+    ///   0 = in sync, 1 = changed locally, 2 = included in a push that is in flight.
+    ///
+    /// Claiming moves 1 → 2 and returns those ids. A local edit during the request writes
+    /// 1 again, so the acknowledgement - which only clears rows still at 2 - leaves it
+    /// queued and it goes out next cycle. A push that fails or crashes leaves rows at 2,
+    /// which still counts as pending, so they are simply re-claimed later.
+    ///
+    /// This replaced comparing `updated_at` before and after the push: that column has
+    /// one-second granularity, so an edit landing in the same second as the version being
+    /// sent was indistinguishable from no edit at all, and would have been dropped.
+    fn claim_pending(&mut self, table: &str) -> Result<std::collections::HashSet<String>> {
+        if !Self::is_syncable_table(table) {
+            return Ok(std::collections::HashSet::new());
+        }
+
+        let mut ids = std::collections::HashSet::new();
+        {
+            let mut stmt = self
+                .conn
+                .prepare(&format!("SELECT id FROM {} WHERE pending_sync > 0", table))?;
+            let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+            for id in rows {
+                ids.insert(id?);
+            }
+        }
+
+        self.conn.execute(
+            &format!(
+                "UPDATE {} SET pending_sync = 2 WHERE pending_sync > 0",
+                table
+            ),
+            [],
+        )?;
+
+        Ok(ids)
+    }
+
+    /// Stashes with local changes the server has not acknowledged, marked in flight.
+    pub fn claim_pending_stashes(&mut self) -> Result<Vec<StashItem>> {
+        let pending = self.claim_pending("stashes")?;
+        Ok(self
+            .get_stashes_for_sync()?
+            .into_iter()
+            .filter(|s| pending.contains(&s.id))
+            .collect())
+    }
+
+    /// Contexts with local changes the server has not acknowledged, marked in flight.
+    pub fn claim_pending_contexts(&mut self) -> Result<Vec<Context>> {
+        let pending = self.claim_pending("contexts")?;
+        Ok(self
+            .get_contexts_for_sync()?
+            .into_iter()
+            .filter(|c| pending.contains(&c.id))
+            .collect())
+    }
+
+    /// Mark records the server accepted as synced.
+    ///
+    /// Only clears rows still in the in-flight state, so anything edited while the push
+    /// was running stays queued.
+    pub fn mark_synced(&mut self, table: &str, ids: &[String]) -> Result<()> {
+        if ids.is_empty() || !Self::is_syncable_table(table) {
+            return Ok(());
+        }
+
+        let sql = format!(
+            "UPDATE {} SET pending_sync = 0 WHERE id = ?1 AND pending_sync = 2",
+            table
+        );
+        let tx = self.conn.transaction()?;
+        for id in ids {
+            tx.execute(&sql, params![id])?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     pub fn get_contexts_for_sync(&mut self) -> Result<Vec<Context>> {
         let mut stmt = self.conn.prepare("SELECT id, name, rules, last_used, updated_at, deleted, description FROM contexts")?;
         let rows = stmt.query_map([], |row| {
@@ -595,7 +725,7 @@ impl DbManager {
                 // attachments reference stashes ON DELETE CASCADE, so replacing a stash
                 // silently destroys every attachment hanging off it. ON CONFLICT updates
                 // the row in place and leaves the children alone.
-                "INSERT INTO stashes (id, context_id, content, enhanced_content, files, created_at, completed, completed_at, position, updated_at, deleted) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11) ON CONFLICT(id) DO UPDATE SET context_id=excluded.context_id, content=excluded.content, enhanced_content=excluded.enhanced_content, files=excluded.files, created_at=excluded.created_at, completed=excluded.completed, completed_at=excluded.completed_at, position=excluded.position, updated_at=excluded.updated_at, deleted=excluded.deleted",
+                "INSERT INTO stashes (id, context_id, content, enhanced_content, files, created_at, completed, completed_at, position, updated_at, deleted, pending_sync) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 0) ON CONFLICT(id) DO UPDATE SET context_id=excluded.context_id, content=excluded.content, enhanced_content=excluded.enhanced_content, files=excluded.files, created_at=excluded.created_at, completed=excluded.completed, completed_at=excluded.completed_at, position=excluded.position, updated_at=excluded.updated_at, deleted=excluded.deleted, pending_sync=0",
                 params![
                     stash.id,
                     stash.context_id,
@@ -673,7 +803,7 @@ impl DbManager {
                 // attachments reference stashes ON DELETE CASCADE, so replacing a stash
                 // silently destroys every attachment hanging off it. ON CONFLICT updates
                 // the row in place and leaves the children alone.
-                "INSERT INTO stashes (id, context_id, content, enhanced_content, files, created_at, completed, completed_at, position, updated_at, deleted) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11) ON CONFLICT(id) DO UPDATE SET context_id=excluded.context_id, content=excluded.content, enhanced_content=excluded.enhanced_content, files=excluded.files, created_at=excluded.created_at, completed=excluded.completed, completed_at=excluded.completed_at, position=excluded.position, updated_at=excluded.updated_at, deleted=excluded.deleted",
+                "INSERT INTO stashes (id, context_id, content, enhanced_content, files, created_at, completed, completed_at, position, updated_at, deleted, pending_sync) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12) ON CONFLICT(id) DO UPDATE SET context_id=excluded.context_id, content=excluded.content, enhanced_content=excluded.enhanced_content, files=excluded.files, created_at=excluded.created_at, completed=excluded.completed, completed_at=excluded.completed_at, position=excluded.position, updated_at=excluded.updated_at, deleted=excluded.deleted, pending_sync=excluded.pending_sync",
             params![
                 stash.id,
                 stash.context_id,
@@ -685,7 +815,10 @@ impl DbManager {
                 stash.completed_at,
                 final_pos,
                 origin.stamp(stash.updated_at),
-                if stash.deleted { 1 } else { 0 }
+                if stash.deleted { 1 } else { 0 },
+                // A local edit still needs pushing; data that just came from the server
+                // is already in sync by definition.
+                if origin == WriteOrigin::LocalEdit { 1 } else { 0 }
             ],
         )?;
 
@@ -714,7 +847,7 @@ impl DbManager {
 
     pub fn delete_stash(&mut self, id: &str) -> Result<()> {
         self.conn.execute(
-            "UPDATE stashes SET deleted = 1, updated_at = ?2 WHERE id = ?1",
+            "UPDATE stashes SET deleted = 1, updated_at = ?2, pending_sync = 1 WHERE id = ?1",
             params![id, now_ts()],
         )?;
         Ok(())
@@ -727,7 +860,7 @@ impl DbManager {
          for (i, stash) in stashes.iter().enumerate() {
              let pos = i as f64;
              tx.execute(
-                 "UPDATE stashes SET position = ?2, updated_at = ?3 WHERE id = ?1",
+                 "UPDATE stashes SET position = ?2, updated_at = ?3, pending_sync = 1 WHERE id = ?1",
                  params![stash.id, pos, now_ts()]
              )?;
          }
@@ -738,12 +871,12 @@ impl DbManager {
     pub fn delete_completed_stashes(&mut self, context_id: Option<String>) -> Result<()> {
         if let Some(ctx_id) = context_id {
              self.conn.execute(
-                "UPDATE stashes SET deleted = 1, updated_at = ?2 WHERE completed = 1 AND context_id = ?1",
+                "UPDATE stashes SET deleted = 1, updated_at = ?2, pending_sync = 1 WHERE completed = 1 AND context_id = ?1",
                 params![ctx_id, now_ts()],
             )?;
         } else {
              self.conn.execute(
-                "UPDATE stashes SET deleted = 1, updated_at = ?1 WHERE completed = 1",
+                "UPDATE stashes SET deleted = 1, updated_at = ?1, pending_sync = 1 WHERE completed = 1",
                 params![now_ts()],
             )?;
         }
@@ -1260,6 +1393,214 @@ mod tests {
         assert_eq!(
             path, "/cache/ctx/s-path/real.png",
             "an empty incoming path means unknown, not cleared"
+        );
+    }
+
+    fn pending_flag(db: &DbManager, table: &str, id: &str) -> i64 {
+        db.conn
+            .query_row(
+                &format!("SELECT pending_sync FROM {} WHERE id = ?1", table),
+                params![id],
+                |r| r.get(0),
+            )
+            .expect("row should exist")
+    }
+
+    #[test]
+    fn a_local_edit_marks_the_record_as_needing_a_push() {
+        let mut db = create_test_db();
+        let stash = stash_with_updated_at("s-dirty", "typed something", None);
+
+        db.save_stash(&stash, None, WriteOrigin::LocalEdit)
+            .expect("save should succeed");
+
+        assert_eq!(pending_flag(&db, "stashes", "s-dirty"), 1);
+        assert!(
+            db.claim_pending_stashes()
+                .expect("claim should succeed")
+                .iter()
+                .any(|s| s.id == "s-dirty"),
+            "a locally edited stash must be queued for the next push"
+        );
+        assert_eq!(
+            pending_flag(&db, "stashes", "s-dirty"),
+            2,
+            "claiming marks the record as in flight"
+        );
+    }
+
+    #[test]
+    fn data_arriving_from_the_server_is_not_queued_for_a_push() {
+        // Otherwise every pulled record would bounce straight back, and the incremental
+        // push would never shrink.
+        let mut db = create_test_db();
+        let stash = stash_with_updated_at("s-remote", "from another device", Some(1_700_000_000));
+
+        db.import_stashes(&vec![stash]).expect("import should succeed");
+
+        assert_eq!(pending_flag(&db, "stashes", "s-remote"), 0);
+        // Scoped to this record: a fresh database also seeds starter stashes, which are
+        // local creations and legitimately do need pushing.
+        assert!(
+            !db.claim_pending_stashes()
+                .expect("claim")
+                .iter()
+                .any(|s| s.id == "s-remote"),
+            "imported records are already in sync by definition"
+        );
+    }
+
+    #[test]
+    fn acknowledging_a_push_clears_only_what_was_sent() {
+        let mut db = create_test_db();
+        db.save_stash(
+            &stash_with_updated_at("s-a", "one", None),
+            None,
+            WriteOrigin::LocalEdit,
+        )
+        .expect("save");
+        db.save_stash(
+            &stash_with_updated_at("s-b", "two", None),
+            None,
+            WriteOrigin::LocalEdit,
+        )
+        .expect("save");
+
+        db.claim_pending_stashes().expect("claim");
+
+        // Only s-a was accepted; s-b was rejected, so it is not acknowledged.
+        db.mark_synced("stashes", &["s-a".to_string()])
+            .expect("ack should succeed");
+
+        assert_eq!(pending_flag(&db, "stashes", "s-a"), 0);
+        assert_ne!(
+            pending_flag(&db, "stashes", "s-b"),
+            0,
+            "a record the server did not accept must stay queued"
+        );
+        assert!(
+            db.claim_pending_stashes()
+                .expect("claim")
+                .iter()
+                .any(|s| s.id == "s-b"),
+            "and must be picked up by the next push"
+        );
+    }
+
+    #[test]
+    fn an_edit_during_a_push_stays_queued() {
+        // The race that would otherwise lose data silently: the user edits a stash while
+        // the request carrying its previous version is still in flight. Acknowledging by
+        // id alone would clear the flag and the newer edit would never be sent.
+        let mut db = create_test_db();
+        let stash = stash_with_updated_at("s-race", "original", None);
+        db.save_stash(&stash, None, WriteOrigin::LocalEdit)
+            .expect("save");
+
+        // The push starts: the record is claimed and sent.
+        db.claim_pending_stashes().expect("claim");
+        assert_eq!(pending_flag(&db, "stashes", "s-race"), 2);
+
+        // The user edits it again before the response arrives. Note this happens within
+        // the same second, so `updated_at` may not have moved at all - which is exactly
+        // why acknowledgement keys off the in-flight marker instead.
+        let mut edited = stash.clone();
+        edited.content = "edited mid-flight".to_string();
+        db.save_stash(&edited, None, WriteOrigin::LocalEdit)
+            .expect("save");
+
+        // The response arrives and acknowledges what was sent.
+        db.mark_synced("stashes", &["s-race".to_string()])
+            .expect("ack");
+
+        assert_eq!(
+            pending_flag(&db, "stashes", "s-race"),
+            1,
+            "the newer edit must still be queued for the next push"
+        );
+        assert!(
+            db.claim_pending_stashes()
+                .expect("claim")
+                .iter()
+                .any(|s| s.id == "s-race"),
+            "and must actually be included next time"
+        );
+    }
+
+    #[test]
+    fn a_failed_push_leaves_everything_queued() {
+        // Nothing is acknowledged when the request errors, so the in-flight rows stay
+        // pending and are re-claimed rather than silently dropped.
+        let mut db = create_test_db();
+        db.save_stash(
+            &stash_with_updated_at("s-lost", "important", None),
+            None,
+            WriteOrigin::LocalEdit,
+        )
+        .expect("save");
+
+        db.claim_pending_stashes().expect("claim");
+        // ...request fails, so no mark_synced call happens at all.
+
+        assert!(
+            db.claim_pending_stashes()
+                .expect("claim")
+                .iter()
+                .any(|s| s.id == "s-lost"),
+            "a failed push must not lose the record"
+        );
+    }
+
+    #[test]
+    fn contexts_track_pending_state_the_same_way() {
+        let mut db = create_test_db();
+        let ctx = Context {
+            id: "c-dirty".to_string(),
+            name: "Project".to_string(),
+            description: None,
+            rules: vec![],
+            last_used: None,
+            updated_at: None,
+            deleted: false,
+        };
+
+        db.save_context(&ctx, WriteOrigin::LocalEdit).expect("save");
+        assert_eq!(pending_flag(&db, "contexts", "c-dirty"), 1);
+
+        db.claim_pending_contexts().expect("claim");
+        db.mark_synced("contexts", &["c-dirty".to_string()])
+            .expect("ack");
+        assert_eq!(pending_flag(&db, "contexts", "c-dirty"), 0);
+
+        // And a pulled context is not queued.
+        let mut remote = ctx.clone();
+        remote.id = "c-remote".to_string();
+        remote.updated_at = Some(1_700_000_000);
+        db.import_contexts(&[remote]).expect("import");
+        assert_eq!(pending_flag(&db, "contexts", "c-remote"), 0);
+    }
+
+    #[test]
+    fn deleting_a_stash_queues_the_tombstone_for_the_push() {
+        // A deletion only reaches other devices if it is actually pushed.
+        let mut db = create_test_db();
+        db.save_stash(
+            &stash_with_updated_at("s-gone", "bye", None),
+            None,
+            WriteOrigin::LocalEdit,
+        )
+        .expect("save");
+        db.claim_pending_stashes().expect("claim");
+        db.mark_synced("stashes", &["s-gone".to_string()])
+            .expect("ack");
+        assert_eq!(pending_flag(&db, "stashes", "s-gone"), 0);
+
+        db.delete_stash("s-gone").expect("delete");
+
+        assert_eq!(
+            pending_flag(&db, "stashes", "s-gone"),
+            1,
+            "the tombstone must be queued so other devices learn about the deletion"
         );
     }
 

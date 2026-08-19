@@ -292,6 +292,26 @@ export class DesktopStorageAdapter implements IStorageService {
      * Apply contexts pulled from the cloud, preserving their server timestamps.
      * Distinct from `saveContext`, which is the local-edit path and stamps "now".
      */
+    /** Stashes with local changes the server has not acknowledged yet. */
+    async claimPendingStashes(): Promise<StashItem[]> {
+        return await invoke('claim_pending_stashes');
+    }
+
+    /** Contexts with local changes the server has not acknowledged yet. */
+    async claimPendingContexts(): Promise<Context[]> {
+        return await invoke('claim_pending_contexts');
+    }
+
+    /** Clear the pending flag for stashes the server accepted. */
+    async markStashesSynced(ids: string[]): Promise<void> {
+        await invoke('mark_stashes_synced', { ids });
+    }
+
+    /** Clear the pending flag for contexts the server accepted. */
+    async markContextsSynced(ids: string[]): Promise<void> {
+        await invoke('mark_contexts_synced', { ids });
+    }
+
     async importContexts(contexts: Context[]): Promise<void> {
         await invoke('import_contexts', { contexts });
     }

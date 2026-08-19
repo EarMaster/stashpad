@@ -669,3 +669,29 @@ pub fn read_file_for_preview(path: String) -> Result<crate::models::FilePreviewD
         file_size,
     })
 }
+
+/// Stashes with local changes the server has not acknowledged yet.
+///
+/// Sync pushes only these instead of the whole table: with a few hundred stashes a full
+/// push means a database round-trip per record on the server, on every local edit.
+#[tauri::command]
+pub fn claim_pending_stashes(state: State<Arc<DbState>>) -> Vec<StashItem> {
+    state.db.lock().unwrap().claim_pending_stashes().unwrap_or_default()
+}
+
+/// Clear the pending flag for stashes the server accepted.
+///
+/// `records` pairs each id with the `updated_at` that was sent, so a stash edited while
+/// the push was in flight keeps its flag and is retried.
+#[tauri::command]
+pub fn mark_stashes_synced(
+    state: State<Arc<DbState>>,
+    ids: Vec<String>,
+) -> Result<(), String> {
+    state
+        .db
+        .lock()
+        .unwrap()
+        .mark_synced("stashes", &ids)
+        .map_err(|e| e.to_string())
+}

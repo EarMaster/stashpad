@@ -23,7 +23,7 @@ vi.mock('@tauri-apps/api/event', () => ({
 
 /** Minimal adapter double: only the methods CloudSyncService actually touches. */
 function createAdapter(overrides: Partial<IStorageService> = {}) {
-    return {
+    const base = {
         getDeviceName: vi.fn().mockResolvedValue('test-device'),
         fetchCloudAccount: vi.fn().mockResolvedValue(cloudConfig()),
         saveSettings: vi.fn().mockResolvedValue(undefined),
@@ -37,8 +37,21 @@ function createAdapter(overrides: Partial<IStorageService> = {}) {
         downloadAttachmentFromCloud: vi.fn().mockResolvedValue('/cache/file.png'),
         connectWebSocket: vi.fn().mockResolvedValue(undefined),
         disconnectWebSocket: vi.fn().mockResolvedValue(undefined),
+        markStashesSynced: vi.fn().mockResolvedValue(undefined),
+        markContextsSynced: vi.fn().mockResolvedValue(undefined),
         ...overrides,
-    } as unknown as IStorageService;
+    } as Record<string, unknown>;
+
+    // Default the incremental-push lists to the full local lists, so tests written
+    // before incremental push still exercise the same records.
+    if (!('claimPendingStashes' in overrides)) {
+        base.claimPendingStashes = () => (base.loadStashesForSync as () => Promise<unknown>)();
+    }
+    if (!('claimPendingContexts' in overrides)) {
+        base.claimPendingContexts = () => (base.getContextsForSync as () => Promise<unknown>)();
+    }
+
+    return base as unknown as IStorageService;
 }
 
 function cloudConfig(overrides: Partial<CloudConfig> = {}): CloudConfig {
@@ -232,6 +245,135 @@ describe('CloudSyncService', () => {
             expect((adapter.syncContextsApi as any).mock.calls[0][0].lastSyncAt).toBe(
                 '2026-08-17T00:00:00Z',
             );
+        });
+    });
+
+    describe('incremental push', () => {
+        const twoStashes = [
+            {
+                id: 'unchanged',
+                content: 'old',
+                createdAt: '2026-08-18T10:00:00Z',
+                updatedAt: 1755512000,
+                attachments: [],
+            },
+            {
+                id: 'changed',
+                content: 'new',
+                createdAt: '2026-08-18T10:00:00Z',
+                updatedAt: 1755512400,
+                attachments: [],
+            },
+        ] as unknown as StashItem[];
+
+        it('pushes everything on the first sync, when there is no cursor yet', async () => {
+            // Without a cursor this device has never synced successfully, so the server
+            // needs the full picture rather than whatever happens to be flagged.
+            const adapter = createAdapter({
+                loadStashesForSync: vi.fn().mockResolvedValue(twoStashes),
+                claimPendingStashes: vi.fn().mockResolvedValue([twoStashes[1]]),
+            });
+
+            const service = new CloudSyncService(adapter);
+            await service.initialize(settingsWith(cloudConfig({ lastSyncAt: undefined })));
+            await flushPromises();
+
+            const payload = (adapter.syncStashesApi as any).mock.calls[0][0];
+            expect(payload.stashes).toHaveLength(2);
+            expect(adapter.claimPendingStashes).not.toHaveBeenCalled();
+        });
+
+        it('pushes only changed records once a cursor exists', async () => {
+            const adapter = createAdapter({
+                loadStashesForSync: vi.fn().mockResolvedValue(twoStashes),
+                claimPendingStashes: vi.fn().mockResolvedValue([twoStashes[1]]),
+            });
+
+            const service = new CloudSyncService(adapter);
+            await service.initialize(
+                settingsWith(cloudConfig({ lastSyncAt: '2026-08-18T11:00:00Z' })),
+            );
+            await flushPromises();
+
+            const payload = (adapter.syncStashesApi as any).mock.calls[0][0];
+            expect(payload.stashes).toHaveLength(1);
+            expect(payload.stashes[0].id).toBe('changed');
+        });
+
+        it('acknowledges what the server accepted', async () => {
+            const adapter = createAdapter({
+                loadStashesForSync: vi.fn().mockResolvedValue(twoStashes),
+                claimPendingStashes: vi.fn().mockResolvedValue([twoStashes[1]]),
+            });
+
+            const service = new CloudSyncService(adapter);
+            await service.initialize(
+                settingsWith(cloudConfig({ lastSyncAt: '2026-08-18T11:00:00Z' })),
+            );
+            await flushPromises();
+
+            expect(adapter.markStashesSynced).toHaveBeenCalledWith(['changed']);
+        });
+
+        it('leaves a rejected record queued', async () => {
+            // A record the server refused is still unsynced, whatever the reason.
+            const adapter = createAdapter({
+                loadStashesForSync: vi.fn().mockResolvedValue(twoStashes),
+                claimPendingStashes: vi.fn().mockResolvedValue(twoStashes),
+                syncStashesApi: vi.fn().mockResolvedValue({
+                    synced: [],
+                    serverTime: '2026-08-18T12:00:00Z',
+                    rejected: [{ id: 'changed', reason: 'unparseable createdAt' }],
+                }),
+            });
+
+            const service = new CloudSyncService(adapter);
+            await service.initialize(
+                settingsWith(cloudConfig({ lastSyncAt: '2026-08-18T11:00:00Z' })),
+            );
+            await flushPromises();
+
+            expect(adapter.markStashesSynced).toHaveBeenCalledWith(['unchanged']);
+        });
+
+        it('acknowledges nothing when the push fails', async () => {
+            // Clearing flags after a failed push would drop those edits permanently.
+            const adapter = createAdapter({
+                loadStashesForSync: vi.fn().mockResolvedValue(twoStashes),
+                claimPendingStashes: vi.fn().mockResolvedValue(twoStashes),
+                syncStashesApi: vi.fn().mockRejectedValue(new Error('502 Bad Gateway')),
+            });
+
+            const service = new CloudSyncService(adapter);
+            await service.initialize(
+                settingsWith(cloudConfig({ lastSyncAt: '2026-08-18T11:00:00Z' })),
+            );
+            await flushPromises();
+
+            expect(adapter.markStashesSynced).not.toHaveBeenCalled();
+        });
+
+        it('still pushes contexts incrementally', async () => {
+            const contexts = [
+                { id: 'c1', name: 'Kept', rules: [], updatedAt: 1755512000 },
+                { id: 'c2', name: 'Edited', rules: [], updatedAt: 1755512400 },
+            ] as unknown as Context[];
+
+            const adapter = createAdapter({
+                getContextsForSync: vi.fn().mockResolvedValue(contexts),
+                claimPendingContexts: vi.fn().mockResolvedValue([contexts[1]]),
+            });
+
+            const service = new CloudSyncService(adapter);
+            await service.initialize(
+                settingsWith(cloudConfig({ lastSyncAt: '2026-08-18T11:00:00Z' })),
+            );
+            await flushPromises();
+
+            const payload = (adapter.syncContextsApi as any).mock.calls[0][0];
+            expect(payload.contexts).toHaveLength(1);
+            expect(payload.contexts[0].id).toBe('c2');
+            expect(adapter.markContextsSynced).toHaveBeenCalledWith(['c2']);
         });
     });
 
