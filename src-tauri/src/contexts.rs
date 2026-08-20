@@ -93,18 +93,22 @@ pub fn remove_contexts_from_settings() {
 }
 
 #[tauri::command]
-pub fn get_contexts(state: State<Arc<DbState>>) -> Vec<Context> {
-    match state.db.lock().unwrap().get_contexts() {
+pub async fn get_contexts(state: State<'_, Arc<DbState>>) -> Result<Vec<Context>, String> {
+    // A read failure still resolves to an empty list rather than rejecting: the callers
+    // treat "no contexts" as a valid state, and surfacing an error here would break the
+    // startup path. The Result is required because async commands that borrow State
+    // must return one.
+    Ok(match state.db.lock().unwrap().get_contexts() {
         Ok(contexts) => contexts,
         Err(e) => {
             println!("Failed to get contexts: {}", e);
             vec![]
         }
-    }
+    })
 }
 
 #[tauri::command]
-pub fn save_contexts(state: State<Arc<DbState>>, contexts: Vec<Context>) {
+pub async fn save_contexts(state: State<'_, Arc<DbState>>, contexts: Vec<Context>) -> Result<(), String> {
     println!("Saving {} contexts", contexts.len());
     let mut db = state.db.lock().unwrap();
     let tx_result = db.conn.transaction().and_then(|tx| {
@@ -132,10 +136,11 @@ pub fn save_contexts(state: State<Arc<DbState>>, contexts: Vec<Context>) {
     if let Err(e) = tx_result {
         println!("Failed to save contexts: {}", e);
     }
+    Ok(())
 }
 
 #[tauri::command]
-pub fn save_context(state: State<Arc<DbState>>, context: Context) {
+pub async fn save_context(state: State<'_, Arc<DbState>>, context: Context) -> Result<(), String> {
     println!("Saving context: {} ({})", context.name, context.id);
     if let Err(e) = state
         .db
@@ -145,6 +150,7 @@ pub fn save_context(state: State<Arc<DbState>>, context: Context) {
     {
         println!("Failed to save context: {}", e);
     }
+    Ok(())
 }
 
 /// Apply contexts pulled from the cloud.
@@ -163,11 +169,12 @@ pub async fn import_contexts(state: State<'_, Arc<DbState>>, contexts: Vec<Conte
 }
 
 #[tauri::command]
-pub fn delete_context(state: State<Arc<DbState>>, id: String) {
+pub async fn delete_context(state: State<'_, Arc<DbState>>, id: String) -> Result<(), String> {
     println!("Deleting context: {}", id);
     if let Err(e) = state.db.lock().unwrap().delete_context(&id) {
         println!("Failed to delete context: {}", e);
     }
+    Ok(())
 }
 
 /// Contexts with local changes the server has not acknowledged yet.
@@ -178,8 +185,8 @@ pub async fn claim_pending_contexts(state: State<'_, Arc<DbState>>) -> Result<Ve
 
 /// Clear the pending flag for contexts the server accepted.
 #[tauri::command]
-pub fn mark_contexts_synced(
-    state: State<Arc<DbState>>,
+pub async fn mark_contexts_synced(
+    state: State<'_, Arc<DbState>>,
     ids: Vec<String>,
 ) -> Result<(), String> {
     state

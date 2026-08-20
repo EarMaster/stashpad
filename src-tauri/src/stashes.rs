@@ -78,11 +78,11 @@ pub fn calculate_stash_update(
 }
 
 #[tauri::command]
-pub fn save_stash(
-    state: State<Arc<DbState>>, 
-    settings_state: State<Arc<SettingsState>>, 
+pub async fn save_stash(
+    state: State<'_, Arc<DbState>>, 
+    settings_state: State<'_, Arc<SettingsState>>, 
     options: SaveOptions
-) {
+) -> Result<(), String> {
     let stash = options.stash;
     let invert = options.invert_position;
     
@@ -128,6 +128,7 @@ pub fn save_stash(
     if let Err(e) = db.save_stash(&new_stash, position_val, WriteOrigin::LocalEdit) {
         println!("Failed to save stash: {}", e);
     }
+    Ok(())
 }
 
 #[tauri::command]
@@ -160,7 +161,7 @@ pub fn get_stash_cache_path(id: &str, context_id: Option<&str>) -> std::path::Pa
 }
 
 #[tauri::command]
-pub fn delete_stash(state: State<Arc<DbState>>, id: String) {
+pub async fn delete_stash(state: State<'_, Arc<DbState>>, id: String) -> Result<(), String> {
     let mut db = state.db.lock().unwrap();
     
     // File cleanup logic (requires querying stash first)
@@ -193,10 +194,11 @@ pub fn delete_stash(state: State<Arc<DbState>>, id: String) {
     if let Err(e) = db.delete_stash(&id) {
          println!("Failed to delete stash from DB: {}", e);
     }
+    Ok(())
 }
 
 #[tauri::command]
-pub fn delete_completed_stashes(state: State<Arc<DbState>>, context_id: Option<String>) {
+pub async fn delete_completed_stashes(state: State<'_, Arc<DbState>>, context_id: Option<String>) -> Result<(), String> {
     let mut db = state.db.lock().unwrap();
     let cache_dir = get_app_dir().join("cache");
 
@@ -243,6 +245,7 @@ pub fn delete_completed_stashes(state: State<Arc<DbState>>, context_id: Option<S
     if let Err(e) = db.delete_completed_stashes(context_id) {
         log::error!("Failed to delete completed stashes: {}", e);
     }
+    Ok(())
 }
 
 /// Remove the cache folders of the given stashes and clear the paths that pointed into
@@ -296,13 +299,17 @@ fn completed_stashes(db: &DbManager, cutoff: Option<&str>) -> Vec<(String, Optio
     })
 }
 
-pub fn perform_startup_cleanup(db: &mut DbManager, settings: &Settings) {
+/// Returns how many stashes were removed, so the caller can skip refreshing the UI when
+/// there was nothing to clean - the periodic trigger runs every five minutes and almost
+/// always has nothing to do.
+pub fn perform_startup_cleanup(db: &mut DbManager, settings: &Settings) -> usize {
     match settings.clear_completed_strategy.as_str() {
         "on-close" => {
             let stale = completed_stashes(db, None);
             log::info!("Startup cleanup: clearing {} completed stash(es)", stale.len());
             purge_stash_files(db, &stale);
             let _ = db.delete_completed_stashes(None);
+            stale.len()
         }
         "after-n-days" => {
             // Previously an empty stub: the setting existed, was selectable, and did
@@ -313,7 +320,7 @@ pub fn perform_startup_cleanup(db: &mut DbManager, settings: &Settings) {
 
             let stale = completed_stashes(db, Some(&cutoff));
             if stale.is_empty() {
-                return;
+                return 0;
             }
 
             log::info!(
@@ -328,8 +335,9 @@ pub fn perform_startup_cleanup(db: &mut DbManager, settings: &Settings) {
                     log::error!("Cleanup: could not delete stash {}: {}", id, e);
                 }
             }
+            stale.len()
         }
-        _ => {}
+        _ => 0,
     }
 }
 
@@ -345,10 +353,10 @@ pub async fn save_stashes(state: State<'_, Arc<DbState>>, stashes_list: Vec<Stas
 }
  
 #[tauri::command]
-pub fn trigger_auto_cleanup(state: State<Arc<DbState>>, settings_state: State<Arc<SettingsState>>) {
+pub async fn trigger_auto_cleanup(state: State<'_, Arc<DbState>>, settings_state: State<'_, Arc<SettingsState>>) -> Result<u32, String> {
     let mut db = state.db.lock().unwrap();
     let settings = settings_state.settings.lock().unwrap();
-    perform_startup_cleanup(&mut db, &settings);
+    Ok(perform_startup_cleanup(&mut db, &settings) as u32)
 }
  
 /// Saves an asset file to the cache directory.
@@ -361,8 +369,8 @@ pub fn trigger_auto_cleanup(state: State<Arc<DbState>>, settings_state: State<Ar
 /// This structure prevents file name collisions and allows for proper cleanup
 /// when stashes or contexts are deleted.
 #[tauri::command]
-pub fn save_asset(
-    state: State<Arc<DbState>>,
+pub async fn save_asset(
+    state: State<'_, Arc<DbState>>,
     name: String, 
     data: Vec<u8>, 
     context_id: Option<String>, 
@@ -478,8 +486,8 @@ pub fn save_asset(
 /// - If only context_id is provided: `cache/<context_id>/<filename>`
 /// - Otherwise: `cache/<filename>` (backwards compatibility)
 #[tauri::command]
-pub fn save_asset_from_path(
-    state: State<Arc<DbState>>,
+pub async fn save_asset_from_path(
+    state: State<'_, Arc<DbState>>,
     path: String, 
     context_id: Option<String>, 
     stash_id: Option<String>,
@@ -589,7 +597,7 @@ pub fn save_asset_from_path(
 /// Only deletes files that are within the cache directory structure
 /// to prevent deletion of files outside the app's control.
 #[tauri::command]
-pub fn delete_asset(state: State<Arc<DbState>>, path: String) -> Result<(), String> {
+pub async fn delete_asset(state: State<'_, Arc<DbState>>, path: String) -> Result<(), String> {
     println!("Deleting asset: {}", path);
     
     let file_path = std::path::Path::new(&path);
@@ -631,7 +639,7 @@ pub fn delete_asset(state: State<Arc<DbState>>, path: String) -> Result<(), Stri
 /// - Text files: Returns first 10KB of content
 /// - Other: Returns unsupported type indicator
 #[tauri::command]
-pub fn read_file_for_preview(path: String) -> Result<crate::models::FilePreviewData, String> {
+pub async fn read_file_for_preview(path: String) -> Result<crate::models::FilePreviewData, String> {
     let file_path = std::path::Path::new(&path);
     
     // Security: validate that the path is within the cache directory
@@ -768,8 +776,8 @@ pub async fn claim_pending_stashes(state: State<'_, Arc<DbState>>) -> Result<Vec
 /// `records` pairs each id with the `updated_at` that was sent, so a stash edited while
 /// the push was in flight keeps its flag and is retried.
 #[tauri::command]
-pub fn mark_stashes_synced(
-    state: State<Arc<DbState>>,
+pub async fn mark_stashes_synced(
+    state: State<'_, Arc<DbState>>,
     ids: Vec<String>,
 ) -> Result<(), String> {
     state

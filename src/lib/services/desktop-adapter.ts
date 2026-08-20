@@ -150,9 +150,11 @@ export class DesktopStorageAdapter implements IStorageService {
         notifyMutation();
     }
 
-    async triggerAutoCleanup(): Promise<void> {
-        await invoke('trigger_auto_cleanup');
-        notifyMutation();
+    /** @returns how many stashes were removed. */
+    async triggerAutoCleanup(): Promise<number> {
+        const removed = await invoke<number>('trigger_auto_cleanup');
+        if (removed > 0) notifyMutation();
+        return removed;
     }
 
     async isWindows10(): Promise<boolean> {

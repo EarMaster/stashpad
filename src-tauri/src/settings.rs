@@ -176,16 +176,16 @@ pub fn persist_settings_to_disk(settings: &Settings) {
 }
 
 #[tauri::command]
-pub fn get_settings(state: State<Arc<SettingsState>>) -> Settings {
+pub async fn get_settings(state: State<'_, Arc<SettingsState>>) -> Result<Settings, String> {
     let mut settings = state.settings.lock().unwrap().clone();
     if let Some(ref mut cloud_config) = settings.cloud_config {
         cloud_config.access_token = None;
     }
-    settings
+    Ok(settings)
 }
 
 #[tauri::command]
-pub fn save_settings(app: tauri::AppHandle, state: State<Arc<SettingsState>>, mut settings: Settings) {
+pub async fn save_settings(app: tauri::AppHandle, state: State<'_, Arc<SettingsState>>, mut settings: Settings) -> Result<(), String> {
     let old_theme = {
         let current = state.settings.lock().unwrap();
         current.theme.clone()
@@ -238,6 +238,7 @@ pub fn save_settings(app: tauri::AppHandle, state: State<Arc<SettingsState>>, mu
             let _ = autostart_manager.disable();
         }
     }
+    Ok(())
 }
 
 /// Sign out of the cloud and destroy the stored credential.
@@ -247,7 +248,7 @@ pub fn save_settings(app: tauri::AppHandle, state: State<Arc<SettingsState>>, mu
 /// meant clearing the fields in the UI left the JWT alive in the keychain forever, so
 /// logout needs its own command that erases it explicitly.
 #[tauri::command]
-pub fn cloud_logout(state: State<Arc<SettingsState>>) {
+pub async fn cloud_logout(state: State<'_, Arc<SettingsState>>) -> Result<(), String> {
     let mut settings = state.settings.lock().unwrap();
 
     if let Some(ref mut config) = settings.cloud_config {
@@ -264,4 +265,5 @@ pub fn cloud_logout(state: State<Arc<SettingsState>>) {
 
     crate::keychain::delete_cloud_token_from_keychain();
     persist_settings_to_disk(&settings);
+    Ok(())
 }

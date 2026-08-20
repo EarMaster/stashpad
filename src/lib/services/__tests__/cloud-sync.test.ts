@@ -939,4 +939,67 @@ describe('CloudSyncService', () => {
         });
     });
 
+
+    describe('refresh signalling', () => {
+        /** Collect the appliedRemoteChanges flag from every 'success' notification. */
+        function successFlags(service: CloudSyncService) {
+            const seen: (boolean | undefined)[] = [];
+            service.addListener((status, _message, applied) => {
+                if (status === 'success') seen.push(applied);
+            });
+            return seen;
+        }
+
+        it('does not signal a refresh when the sync imported nothing', async () => {
+            // The UI reloads its entire stash list when it hears this - content and
+            // attachments over IPC, then a full re-render. Most syncs pull nothing, so
+            // doing that on every success was pure cost.
+            const adapter = createAdapter();
+            const service = new CloudSyncService(adapter);
+            const flags = successFlags(service);
+
+            await service.initialize(settingsWith(cloudConfig()));
+            await flushPromises();
+
+            expect(flags.length).toBeGreaterThan(0);
+            expect(flags.every((f) => f === false)).toBe(true);
+            expect(adapter.importStashes).not.toHaveBeenCalled();
+        });
+
+        it('signals a refresh when the sync imported a stash', async () => {
+            const local: StashItem = {
+                id: 's1',
+                content: 'old',
+                createdAt: '2026-08-18T10:00:00Z',
+                updatedAt: 1755512000,
+                attachments: [],
+            } as unknown as StashItem;
+
+            const adapter = createAdapter({
+                loadStashesForSync: vi.fn().mockResolvedValue([local]),
+                syncStashesApi: vi.fn().mockResolvedValue({
+                    synced: [
+                        {
+                            id: 's1',
+                            content: 'new from another device',
+                            createdAt: '2026-08-18T10:00:00Z',
+                            updatedAt: new Date(1755512500 * 1000).toISOString(),
+                            attachments: [],
+                        },
+                    ],
+                    serverTime: '2026-08-18T12:00:00Z',
+                }),
+            });
+
+            const service = new CloudSyncService(adapter);
+            const flags = successFlags(service);
+
+            await service.initialize(settingsWith(cloudConfig()));
+            await flushPromises();
+
+            expect(adapter.importStashes).toHaveBeenCalled();
+            expect(flags.some((f) => f === true)).toBe(true);
+        });
+    });
+
 });

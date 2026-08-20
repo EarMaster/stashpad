@@ -42,7 +42,13 @@ export interface LanguageDetectionResult {
     language: string | null;
     /** The file extension to use for this language (e.g., "cs", "js", "txt") */
     extension: string;
-    /** The highlighted HTML content */
+    /**
+     * Highlighted HTML for the portion that was inspected.
+     *
+     * Detection samples the start of the input (see `DETECTION_SAMPLE_LIMIT`), so for a
+     * large input this covers the sample, not the whole text. Use `highlightCode` when
+     * you need HTML for the entire content.
+     */
     highlightedHtml: string;
     /** Confidence score from highlight.js (higher = more confident) */
     relevance: number;
@@ -139,6 +145,21 @@ const LANGUAGE_TO_EXTENSION: Record<string, string> = {
 const MIN_CONFIDENCE_THRESHOLD = 5;
 
 /**
+ * How much of the input `detectLanguage` inspects, in characters.
+ *
+ * Detection quality plateaus quickly - a language is recognisable from its first few
+ * kilobytes - while `highlightAuto`'s cost grows with the whole input.
+ */
+const DETECTION_SAMPLE_LIMIT = 16_000;
+
+/**
+ * Above this many characters, `highlightCode` returns escaped plain text instead of
+ * highlighting. Rendering runs on the UI thread, and a file this large is exactly the
+ * case where the wait costs more than the colour is worth.
+ */
+const HIGHLIGHT_LIMIT = 400_000;
+
+/**
  * List of supported languages for manual selection dropdown.
  * Sorted alphabetically for easy navigation.
  */
@@ -154,8 +175,17 @@ export const SUPPORTED_LANGUAGES: string[] = Object.keys(LANGUAGE_TO_EXTENSION).
 export async function detectLanguage(code: string): Promise<LanguageDetectionResult> {
     const hljs = await getHljs();
 
+    // Detect from the start of the input rather than all of it. highlightAuto scores the
+    // text against every candidate language and builds highlighted HTML for each, so its
+    // cost is roughly the number of candidates times the length - uncapped, a large paste
+    // blocked the window for seconds, and this runs on the UI thread. A few kilobytes are
+    // more than enough to tell one language from another.
+    const sample = code.length > DETECTION_SAMPLE_LIMIT
+        ? code.slice(0, DETECTION_SAMPLE_LIMIT)
+        : code;
+
     // Use a subset of common languages for faster and more accurate detection
-    const result = hljs.highlightAuto(code, [
+    const result = hljs.highlightAuto(sample, [
         "javascript", "typescript", "python", "java", "csharp", "cpp", "c",
         "go", "rust", "ruby", "php", "swift", "kotlin", "scala",
         "html", "xml", "css", "scss", "json", "yaml", "toml",
@@ -205,15 +235,37 @@ export async function highlightCode(
 ): Promise<{ html: string; language: string | null }> {
     const hljs = await getHljs();
 
+    // Past a point, highlighting costs more than it is worth: this runs on the UI thread
+    // and a large file would block the window while it renders. Show it as plain text.
+    if (code.length > HIGHLIGHT_LIMIT) {
+        return { html: escapeHtml(code), language: language ?? null };
+    }
+
     if (language && hljs.getLanguage(language)) {
         // Use the specified language
         const result = hljs.highlight(code, { language });
         return { html: result.value, language };
     }
 
-    // Auto-detect
+    // Auto-detect from a sample, then highlight the whole text with the single language
+    // that came back. detectLanguage only inspects the first few kilobytes, so its own
+    // HTML covers the sample rather than the file - and one pass with a known language
+    // beats highlightAuto scoring the full text against every candidate anyway.
     const detection = await detectLanguage(code);
-    return { html: detection.highlightedHtml, language: detection.language };
+    if (detection.language && hljs.getLanguage(detection.language)) {
+        const result = hljs.highlight(code, { language: detection.language });
+        return { html: result.value, language: detection.language };
+    }
+
+    return { html: escapeHtml(code), language: detection.language };
+}
+
+/** Render text safely when it is not being highlighted. */
+function escapeHtml(text: string): string {
+    return text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
 }
 
 /**

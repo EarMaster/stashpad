@@ -145,9 +145,11 @@
       const cleanupInterval = setInterval(
          () => {
             if (settings.clearCompletedStrategy === "after-n-days") {
-               adapter.triggerAutoCleanup().then(() => {
-                  // Refresh the queue to reflect any deleted stashes
-                  refreshTrigger++;
+               adapter.triggerAutoCleanup().then((removed) => {
+                  // Only when something was actually deleted. This fires every five
+                  // minutes and usually has nothing to clean, so refreshing regardless
+                  // reloaded the whole stash list for no reason.
+                  if (removed > 0) refreshTrigger++;
                });
             }
          },
@@ -155,14 +157,19 @@
       ); // 5 minutes
 
       // Listen to sync status changes
-      const unsubscribeSync = cloudSync.addListener((status, message) => {
-         syncStatus = status;
-         syncStatusMessage = message || "";
-         if (status === "success") {
-            // Refresh queue after successful sync to show server changes
-            refreshTrigger++;
-         }
-      });
+      const unsubscribeSync = cloudSync.addListener(
+         (status, message, appliedRemoteChanges) => {
+            syncStatus = status;
+            syncStatusMessage = message || "";
+            // Only when the sync actually wrote server data locally. Refreshing on every
+            // success reloaded the entire stash list - content and attachments, over IPC,
+            // followed by a full re-render - after syncs that had pulled nothing at all,
+            // which is most of them.
+            if (status === "success" && appliedRemoteChanges) {
+               refreshTrigger++;
+            }
+         },
+      );
 
       // Listen for prompt reload event
       const handlePromptReloaded = () => {

@@ -446,7 +446,7 @@ pub fn check_apple_intelligence_available() -> Result<bool, String> {
 }
 
 #[tauri::command]
-pub fn apple_intelligence_enhance(content: String, system_prompt: String) -> Result<String, String> {
+pub async fn apple_intelligence_enhance(content: String, system_prompt: String) -> Result<String, String> {
     #[cfg(all(target_os = "macos", feature = "macos-apple-intelligence"))]
     {
         use fm_rs::{SystemLanguageModel, Session, GenerationOptions};

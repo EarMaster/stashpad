@@ -175,7 +175,8 @@ export interface IStorageService {
     saveSettings(settings: Settings): Promise<void>;
     deleteStash(id: string): Promise<void>;
     deleteCompletedStashes(contextId?: string): Promise<void>;
-    triggerAutoCleanup(): Promise<void>;
+    /** Runs the completed-stash cleanup; resolves to how many stashes were removed. */
+    triggerAutoCleanup(): Promise<number>;
     isWindows10(): Promise<boolean>;
     getDeviceName(): Promise<string>;
 

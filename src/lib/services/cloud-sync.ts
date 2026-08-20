@@ -56,7 +56,16 @@ const UPLOAD_RETRY_MAX_MS = 30 * 60 * 1000;
 export type SyncStatus = 'idle' | 'syncing' | 'success' | 'error' | 'offline' | 'auth-error';
 
 /** Sync event listener */
-export type SyncListener = (status: SyncStatus, message?: string) => void;
+/**
+ * `appliedRemoteChanges` says whether the sync actually wrote remote data into the local
+ * database. The UI reloads its whole stash list when it hears 'success', which is far too
+ * expensive to do after a sync that pulled nothing — and most syncs pull nothing.
+ */
+export type SyncListener = (
+    status: SyncStatus,
+    message?: string,
+    appliedRemoteChanges?: boolean
+) => void;
 
 /** Attachment metadata exchanged with the cloud API */
 interface SyncAttachmentInput {
@@ -550,15 +559,23 @@ export class CloudSyncService {
             let stashCount = 0;
             let contextCount = 0;
 
+            // Tracks whether the server actually gave us something to write, so the UI
+            // can skip its full reload when it did not.
+            let appliedRemoteChanges = false;
+
             if (contextResponse) {
-                await this.mergeServerContexts(contextResponse.synced, localContexts);
+                appliedRemoteChanges =
+                    (await this.mergeServerContexts(contextResponse.synced, localContexts)) ||
+                    appliedRemoteChanges;
                 contextCount = contextResponse.synced.length;
                 this.reportRejected('contexts', contextResponse.rejected);
                 await this.acknowledgePush('contexts', sentContextIds, contextResponse.rejected);
             }
 
             if (stashResponse) {
-                await this.mergeServerStashes(stashResponse.synced, localStashes);
+                appliedRemoteChanges =
+                    (await this.mergeServerStashes(stashResponse.synced, localStashes)) ||
+                    appliedRemoteChanges;
                 stashCount = stashResponse.synced.length;
                 this.reportRejected('stashes', stashResponse.rejected);
                 await this.acknowledgePush('stashes', sentStashIds, stashResponse.rejected);
@@ -584,7 +601,11 @@ export class CloudSyncService {
                     `Attachments could not be uploaded: ${this.lastAttachmentError}`
                 );
             } else {
-                this.setStatus('success', `Synced ${stashCount} stashes, ${contextCount} contexts`);
+                this.setStatus(
+                    'success',
+                    `Synced ${stashCount} stashes, ${contextCount} contexts`,
+                    appliedRemoteChanges
+                );
             }
             console.log(`[CloudSync] Synced ${stashCount} stashes, ${contextCount} contexts`);
 
@@ -700,10 +721,11 @@ export class CloudSyncService {
     /**
      * Merge server stashes with local data using LWW
      */
+    /** @returns whether anything was actually written locally. */
     private async mergeServerStashes(
         serverStashes: StashItem[],
         localStashes: StashItem[]
-    ): Promise<void> {
+    ): Promise<boolean> {
         const localMap = new Map(localStashes.map(s => [s.id, s]));
         const toSave: StashItem[] = [];
 
@@ -753,7 +775,8 @@ export class CloudSyncService {
             }
         }
 
-        if (toSave.length > 0) {
+        const imported = toSave.length > 0;
+        if (imported) {
             await this.adapter.importStashes(toSave);
         }
 
@@ -776,15 +799,19 @@ export class CloudSyncService {
                 .filter(([id, path]) => attachmentSync.isPending(id, path))
                 .map(([id]) => id)
         );
+
+        return imported;
     }
 
     /**
      * Merge server contexts with local data using LWW
+     *
+     * @returns whether anything was actually written locally.
      */
     private async mergeServerContexts(
         serverContexts: SyncContext[],
         localContexts: Context[]
-    ): Promise<void> {
+    ): Promise<boolean> {
         const localMap = new Map(localContexts.map(c => [c.id, c]));
         const toSave: Context[] = [];
 
@@ -816,12 +843,13 @@ export class CloudSyncService {
             }
         }
 
-        if (toSave.length > 0) {
-            // importContexts, not saveContext: the latter is the local-edit path and
-            // stamps the current time, which would make every pulled record look
-            // locally modified and bounce straight back to the server.
-            await this.adapter.importContexts(toSave);
-        }
+        if (toSave.length === 0) return false;
+
+        // importContexts, not saveContext: the latter is the local-edit path and
+        // stamps the current time, which would make every pulled record look
+        // locally modified and bounce straight back to the server.
+        await this.adapter.importContexts(toSave);
+        return true;
     }
 
     /**
@@ -837,9 +865,13 @@ export class CloudSyncService {
     /**
      * Set status and notify listeners
      */
-    private setStatus(status: SyncStatus, message?: string): void {
+    private setStatus(
+        status: SyncStatus,
+        message?: string,
+        appliedRemoteChanges = false
+    ): void {
         this.status = status;
-        this.listeners.forEach(listener => listener(status, message));
+        this.listeners.forEach(listener => listener(status, message, appliedRemoteChanges));
     }
 
     /**
