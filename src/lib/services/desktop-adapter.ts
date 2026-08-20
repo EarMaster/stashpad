@@ -321,21 +321,6 @@ export class DesktopStorageAdapter implements IStorageService {
         return await invoke('download_attachment_from_cloud', { attachmentId });
     }
 
-    /**
-     * Queue every attachment on this device for upload again.
-     *
-     * Per-machine by necessity: the server never received the files, so only a device
-     * that still holds them can supply them. Returns how many were queued.
-     */
-    async requeueAttachmentUploads(): Promise<number> {
-        return await invoke('requeue_attachment_uploads');
-    }
-
-    /** Re-link cache files that lost their attachment row. Returns how many. */
-    async repairOrphanedAttachments(): Promise<number> {
-        return await invoke('repair_orphaned_attachments');
-    }
-
     /** Sign out of the cloud and erase the stored JWT from the OS keychain. */
     async cloudLogout(): Promise<void> {
         await invoke('cloud_logout');

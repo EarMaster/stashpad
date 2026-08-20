@@ -207,10 +207,6 @@ export interface IStorageService {
     markContextsSynced(ids: string[]): Promise<void>;
     /** Fetch an attachment's bytes into the local cache; resolves to the file path. */
     downloadAttachmentFromCloud(attachmentId: string): Promise<string>;
-    /** Queue every locally-held attachment for upload again; resolves to the count. */
-    requeueAttachmentUploads(): Promise<number>;
-    /** Re-link cache files that lost their attachment row; resolves to the count. */
-    repairOrphanedAttachments(): Promise<number>;
     /** Sign out of the cloud and erase the stored JWT from the OS keychain. */
     cloudLogout(): Promise<void>;
 

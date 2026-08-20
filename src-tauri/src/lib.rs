@@ -361,8 +361,6 @@ pub fn run() {
             stashes::import_stashes,
             stashes::claim_pending_stashes,
             stashes::mark_stashes_synced,
-            stashes::requeue_attachment_uploads,
-            stashes::repair_orphaned_attachments,
             stashes::delete_stash,
             stashes::delete_completed_stashes,
             stashes::trigger_auto_cleanup,

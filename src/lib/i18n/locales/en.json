@@ -409,9 +409,6 @@
   },
   "attachments": {
     "syncing": "Syncing {name} from cloud…",
-    "downloadFailed": "Could not download {name} — click to retry",
-    "repair": "Re-upload attachments",
-    "repairing": "Re-uploading…",
-    "repairHint": "Re-link cache files that lost their record and re-send everything this device holds. Only works from a machine that still has the files."
+    "downloadFailed": "Could not download {name} — click to retry"
   }
 }

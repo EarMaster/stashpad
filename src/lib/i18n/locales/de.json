@@ -396,9 +396,6 @@
   },
   "attachments": {
     "syncing": "{name} wird aus der Cloud geladen…",
-    "downloadFailed": "{name} konnte nicht geladen werden — zum Wiederholen klicken",
-    "repair": "Anhänge erneut hochladen",
-    "repairing": "Wird hochgeladen…",
-    "repairHint": "Verknüpft verwaiste Cache-Dateien neu und sendet alles erneut, was dieses Gerät gespeichert hat. Funktioniert nur auf einem Gerät, das die Dateien noch besitzt."
+    "downloadFailed": "{name} konnte nicht geladen werden — zum Wiederholen klicken"
   }
 }
