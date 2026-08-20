@@ -7,18 +7,12 @@
     import { _, locale } from "$lib/i18n";
     import { Dialog } from "bits-ui";
     import { save } from "@tauri-apps/plugin-dialog";
-    import {
-        writeTextFile,
-        writeFile,
-        readFile,
-        stat,
-    } from "@tauri-apps/plugin-fs";
-    import JSZip from "jszip";
+    import { stat } from "@tauri-apps/plugin-fs";
+    import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
     import type { Context, StashItem } from "$lib/types";
     import { getRelativeTime } from "$lib/utils/date";
     import { formatBytes } from "$lib/utils/format";
     import { Download, FileArchive, Square, CheckSquare } from "lucide-svelte";
-    import { dump } from "js-yaml";
 
     let {
         open = $bindable(false),
@@ -33,6 +27,8 @@
     }>();
 
     // Track selected stashes - active stashes checked by default, completed unchecked
+    const adapter = new DesktopStorageAdapter();
+
     let selectedIds = $state<Set<string>>(new Set());
     let includeAttachments = $state(false);
     let isExporting = $state(false);
@@ -78,6 +74,15 @@
     );
     let selectedStashes = $derived(
         stashes.filter((s) => selectedIds.has(s.id)),
+    );
+    // Rough size of the generated markdown. It used to build the whole document twice
+    // on every render just to measure it; the document is written in Rust now, and an
+    // estimate is all this label needs.
+    let markdownEstimate = $derived(
+        selectedStashes.reduce(
+            (sum, s) => sum + s.content.length + 80,
+            200,
+        ),
     );
     let totalAttachments = $derived(
         selectedStashes.reduce(
@@ -164,334 +169,51 @@
     }
 
     /**
-     * Build markdown content from selected stashes
-     * @param filenameMap - Optional map of (stashId + fileName) -> uniqueFileName for renamed attachments in ZIPs
-     */
-
-    /**
-     * Build markdown content from selected stashes
-     * @param filenameMap - Optional map of (stashId + fileName) -> uniqueFileName for renamed attachments in ZIPs
-     */
-    function buildMarkdownContent(filenameMap?: Map<string, string>): string {
-        const lines: string[] = [];
-
-        // Create metadata object
-        const metadata = {
-            name: context.name,
-            description: context.description || "",
-            rules: context.rules || [],
-        };
-
-        // Add YAML frontmatter
-        lines.push("---");
-        lines.push(dump(metadata).trim());
-        lines.push("---");
-        lines.push("");
-
-        lines.push(`# ${context.name}`);
-        lines.push("");
-
-        // Use ISO 8601 format (YYYY-MM-DD HH:MM:SS)
-        const now = new Date();
-        const isoDate = now.toISOString().slice(0, 19).replace("T", " ");
-        lines.push(`Exported from Stashpad on ${isoDate}`);
-        lines.push("");
-        lines.push(`Total stashes: ${selectedStashes.length}`);
-        lines.push("");
-        lines.push("---");
-        lines.push("");
-
-        // Group by active and completed (like the queue)
-        const activeStashes = selectedStashes
-            .filter((s) => !s.completed)
-            .sort(
-                (a, b) =>
-                    new Date(b.createdAt).getTime() -
-                    new Date(a.createdAt).getTime(),
-            );
-
-        const completedStashes = selectedStashes
-            .filter((s) => s.completed)
-            .sort(
-                (a, b) =>
-                    new Date(b.createdAt).getTime() -
-                    new Date(a.createdAt).getTime(),
-            );
-
-        // Export active stashes first
-        if (activeStashes.length > 0) {
-            lines.push(`## Active Stashes (${activeStashes.length})`);
-            lines.push("");
-
-            for (const stash of activeStashes) {
-                const date = new Date(stash.createdAt).toLocaleString();
-                lines.push(`### ${date}`);
-                lines.push("");
-
-                if (stash.content.trim()) {
-                    lines.push(stash.content);
-                    lines.push("");
-                }
-
-                const hasFiles =
-                    (stash.files && stash.files.length > 0) ||
-                    (stash.attachments && stash.attachments.length > 0);
-
-                if (hasFiles) {
-                    lines.push("**Attachments:**");
-
-                    // Legacy files
-                    if (stash.files) {
-                        for (const file of stash.files) {
-                            const fileName = file.split(/[\\\/]/).pop() || file;
-                            const uniqueFileName =
-                                filenameMap?.get(`${stash.id}:${fileName}`) ||
-                                fileName;
-                            if (includeAttachments) {
-                                lines.push(
-                                    `- [${fileName}](attachments/${uniqueFileName})`,
-                                );
-                            } else {
-                                lines.push(`- ${fileName}`);
-                            }
-                        }
-                    }
-
-                    // New attachments
-                    if (stash.attachments) {
-                        for (const att of stash.attachments) {
-                            const fileName = att.fileName;
-                            const uniqueFileName =
-                                filenameMap?.get(`${stash.id}:${fileName}`) ||
-                                fileName;
-                            if (includeAttachments) {
-                                lines.push(
-                                    `- [${fileName}](attachments/${uniqueFileName})`,
-                                );
-                            } else {
-                                lines.push(`- ${fileName}`);
-                            }
-                        }
-                    }
-                    lines.push("");
-                }
-
-                lines.push("---");
-                lines.push("");
-            }
-        }
-
-        // Export completed stashes
-        if (completedStashes.length > 0) {
-            lines.push(`## Completed Stashes (${completedStashes.length})`);
-            lines.push("");
-
-            for (const stash of completedStashes) {
-                const date = new Date(stash.createdAt).toLocaleString();
-                lines.push(`### ${date}`);
-                lines.push("");
-
-                if (stash.content.trim()) {
-                    lines.push(stash.content);
-                    lines.push("");
-                }
-
-                const hasFiles =
-                    (stash.files && stash.files.length > 0) ||
-                    (stash.attachments && stash.attachments.length > 0);
-
-                if (hasFiles) {
-                    lines.push("**Attachments:**");
-
-                    // Legacy files
-                    if (stash.files) {
-                        for (const file of stash.files) {
-                            const fileName = file.split(/[\\\/]/).pop() || file;
-                            const uniqueFileName =
-                                filenameMap?.get(`${stash.id}:${fileName}`) ||
-                                fileName;
-                            if (includeAttachments) {
-                                lines.push(
-                                    `- [${fileName}](attachments/${uniqueFileName})`,
-                                );
-                            } else {
-                                lines.push(`- ${fileName}`);
-                            }
-                        }
-                    }
-
-                    // New attachments
-                    if (stash.attachments) {
-                        for (const att of stash.attachments) {
-                            const fileName = att.fileName;
-                            const uniqueFileName =
-                                filenameMap?.get(`${stash.id}:${fileName}`) ||
-                                fileName;
-                            if (includeAttachments) {
-                                lines.push(
-                                    `- [${fileName}](attachments/${uniqueFileName})`,
-                                );
-                            } else {
-                                lines.push(`- ${fileName}`);
-                            }
-                        }
-                    }
-                    lines.push("");
-                }
-
-                lines.push("---");
-                lines.push("");
-            }
-        }
-
-        return lines.join("\n");
-    }
-
-    /**
-     * Export as markdown only
-     */
-    async function exportMarkdown() {
-        const markdownContent = buildMarkdownContent();
-
-        const safeName = context.name
-            .replace(/[^a-zA-Z0-9_-]/g, "_")
-            .toLowerCase();
-        // Format: YYYY-MM-DD_HH-MM
-        const now = new Date();
-        const date = now.toISOString().slice(0, 10);
-        const time = now.toTimeString().slice(0, 5).replace(":", "-");
-        const timestamp = `${date}_${time}`;
-        const defaultFileName = `${safeName}_${timestamp}.md`;
-
-        const filePath = await save({
-            title: $_("contexts.exportTitle"),
-            defaultPath: defaultFileName,
-            filters: [{ name: "Markdown", extensions: ["md"] }],
-        });
-
-        if (filePath) {
-            await writeTextFile(filePath, markdownContent);
-            handleClose();
-        }
-    }
-
-    /**
-     * Export as ZIP with attachments
-     */
-    async function exportZip() {
-        const zip = new JSZip();
-
-        // Add attachments folder
-        const attachmentsFolder = zip.folder("attachments");
-
-        // Map of "stashId:fileName" -> "prefixedFileName" for all files
-        const filenameMap = new Map<string, string>();
-
-        // Collect all files from selected stashes
-        for (const stash of selectedStashes) {
-            const stashIdShort = stash.id.slice(0, 8);
-
-            // Legacy files
-            if (stash.files && stash.files.length > 0) {
-                for (const filePath of stash.files) {
-                    try {
-                        const fileName =
-                            filePath.split(/[\\\/]/).pop() || filePath;
-                        try {
-                            const fileData = await readFile(filePath);
-                            // Always prefix filename with stash ID to prevent collisions
-                            const prefixedFileName = `${stashIdShort}_${fileName}`;
-                            // Store mapping for markdown generation
-                            filenameMap.set(
-                                `${stash.id}:${fileName}`,
-                                prefixedFileName,
-                            );
-                            attachmentsFolder?.file(prefixedFileName, fileData);
-                        } catch (e) {
-                            console.error(
-                                `Failed to read file ${filePath}:`,
-                                e,
-                            );
-                        }
-                    } catch (e) {
-                        console.error(`Failed to read file ${filePath}:`, e);
-                    }
-                }
-            }
-
-            // New attachments
-            if (stash.attachments && stash.attachments.length > 0) {
-                for (const att of stash.attachments) {
-                    try {
-                        const fileData = await readFile(att.filePath);
-                        // Always prefix filename with stash ID to prevent collisions
-                        const prefixedFileName = `${stashIdShort}_${att.fileName}`;
-                        // Store mapping for markdown generation
-                        filenameMap.set(
-                            `${stash.id}:${att.fileName}`,
-                            prefixedFileName,
-                        );
-                        attachmentsFolder?.file(prefixedFileName, fileData);
-                    } catch (e) {
-                        console.error(
-                            `Failed to read attachment ${att.filePath}:`,
-                            e,
-                        );
-                    }
-                }
-            }
-        }
-
-        // Generate markdown with filename mappings
-        const markdownContent = buildMarkdownContent(filenameMap);
-
-        // Add markdown file
-        zip.file("export.md", markdownContent);
-
-        // Generate zip blob
-        const zipBlob = await zip.generateAsync({ type: "uint8array" });
-
-        const safeName = context.name
-            .replace(/[^a-zA-Z0-9_-]/g, "_")
-            .toLowerCase();
-        // Format: YYYY-MM-DD_HH-MM
-        const now = new Date();
-        const date = now.toISOString().slice(0, 10);
-        const time = now.toTimeString().slice(0, 5).replace(":", "-");
-        const timestamp = `${date}_${time}`;
-        const defaultFileName = `${safeName}_${timestamp}.zip`;
-
-        const filePath = await save({
-            title: $_("contexts.exportTitle"),
-            defaultPath: defaultFileName,
-            filters: [{ name: "ZIP Archive", extensions: ["zip"] }],
-        });
-
-        if (filePath) {
-            await writeFile(filePath, zipBlob);
-            handleClose();
-        }
-    }
-
-    /**
-     * Handle export button click
+     * Export the selected stashes.
+     *
+     * The archive is built in Rust: it reads the attachments from disk itself, so their
+     * bytes never cross IPC, and the deflate work stays off the UI thread. Doing it here
+     * with JSZip froze the window for the duration.
      */
     async function handleExport() {
         if (selectedIds.size === 0) return;
 
+        const asZip = includeAttachments && totalAttachments > 0;
+
+        const safeName = context.name
+            .replace(/[^a-zA-Z0-9_-]/g, "_")
+            .toLowerCase();
+        const now = new Date();
+        const date = now.toISOString().slice(0, 10);
+        const time = now.toTimeString().slice(0, 5).replace(":", "-");
+        const defaultFileName = `${safeName}_${date}_${time}.${asZip ? "zip" : "md"}`;
+
+        const filePath = await save({
+            title: $_("contexts.exportTitle"),
+            defaultPath: defaultFileName,
+            filters: asZip
+                ? [{ name: "ZIP Archive", extensions: ["zip"] }]
+                : [{ name: "Markdown", extensions: ["md"] }],
+        });
+
+        if (!filePath) return;
+
         isExporting = true;
         try {
-            if (includeAttachments && totalAttachments > 0) {
-                await exportZip();
-            } else {
-                await exportMarkdown();
-            }
+            await adapter.exportContextArchive(
+                context.id,
+                [...selectedIds],
+                asZip,
+                filePath,
+            );
+            handleClose();
         } catch (e) {
             console.error("Export failed:", e);
         } finally {
             isExporting = false;
         }
     }
+
 
     /**
      * Handle dialog close
@@ -735,9 +457,8 @@
                             <span class="text-xs text-muted-foreground">
                                 {$_("contexts.exportDialog.estimatedSize")}: {formatBytesLocalized(
                                     includeAttachments
-                                        ? totalAttachmentSize +
-                                              buildMarkdownContent().length
-                                        : buildMarkdownContent().length,
+                                        ? totalAttachmentSize + markdownEstimate
+                                        : markdownEstimate,
                                 )}
                             </span>
                         {/if}

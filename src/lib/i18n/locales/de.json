@@ -249,6 +249,7 @@
     "import": "Importieren",
     "importContext": "Stashes aus Datei importieren",
     "importDialog": {
+      "unreadableDates": "Bei {count} Stash(es) war das Erstellungsdatum nicht lesbar - sie erhalten den Zeitpunkt des Imports.",
       "title": "Stashes importieren",
       "selectFile": "Datei auswählen",
       "selectFileDesc": "Wähle eine Stashpad-Exportdatei zum Importieren",

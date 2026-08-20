@@ -33,8 +33,6 @@ export default defineConfig({
                     'vendor-markdown': ['marked', 'marked-highlight'],
                     // Syntax highlighting (large — all language grammars)
                     'vendor-hljs': ['highlight.js'],
-                    // ZIP archive support
-                    'vendor-zip': ['jszip'],
                     // Tauri plugins
                     'vendor-tauri': [
                         '@tauri-apps/api',

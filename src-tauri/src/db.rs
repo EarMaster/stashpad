@@ -711,7 +711,26 @@ impl DbManager {
         Ok(contexts)
     }
 
+    /// Apply stashes received from the server. They arrive already in sync, so they are
+    /// written with `pending_sync = 0` and their server timestamp preserved.
     pub fn import_stashes(&mut self, stashes: &Vec<StashItem>) -> Result<()> {
+        self.write_stashes(stashes, WriteOrigin::SyncImport)
+    }
+
+    /// Write stashes the user brought in from a file.
+    ///
+    /// Unlike [`import_stashes`](Self::import_stashes) these are new records on this
+    /// device that the server has never seen, so they are stamped now and left pending -
+    /// otherwise an imported context would sit locally and never reach the cloud.
+    pub fn insert_local_stashes(&mut self, stashes: &Vec<StashItem>) -> Result<()> {
+        self.write_stashes(stashes, WriteOrigin::LocalEdit)
+    }
+
+    fn write_stashes(&mut self, stashes: &Vec<StashItem>, origin: WriteOrigin) -> Result<()> {
+        let pending = match origin {
+            WriteOrigin::SyncImport => 0,
+            WriteOrigin::LocalEdit => 1,
+        };
         let tx = self.conn.transaction()?;
         for stash in stashes {
             let files_json = serde_json::to_string(&stash.files).unwrap_or_default();
@@ -738,7 +757,7 @@ impl DbManager {
                 // attachments reference stashes ON DELETE CASCADE, so replacing a stash
                 // silently destroys every attachment hanging off it. ON CONFLICT updates
                 // the row in place and leaves the children alone.
-                "INSERT INTO stashes (id, context_id, content, enhanced_content, files, created_at, completed, completed_at, position, updated_at, deleted, pending_sync) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 0) ON CONFLICT(id) DO UPDATE SET context_id=excluded.context_id, content=excluded.content, enhanced_content=excluded.enhanced_content, files=excluded.files, created_at=excluded.created_at, completed=excluded.completed, completed_at=excluded.completed_at, position=excluded.position, updated_at=excluded.updated_at, deleted=excluded.deleted, pending_sync=0",
+                "INSERT INTO stashes (id, context_id, content, enhanced_content, files, created_at, completed, completed_at, position, updated_at, deleted, pending_sync) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12) ON CONFLICT(id) DO UPDATE SET context_id=excluded.context_id, content=excluded.content, enhanced_content=excluded.enhanced_content, files=excluded.files, created_at=excluded.created_at, completed=excluded.completed, completed_at=excluded.completed_at, position=excluded.position, updated_at=excluded.updated_at, deleted=excluded.deleted, pending_sync=excluded.pending_sync",
                 params![
                     stash.id,
                     stash.context_id,
@@ -749,9 +768,11 @@ impl DbManager {
                     stash.completed,
                     stash.completed_at,
                     final_pos,
-                    // Server-supplied value, preserved verbatim.
-                    WriteOrigin::SyncImport.stamp(stash.updated_at),
-                    if stash.deleted { 1 } else { 0 }
+                    // Server-supplied value preserved verbatim on a sync import; stamped
+                    // now for a local one.
+                    origin.stamp(stash.updated_at),
+                    if stash.deleted { 1 } else { 0 },
+                    pending
                 ],
             )?;
 

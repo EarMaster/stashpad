@@ -30,6 +30,7 @@ mod settings;
 mod contexts;
 mod sync;
 mod stashes;
+mod transfer;
 pub mod db;
 
 use models::AppContext;
@@ -355,6 +356,10 @@ pub fn run() {
             utils::get_smart_transfer_target,
             stashes::save_stash,
             stashes::save_stashes,
+            transfer::export_context_archive,
+            transfer::read_import_archive,
+            transfer::commit_import,
+            transfer::discard_import,
             stashes::load_stashes,
             stashes::load_stashes_for_sync,
             stashes::get_contexts_for_sync,

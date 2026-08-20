@@ -13,7 +13,7 @@
 // See the GNU Affero General Public License for more details.
 
 import { invoke } from '@tauri-apps/api/core';
-import type { IStorageService, StashItem, AppContext, Settings, FilePreviewData, Context, Attachment, CloudConfig } from '../types';
+import type { IStorageService, StashItem, AppContext, Settings, FilePreviewData, Context, Attachment, CloudConfig, ExportSummary, ImportPreview } from '../types';
 
 /** Called after any local write so cloud sync can be scheduled. */
 type MutationListener = () => void;
@@ -58,6 +58,47 @@ export class DesktopStorageAdapter implements IStorageService {
 
     async loadStashes(): Promise<StashItem[]> {
         return await invoke('load_stashes');
+    }
+
+    /**
+     * Write a context's stashes to `destPath`.
+     *
+     * Rust reads the attachments from disk and compresses them, so their bytes never
+     * cross IPC and the deflate work stays off the UI thread.
+     */
+    async exportContextArchive(
+        contextId: string,
+        stashIds: string[],
+        includeAttachments: boolean,
+        destPath: string,
+    ): Promise<ExportSummary> {
+        return await invoke<ExportSummary>('export_context_archive', {
+            contextId,
+            stashIds,
+            includeAttachments,
+            destPath,
+        });
+    }
+
+    /** Read an archive and report what importing it would bring in. */
+    async readImportArchive(path: string, contextId: string): Promise<ImportPreview> {
+        return await invoke<ImportPreview>('read_import_archive', { path, contextId });
+    }
+
+    /** Write the selected stashes and their files, in one transaction. */
+    async commitImport(
+        contextId: string,
+        stashes: StashItem[],
+        token: string,
+    ): Promise<number> {
+        const count = await invoke<number>('commit_import', { contextId, stashes, token });
+        notifyMutation();
+        return count;
+    }
+
+    /** Drop the files an abandoned import had extracted. */
+    async discardImport(token: string): Promise<void> {
+        await invoke('discard_import', { token });
     }
 
     /**

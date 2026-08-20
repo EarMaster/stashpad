@@ -254,6 +254,7 @@
     "import": "Import",
     "importContext": "Import stashes from file",
     "importDialog": {
+      "unreadableDates": "{count} stash(es) had a creation date this version could not read - they will be dated as imported now.",
       "title": "Import Context",
       "selectStashes": "Select stashes to import",
       "selectFile": "Select Export File",

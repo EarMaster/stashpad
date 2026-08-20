@@ -7,10 +7,8 @@
     import { _ } from "$lib/i18n";
     import { Dialog } from "bits-ui";
     import { open as openFile } from "@tauri-apps/plugin-dialog";
-    import { readFile, readTextFile } from "@tauri-apps/plugin-fs";
     import { getCurrentWebview } from "@tauri-apps/api/webview";
     import { onDestroy } from "svelte";
-    import JSZip from "jszip";
     import type {
         Context,
         StashItem,
@@ -29,7 +27,6 @@
         FolderOpen,
     } from "lucide-svelte";
     import { tooltip } from "$lib/actions/tooltip";
-    import { load } from "js-yaml";
 
     let {
         open = $bindable(false),
@@ -56,7 +53,10 @@
     let parsedStashes = $state<StashItem[]>([]);
     let selectedIds = $state<Set<string>>(new Set());
     let duplicateIds = $state<Set<string>>(new Set());
-    let attachmentFiles = $state<Map<string, Uint8Array>>(new Map());
+    /** Handle for the files Rust extracted; released on commit or on close. */
+    let importToken = $state<string | null>(null);
+    /** Headings whose date could not be read; those stashes fall back to now. */
+    let unreadableDates = $state(0);
     let isImporting = $state(false);
     let isParsing = $state(false);
     let importedFileName = $state("");
@@ -88,7 +88,8 @@
             parsedStashes = [];
             selectedIds = new Set();
             duplicateIds = new Set();
-            attachmentFiles = new Map();
+            importToken = null;
+            unreadableDates = 0;
             isImporting = false;
             isParsing = false;
             importedFileName = "";
@@ -177,6 +178,9 @@
     let selectedStashes = $derived(
         parsedStashes.filter((s) => selectedIds.has(s.id)),
     );
+    let attachmentCount = $derived(
+        parsedStashes.reduce((sum, s) => sum + (s.files?.length || 0), 0),
+    );
     let duplicateCount = $derived(
         [...selectedIds].filter((id) => duplicateIds.has(id)).length,
     );
@@ -209,13 +213,23 @@
             const fileName = filePath.split(/[\\/]/).pop() || "";
             importedFileName = fileName;
 
-            let metadata: Metadata | undefined;
+            // Rust unzips, parses and finds duplicates. Doing it here meant inflating
+            // the archive on the UI thread and comparing every parsed stash against
+            // every existing one in JavaScript.
+            const preview = await adapter.readImportArchive(filePath, context.id);
 
-            if (fileName.endsWith(".zip")) {
-                metadata = await parseZipFile(filePath);
-            } else {
-                metadata = await parseMarkdownFile(filePath);
-            }
+            parsedStashes = preview.stashes;
+            duplicateIds = new Set(preview.duplicateIds);
+            importToken = preview.token;
+            unreadableDates = preview.unreadableDates;
+
+            const metadata: Metadata | undefined = preview.metadata
+                ? {
+                      name: preview.metadata.name,
+                      description: preview.metadata.description,
+                      rules: preview.metadata.rules as ContextRule[],
+                  }
+                : undefined;
 
             // Check for metadata conflicts
             if (metadata) {
@@ -225,8 +239,6 @@
                 if (hasConflicts) {
                     conflictDialogOpen = true;
                     // We pause here. The dialog will handle the rest.
-                    // But we also need to detect duplicates for the preview background
-                    detectDuplicates();
                     // Select non-completed, non-duplicate stashes by default for preview
                     // (This will be visible behind the conflict dialog or after it closes)
                     selectedIds = new Set(
@@ -240,8 +252,6 @@
                 }
             }
 
-            // Detect duplicates (if no conflicts or conflicts auto-resolved?)
-            detectDuplicates();
 
             // Select non-completed, non-duplicate stashes by default
             selectedIds = new Set(
@@ -322,301 +332,6 @@
     }
 
     /**
-     * Parse a markdown file exported from Stashpad
-     */
-    async function parseMarkdownFile(filePath: string) {
-        const content = await readTextFile(filePath);
-        const result = parseMarkdownContent(content);
-        parsedStashes = result.stashes;
-        return result.metadata;
-    }
-
-    /**
-     * Parse a ZIP file exported from Stashpad
-     */
-    async function parseZipFile(filePath: string) {
-        const zipData = await readFile(filePath);
-        const zip = await JSZip.loadAsync(zipData);
-
-        // Find and parse export.md
-        const mdFile = zip.file("export.md");
-        if (mdFile) {
-            const content = await mdFile.async("text");
-            const result = parseMarkdownContent(content);
-            parsedStashes = result.stashes;
-
-            // Load attachments
-            const attachmentsFolder = zip.folder("attachments");
-            if (attachmentsFolder) {
-                const files = attachmentsFolder.file(/.*/);
-                for (const file of files) {
-                    if (!file.dir) {
-                        const data = await file.async("uint8array");
-                        let name = file.name.split("/").pop() || file.name;
-
-                        // Strip stash ID prefix if present (format: 12345678_filename.ext)
-                        const prefixMatch = name.match(/^[a-f0-9]{8}_(.+)$/);
-                        if (prefixMatch) {
-                            name = prefixMatch[1]; // Use the original filename without prefix
-                        }
-
-                        attachmentFiles.set(name, data);
-                    }
-                }
-                attachmentFiles = new Map(attachmentFiles); // Trigger reactivity
-            }
-            return result.metadata;
-        }
-        return undefined;
-    }
-
-    /**
-     * Parse markdown content into stash items and metadata
-     */
-    function parseMarkdownContent(content: string): {
-        stashes: StashItem[];
-        metadata?: Metadata;
-    } {
-        const stashes: StashItem[] = [];
-        let metadata: Metadata | undefined;
-        let contentToParse = content;
-
-        // Parse YAML frontmatter
-        if (content.startsWith("---")) {
-            const endFrontmatter = content.indexOf("\n---", 3);
-            if (endFrontmatter !== -1) {
-                const frontmatter = content.slice(4, endFrontmatter);
-                try {
-                    const parsed = load(frontmatter) as any;
-                    if (parsed && typeof parsed === "object") {
-                        metadata = {
-                            name: parsed.name,
-                            description: parsed.description,
-                            rules: parsed.rules,
-                        };
-                    }
-                } catch (e) {
-                    console.error("Failed to parse frontmatter:", e);
-                }
-                // content starts after the closing --- \n
-                contentToParse = content.slice(endFrontmatter + 5);
-            }
-        }
-
-        const lines = contentToParse.split("\n");
-
-        let currentStash: Partial<StashItem> | null = null;
-        let currentContent: string[] = [];
-        let currentFiles: string[] = [];
-        let inAttachments = false;
-        let currentSectionCompleted = false; // Track whether we're in completed section
-
-        for (let i = 0; i < lines.length; i++) {
-            const line = lines[i];
-
-            // Detect new format section headers: ## Active Stashes (N) or ## Completed Stashes (N)
-            const sectionMatch = line.match(
-                /^## (Active|Completed) Stashes \(\d+\)$/,
-            );
-            if (sectionMatch) {
-                // Save previous stash before changing sections
-                if (currentStash) {
-                    stashes.push(
-                        finalizeStash(
-                            currentStash,
-                            currentContent,
-                            currentFiles,
-                        ),
-                    );
-                    currentStash = null;
-                    currentContent = [];
-                    currentFiles = [];
-                }
-                currentSectionCompleted = sectionMatch[1] === "Completed";
-                inAttachments = false;
-                continue;
-            }
-
-            // Detect new format stash header: ### Date
-            const newHeaderMatch = line.match(/^### (.+)$/);
-            if (newHeaderMatch) {
-                // Save previous stash
-                if (currentStash) {
-                    stashes.push(
-                        finalizeStash(
-                            currentStash,
-                            currentContent,
-                            currentFiles,
-                        ),
-                    );
-                }
-
-                // Start new stash
-                const dateStr = newHeaderMatch[1];
-                currentStash = {
-                    id: crypto.randomUUID(),
-                    completed: currentSectionCompleted,
-                    createdAt: parseDate(dateStr),
-                    contextId: context.id,
-                };
-                currentContent = [];
-                currentFiles = [];
-                inAttachments = false;
-                continue;
-            }
-
-            // Skip if no current stash
-            if (!currentStash) continue;
-
-            // Detect attachments section
-            if (line.startsWith("**Attachments:**")) {
-                inAttachments = true;
-                continue;
-            }
-
-            // Detect separator
-            if (line === "---") {
-                inAttachments = false;
-                continue;
-            }
-
-            // Parse attachment lines
-            if (inAttachments && line.startsWith("- ")) {
-                const attachMatch = line.match(
-                    /^- \[(.+)\]\(attachments\/(.+)\)$/,
-                );
-                if (attachMatch) {
-                    let fileName = attachMatch[2];
-
-                    // Strip stash ID prefix if present (format: 12345678_filename.ext)
-                    const prefixMatch = fileName.match(/^[a-f0-9]{8}_(.+)$/);
-                    if (prefixMatch) {
-                        fileName = prefixMatch[1]; // Use the original filename without prefix
-                    }
-
-                    currentFiles.push(fileName);
-                } else {
-                    // Plain attachment reference: - filename.ext
-                    const plainMatch = line.match(/^- (.+)$/);
-                    if (plainMatch) {
-                        let fileName = plainMatch[1];
-
-                        // Strip stash ID prefix if present (format: 12345678_filename.ext)
-                        const prefixMatch =
-                            fileName.match(/^[a-f0-9]{8}_(.+)$/);
-                        if (prefixMatch) {
-                            fileName = prefixMatch[1]; // Use the original filename without prefix
-                        }
-
-                        currentFiles.push(fileName);
-                    }
-                }
-                continue;
-            }
-
-            // Regular content line
-            if (!inAttachments && line.trim() !== "") {
-                currentContent.push(line);
-            }
-        }
-
-        // Don't forget the last stash
-        if (currentStash) {
-            stashes.push(
-                finalizeStash(currentStash, currentContent, currentFiles),
-            );
-        }
-
-        return { stashes, metadata };
-    }
-
-    /**
-     * Finalize a stash object from parsed data
-     */
-    function finalizeStash(
-        partial: Partial<StashItem>,
-        contentLines: string[],
-        files: string[],
-    ): StashItem {
-        return {
-            id: partial.id || crypto.randomUUID(),
-            content: contentLines.join("\n").trim(),
-            files: files,
-            attachments: [], // Will be populated during import
-            createdAt: partial.createdAt || new Date().toISOString(),
-            contextId: partial.contextId || context.id,
-            completed: partial.completed || false,
-            completedAt: partial.completed
-                ? new Date().toISOString()
-                : undefined,
-        };
-    }
-
-    /**
-     * Parse date string from export format
-     */
-    function parseDate(dateStr: string): string {
-        try {
-            const date = new Date(dateStr);
-            if (!isNaN(date.getTime())) {
-                return date.toISOString();
-            }
-        } catch {
-            // Fall through to default
-        }
-        return new Date().toISOString();
-    }
-
-    /**
-     * Detect duplicate stashes by comparing content
-     */
-    function detectDuplicates() {
-        const dupes = new Set<string>();
-
-        for (const parsed of parsedStashes) {
-            const normalizedParsed = normalizeContent(parsed.content);
-            if (!normalizedParsed) continue;
-
-            for (const existing of existingStashes) {
-                const normalizedExisting = normalizeContent(existing.content);
-                if (!normalizedExisting) continue;
-
-                // Check for exact match or high similarity
-                if (
-                    normalizedParsed === normalizedExisting ||
-                    calculateSimilarity(normalizedParsed, normalizedExisting) >
-                        0.8
-                ) {
-                    dupes.add(parsed.id);
-                    break;
-                }
-            }
-        }
-
-        duplicateIds = dupes;
-    }
-
-    /**
-     * Normalize content for comparison
-     */
-    function normalizeContent(content: string): string {
-        return content.trim().toLowerCase().replace(/\s+/g, " ");
-    }
-
-    /**
-     * Simple similarity calculation (Jaccard index on words)
-     */
-    function calculateSimilarity(a: string, b: string): number {
-        const wordsA = new Set(a.split(/\s+/));
-        const wordsB = new Set(b.split(/\s+/));
-
-        const intersection = [...wordsA].filter((w) => wordsB.has(w)).length;
-        const union = new Set([...wordsA, ...wordsB]).size;
-
-        return union > 0 ? intersection / union : 0;
-    }
-
-    /**
      * Toggle selection for a single stash
      */
     function toggleStash(id: string) {
@@ -643,71 +358,24 @@
     }
 
     /**
-     * Import selected stashes
+     * Import the selected stashes.
+     *
+     * One command for the lot: Rust writes every stash and moves every extracted file in
+     * a single transaction. This used to be a sequential loop issuing two commands per
+     * stash plus one per attachment, each of which blocked the UI thread.
      */
     async function handleImport() {
-        if (selectedIds.size === 0) return;
+        if (selectedIds.size === 0 || !importToken) return;
 
         isImporting = true;
         try {
-            // Save context metadata if it was updated during conflict resolution
+            // The conflict dialog may have edited the context in memory.
             if (importedMetadata) {
-                // Check if context was modified in memory (by resolveConflictAndImport)
-                // We can just save the current context state, as resolveConflictAndImport
-                // already updated the in-memory context object.
                 await adapter.saveContext(context);
             }
 
-            for (const stash of selectedStashes) {
-                // First, save the stash to the database (without attachments)
-                const stashToSave: StashItem = {
-                    ...stash,
-                    files: [], // Clear legacy files array
-                    attachments: [], // Will be populated after files are saved
-                    contextId: context.id,
-                };
-
-                await adapter.saveStash(stashToSave);
-
-                // Now that the stash exists in the DB, save attachments
-                const attachments: Attachment[] = [];
-                for (const fileName of stash.files || []) {
-                    const fileData = attachmentFiles.get(fileName);
-                    if (fileData) {
-                        try {
-                            // Create a File object from Uint8Array and save via adapter
-                            const blob = new Blob([
-                                fileData.buffer.slice(
-                                    fileData.byteOffset,
-                                    fileData.byteOffset + fileData.byteLength,
-                                ) as ArrayBuffer,
-                            ]);
-                            const file = new File([blob], fileName);
-                            const savedAttachment = await adapter.saveAsset(
-                                file,
-                                context.id,
-                                stash.id,
-                            );
-                            // saveAsset returns an Attachment object
-                            attachments.push(savedAttachment);
-                        } catch (err) {
-                            console.error(
-                                `Failed to save attachment ${fileName}:`,
-                                err,
-                            );
-                        }
-                    }
-                }
-
-                // Update the stash with the attachments
-                if (attachments.length > 0) {
-                    const updatedStash: StashItem = {
-                        ...stashToSave,
-                        attachments,
-                    };
-                    await adapter.saveStash(updatedStash);
-                }
-            }
+            await adapter.commitImport(context.id, selectedStashes, importToken);
+            importToken = null;
 
             onImportComplete();
             handleClose();
@@ -718,10 +386,16 @@
         }
     }
 
+
     /**
      * Handle dialog close
      */
     function handleClose() {
+        // An abandoned import leaves its extracted files behind otherwise.
+        if (importToken) {
+            void adapter.discardImport(importToken);
+            importToken = null;
+        }
         open = false;
     }
 
@@ -993,12 +667,20 @@
                                 <FileText size={14} />
                             {/if}
                             <span class="truncate">{importedFileName}</span>
-                            {#if attachmentFiles.size > 0}
+                            {#if attachmentCount > 0}
                                 <span class="text-muted-foreground">
-                                    ({attachmentFiles.size} attachments)
+                                    ({attachmentCount} attachments)
                                 </span>
                             {/if}
                         </div>
+
+                        {#if unreadableDates > 0}
+                            <div class="text-xs text-amber-600 dark:text-amber-500">
+                                {$_("contexts.importDialog.unreadableDates", {
+                                    values: { count: unreadableDates },
+                                })}
+                            </div>
+                        {/if}
 
                         <!-- Action buttons -->
                         <div class="flex justify-end gap-2">

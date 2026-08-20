@@ -177,6 +177,15 @@ export interface IStorageService {
     deleteCompletedStashes(contextId?: string): Promise<void>;
     /** Runs the completed-stash cleanup; resolves to how many stashes were removed. */
     triggerAutoCleanup(): Promise<number>;
+
+    /** Write a context to a file; the archive is built in Rust. */
+    exportContextArchive(contextId: string, stashIds: string[], includeAttachments: boolean, destPath: string): Promise<ExportSummary>;
+    /** Inspect an archive without importing it. */
+    readImportArchive(path: string, contextId: string): Promise<ImportPreview>;
+    /** Write the selected stashes and their files in one transaction. */
+    commitImport(contextId: string, stashes: StashItem[], token: string): Promise<number>;
+    /** Drop the files an abandoned import had extracted. */
+    discardImport(token: string): Promise<void>;
     isWindows10(): Promise<boolean>;
     getDeviceName(): Promise<string>;
 
@@ -228,6 +237,36 @@ export interface IStorageService {
  * Data structure for file preview information.
  * Returned by the readFileForPreview method.
  */
+/** Context metadata carried in an archive's YAML frontmatter. */
+export interface ArchiveMetadata {
+    name: string;
+    description: string;
+    rules: unknown[];
+}
+
+export interface ExportSummary {
+    stashes: number;
+    attachments: number;
+    path: string;
+}
+
+/** What an archive turned out to contain, for the conflict UI to act on. */
+export interface ImportPreview {
+    stashes: StashItem[];
+    metadata: ArchiveMetadata;
+    /** Ids of parsed stashes resembling something the context already holds. */
+    duplicateIds: string[];
+    /** Handle for the extracted files; pass back to commitImport or discardImport. */
+    token: string;
+    /**
+     * How many stash headings carried a date that could not be read.
+     *
+     * Those stashes fall back to the import time. The previous importer did the same
+     * silently, so an unreadable archive lost every creation date without a word.
+     */
+    unreadableDates: number;
+}
+
 export interface FilePreviewData {
     /** Type of file: "image", "video", "text", or "unsupported" */
     fileType: 'image' | 'video' | 'text' | 'unsupported';
