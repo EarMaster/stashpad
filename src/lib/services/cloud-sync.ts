@@ -35,6 +35,12 @@ import { attachmentSync } from '../stores/attachment-sync.svelte';
 const FALLBACK_SYNC_INTERVAL_MS = 15 * 60 * 1000;
 const DEBOUNCE_DELAY_MS = 2000;
 
+/** First retry delay after a failed attachment upload; doubles with each failure. */
+const UPLOAD_RETRY_BASE_MS = 60_000;
+
+/** Ceiling on the upload retry delay. */
+const UPLOAD_RETRY_MAX_MS = 30 * 60 * 1000;
+
 /** Sync status for UI feedback */
 export type SyncStatus = 'idle' | 'syncing' | 'success' | 'error' | 'offline' | 'auth-error';
 
@@ -228,6 +234,10 @@ export class CloudSyncService {
      * status instead.
      */
     private lastAttachmentError: string | null = null;
+    /** Consecutive upload failures per attachment, used to grow the retry delay. */
+    private attachmentFailures = new Map<string, number>();
+    /** Earliest time (epoch ms) a failed upload may be retried. */
+    private attachmentRetryAfter = new Map<string, number>();
 
     constructor(adapter: IStorageService) {
         this.adapter = adapter;
@@ -860,16 +870,35 @@ export class CloudSyncService {
 
         let uploaded = false;
         const failures: string[] = [];
+        const now = Date.now();
 
         for (const att of attachments) {
+            // Back off after a failure instead of re-reading and re-sending the whole
+            // file on every sync. A permanently broken attachment would otherwise burn
+            // its full size in upload bandwidth on every cycle, indefinitely.
+            if (now < (this.attachmentRetryAfter.get(att.id) ?? 0)) continue;
+
             try {
                 if (await this.adapter.uploadAttachmentToCloud(att.id)) {
                     uploaded = true;
                 }
+                this.attachmentFailures.delete(att.id);
+                this.attachmentRetryAfter.delete(att.id);
             } catch (e) {
                 const msg = e instanceof Error ? e.message : String(e);
                 console.warn(`[CloudSync] Attachment upload failed for ${att.id}:`, msg);
                 failures.push(msg);
+
+                const attempts = (this.attachmentFailures.get(att.id) ?? 0) + 1;
+                this.attachmentFailures.set(att.id, attempts);
+                this.attachmentRetryAfter.set(
+                    att.id,
+                    Date.now() +
+                        Math.min(
+                            UPLOAD_RETRY_BASE_MS * 2 ** (attempts - 1),
+                            UPLOAD_RETRY_MAX_MS
+                        )
+                );
             }
         }
 

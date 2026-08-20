@@ -136,6 +136,41 @@ describe('attachmentSync queue', () => {
         expect(attachmentSync.isPending('a1', '')).toBe(true);
     });
 
+    it('re-queues a failed download once its backoff has elapsed', async () => {
+        // Regression: enqueue used to skip any id that had a status at all, so 'error'
+        // was terminal for the session - one offline blip poisoned those attachments
+        // until the app restarted or the user clicked each chip.
+        vi.useFakeTimers();
+        try {
+            const download = vi
+                .fn()
+                .mockRejectedValueOnce(new Error('offline'))
+                .mockResolvedValue('/cache/x.png');
+            attachmentSync.setAdapter({
+                downloadAttachmentFromCloud: download,
+            } as unknown as IStorageService);
+
+            attachmentSync.enqueue(['a1']);
+            await vi.advanceTimersByTimeAsync(0);
+            expect(attachmentSync.status('a1')).toBe('error');
+
+            // Immediately afterwards the backoff is still in force.
+            attachmentSync.enqueue(['a1']);
+            await vi.advanceTimersByTimeAsync(0);
+            expect(download).toHaveBeenCalledTimes(1);
+
+            // Once it elapses the next sync picks it up again.
+            await vi.advanceTimersByTimeAsync(31_000);
+            attachmentSync.enqueue(['a1']);
+            await vi.advanceTimersByTimeAsync(0);
+
+            expect(download).toHaveBeenCalledTimes(2);
+            expect(attachmentSync.pathFor('a1', '')).toBe('/cache/x.png');
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('retries an attachment that previously failed', async () => {
         const download = vi
             .fn()

@@ -30,6 +30,12 @@ import type { IStorageService } from '../types';
 /** How many downloads run at once. Small, so a prioritised item starts promptly. */
 const MAX_CONCURRENT = 2;
 
+/** First retry delay after a failed download; doubles with each further failure. */
+const RETRY_BASE_MS = 30_000;
+
+/** Ceiling on the retry delay, so a broken attachment settles into a slow poll. */
+const RETRY_MAX_MS = 15 * 60 * 1000;
+
 export type AttachmentSyncStatus = 'queued' | 'downloading' | 'error';
 
 /**
@@ -41,6 +47,10 @@ export class AttachmentSyncQueue {
     private queue: string[] = [];
     private active = new Set<string>();
     private waiters = new Map<string, Array<{ resolve: (path: string) => void; reject: (e: unknown) => void }>>();
+    /** Consecutive failures per attachment, used to grow the retry delay. */
+    private failures = new Map<string, number>();
+    /** Earliest time (epoch ms) a failed attachment may be retried. */
+    private retryAfter: Record<string, number> = {};
 
     /** Status per attachment id. Absent means nothing in flight. */
     statuses = $state<Record<string, AttachmentSyncStatus>>({});
@@ -80,10 +90,22 @@ export class AttachmentSyncQueue {
     enqueue(ids: string[]): void {
         let added = false;
         const next = { ...this.statuses };
+        const now = Date.now();
 
         for (const id of ids) {
-            if (this.resolved[id] || this.statuses[id] || this.active.has(id)) continue;
+            if (this.resolved[id] || this.active.has(id)) continue;
             if (this.queue.includes(id)) continue;
+
+            const status = this.statuses[id];
+            if (status === 'queued' || status === 'downloading') continue;
+
+            // A previous failure is not permanent. Skipping anything with *any* status
+            // made 'error' terminal for the session: a transient offline blip during one
+            // download pass poisoned those attachments until the app restarted or the
+            // user clicked each one. Retry once the backoff has elapsed instead, growing
+            // the delay so a genuinely broken attachment is not hammered.
+            if (status === 'error' && now < (this.retryAfter[id] ?? 0)) continue;
+
             this.queue.push(id);
             next[id] = 'queued';
             added = true;
@@ -109,6 +131,10 @@ export class AttachmentSyncQueue {
         if (this.statuses[id] === 'error') {
             const { [id]: _discarded, ...rest } = this.statuses;
             this.statuses = rest;
+            // An explicit request bypasses the backoff entirely - the user is waiting.
+            this.failures.delete(id);
+            const { [id]: _discardedRetry, ...remainingRetries } = this.retryAfter;
+            this.retryAfter = remainingRetries;
         }
 
         if (!this.queue.includes(id) && !this.active.has(id)) {
@@ -154,6 +180,11 @@ export class AttachmentSyncQueue {
             const path = await this.adapter.downloadAttachmentFromCloud(id);
             this.resolved = { ...this.resolved, [id]: path };
 
+            // Reset the backoff so a later failure starts from the short delay again.
+            this.failures.delete(id);
+            const { [id]: _discardedRetry, ...remainingRetries } = this.retryAfter;
+            this.retryAfter = remainingRetries;
+
             const { [id]: _discarded, ...rest } = this.statuses;
             this.statuses = rest;
 
@@ -169,6 +200,14 @@ export class AttachmentSyncQueue {
     }
 
     private fail(id: string, error: unknown): void {
+        // Exponential backoff, capped. A transient failure retries within seconds; one
+        // that keeps failing settles at a slow poll rather than re-downloading the file
+        // on every sync forever.
+        const attempts = (this.failures.get(id) ?? 0) + 1;
+        this.failures.set(id, attempts);
+        const delay = Math.min(RETRY_BASE_MS * 2 ** (attempts - 1), RETRY_MAX_MS);
+        this.retryAfter = { ...this.retryAfter, [id]: Date.now() + delay };
+
         this.statuses = { ...this.statuses, [id]: 'error' };
         this.waiters.get(id)?.forEach(w => w.reject(error));
         this.waiters.delete(id);

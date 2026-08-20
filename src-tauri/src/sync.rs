@@ -25,6 +25,40 @@ use crate::state::{SettingsState, DbState, WsState};
 use crate::settings::persist_settings_to_disk;
 use crate::utils::get_app_dir;
 
+/// How long a JSON API call may take before it is abandoned.
+///
+/// Every HTTP client here used to be a bare `reqwest::Client::new()`, which has no
+/// timeout at all. Combined with the `isSyncing` guard in cloud-sync.ts, a single
+/// stalled socket wedged *all* syncing - stashes and contexts included - until the OS
+/// gave up on the connection, which reads to the user as the app hanging.
+const API_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Attachment transfers get a longer ceiling: they move whole files, not small JSON
+/// bodies, and the presigned URL they use is valid for an hour.
+const TRANSFER_TIMEOUT: Duration = Duration::from_secs(300);
+
+/// Connect phase is bounded separately - an unreachable host should fail fast even when
+/// the overall budget is generous.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Client for JSON API calls.
+fn api_client() -> Result<reqwest::Client, String> {
+    reqwest::Client::builder()
+        .connect_timeout(CONNECT_TIMEOUT)
+        .timeout(API_TIMEOUT)
+        .build()
+        .map_err(|e| format!("Failed to build HTTP client: {}", e))
+}
+
+/// Client for uploading and downloading attachment bytes.
+fn transfer_client() -> Result<reqwest::Client, String> {
+    reqwest::Client::builder()
+        .connect_timeout(CONNECT_TIMEOUT)
+        .timeout(TRANSFER_TIMEOUT)
+        .build()
+        .map_err(|e| format!("Failed to build HTTP client: {}", e))
+}
+
 #[tauri::command]
 pub async fn start_cloud_auth(
     app: tauri::AppHandle,
@@ -133,7 +167,7 @@ pub async fn fetch_cloud_account(
         (config.endpoint.clone(), token)
     };
 
-    let client = reqwest::Client::new();
+    let client = api_client()?;
     let response = client
         .get(format!("{}/account", endpoint.trim_end_matches('/')))
         .header("Authorization", format!("Bearer {}", token))
@@ -182,7 +216,7 @@ pub async fn exchange_link_code_api(
         config.endpoint.clone()
     };
 
-    let client = reqwest::Client::new();
+    let client = api_client()?;
     let response = client
         .post(format!("{}/auth/exchange-token", endpoint.trim_end_matches('/')))
         .header("Content-Type", "application/json")
@@ -263,7 +297,7 @@ pub async fn sync_stashes_api(
         (config.endpoint.clone(), token)
     };
 
-    let client = reqwest::Client::new();
+    let client = api_client()?;
     let response = client
         .post(format!("{}/sync/stashes", endpoint.trim_end_matches('/')))
         .header("Authorization", format!("Bearer {}", token))
@@ -342,7 +376,27 @@ pub async fn upload_attachment_to_cloud(
         return Ok(false);
     }
 
-    let client = reqwest::Client::new();
+    // The file is recorded but gone from disk - deleting a stash removes its cache
+    // folder while leaving the attachment rows behind. Clear the stale path instead of
+    // failing: it stops this row claiming to hold bytes it does not have, and stops the
+    // upload being retried on every single sync forever.
+    if !std::path::Path::new(&attachment.file_path).exists() {
+        log::warn!(
+            "[Attachment] {} references a file that no longer exists: {}",
+            attachment.id,
+            attachment.file_path
+        );
+        let db = state.db.lock().unwrap();
+        db.conn
+            .execute(
+                "UPDATE attachments SET file_path = '' WHERE id = ?1",
+                params![attachment.id],
+            )
+            .map_err(|e| e.to_string())?;
+        return Ok(false);
+    }
+
+    let client = transfer_client()?;
     
     // 1. Get presigned upload URL from cloud
     let upload_req = serde_json::json!({
@@ -488,7 +542,7 @@ pub async fn download_attachment_from_cloud(
         return Ok(existing_path);
     }
 
-    let client = reqwest::Client::new();
+    let client = transfer_client()?;
 
     let meta_resp = client
         .get(format!(
@@ -541,7 +595,17 @@ pub async fn download_attachment_from_cloud(
     fs::create_dir_all(&dir).map_err(|e| format!("Failed to create cache dir: {}", e))?;
 
     let target = dir.join(&file_name);
-    fs::write(&target, &bytes).map_err(|e| format!("Failed to write attachment: {}", e))?;
+
+    // Write to a temporary file and rename into place. A direct write that is
+    // interrupted - crash, power loss, full disk - leaves a truncated file at the real
+    // path, and every later check only tests whether the path exists, so the corruption
+    // would look like a complete download forever. Rename within a directory is atomic.
+    let temp = dir.join(format!(".{}.part", attachment_id));
+    fs::write(&temp, &bytes).map_err(|e| format!("Failed to write attachment: {}", e))?;
+    if let Err(e) = fs::rename(&temp, &target) {
+        let _ = fs::remove_file(&temp);
+        return Err(format!("Failed to finalise attachment: {}", e));
+    }
 
     let path_str = target.to_string_lossy().to_string();
 
@@ -572,7 +636,7 @@ pub async fn sync_contexts_api(
         (config.endpoint.clone(), token)
     };
 
-    let client = reqwest::Client::new();
+    let client = api_client()?;
     let response = client
         .post(format!("{}/sync/contexts", endpoint.trim_end_matches('/')))
         .header("Authorization", format!("Bearer {}", token))
