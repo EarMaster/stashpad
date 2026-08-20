@@ -217,6 +217,11 @@ export interface IStorageService {
     /** Mark records the server accepted as synced. */
     markStashesSynced(ids: string[]): Promise<void>;
     markContextsSynced(ids: string[]): Promise<void>;
+    /** Orderings this device changed, marked in flight. */
+    claimPendingPositions(): Promise<StashPosition[]>;
+    markPositionsSynced(ids: string[]): Promise<void>;
+    /** Apply orderings from other devices; resolves to how many rows moved. */
+    importPositions(positions: StashPosition[]): Promise<number>;
     /** Fetch an attachment's bytes into the local cache; resolves to the file path. */
     downloadAttachmentFromCloud(attachmentId: string): Promise<string>;
     /** Sign out of the cloud and erase the stored JWT from the OS keychain. */
@@ -247,6 +252,20 @@ export interface ArchiveMetadata {
 }
 
 /** What an account is storing in the cloud. Attachment bytes are the only capped part. */
+/**
+ * One stash's place in the order.
+ *
+ * Travels apart from the record so a reorder never carries content with it: order and
+ * content are merged independently, and a cosmetic move cannot overwrite an edit made
+ * on another device.
+ */
+export interface StashPosition {
+    id: string;
+    position: number;
+    /** Client clock, Unix seconds - the Last-Write-Wins discriminator for ordering. */
+    positionUpdatedAt: number;
+}
+
 export interface CloudUsage {
     stashes: number;
     contexts: number;

@@ -13,7 +13,7 @@
 // See the GNU Affero General Public License for more details.
 
 import { invoke } from '@tauri-apps/api/core';
-import type { IStorageService, StashItem, AppContext, Settings, FilePreviewData, Context, Attachment, CloudConfig, ExportSummary, ImportPreview, CloudUsage } from '../types';
+import type { IStorageService, StashItem, AppContext, Settings, FilePreviewData, Context, Attachment, CloudConfig, ExportSummary, ImportPreview, CloudUsage, StashPosition } from '../types';
 
 /** Called after any local write so cloud sync can be scheduled. */
 type MutationListener = () => void;
@@ -353,6 +353,21 @@ export class DesktopStorageAdapter implements IStorageService {
     /** Clear the pending flag for stashes the server accepted. */
     async markStashesSynced(ids: string[]): Promise<void> {
         await invoke('mark_stashes_synced', { ids });
+    }
+
+    /** Orderings this device changed, marked in flight. */
+    async claimPendingPositions(): Promise<StashPosition[]> {
+        return await invoke<StashPosition[]>('claim_pending_positions');
+    }
+
+    /** Clear the pending flag for orderings the server accepted. */
+    async markPositionsSynced(ids: string[]): Promise<void> {
+        await invoke('mark_positions_synced', { ids });
+    }
+
+    /** Apply orderings from other devices; resolves to how many rows moved. */
+    async importPositions(positions: StashPosition[]): Promise<number> {
+        return await invoke<number>('import_positions', { positions });
     }
 
     /** Clear the pending flag for contexts the server accepted. */

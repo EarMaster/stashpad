@@ -1,4 +1,4 @@
-use crate::models::{Context, StashItem, Attachment, ContextRule}; 
+use crate::models::{Context, StashItem, StashPosition, Attachment, ContextRule}; 
 use rusqlite::{params, Connection, Result, OptionalExtension};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -185,6 +185,43 @@ impl DbManager {
                 [],
             );
         }
+
+        // Ordering syncs on its own channel, separate from the record's own timestamp.
+        //
+        // Reordering used to stamp `updated_at` and `pending_sync`, which made a purely
+        // cosmetic move indistinguishable from a content edit: the whole record was
+        // pushed, and per-record Last-Write-Wins meant a reorder could overwrite text
+        // someone had just written on another device. These two columns let a move carry
+        // only its own position and timestamp.
+        //
+        // Both default to 0 rather than 1: existing rows have an order, but it has never
+        // been synced and no device's copy is authoritative, so nothing is pushed until
+        // the user actually reorders something.
+        for (column, ddl) in [
+            ("position_updated_at", "ALTER TABLE stashes ADD COLUMN position_updated_at INTEGER NOT NULL DEFAULT 0"),
+            ("pending_position", "ALTER TABLE stashes ADD COLUMN pending_position INTEGER NOT NULL DEFAULT 0"),
+        ] {
+            let exists: bool = self
+                .conn
+                .query_row(
+                    &format!(
+                        "SELECT COUNT(*) FROM pragma_table_info('stashes') WHERE name='{}'",
+                        column
+                    ),
+                    [],
+                    |row| row.get(0).map(|c: i32| c > 0),
+                )
+                .unwrap_or(false);
+
+            if !exists {
+                let _ = self.conn.execute(ddl, []);
+            }
+        }
+
+        let _ = self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_stashes_pending_position ON stashes(pending_position)",
+            [],
+        );
 
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_attachments_stash_id ON attachments(stash_id)", [])?;
 
@@ -469,7 +506,7 @@ impl DbManager {
 
     pub fn get_stashes(&self) -> Result<Vec<StashItem>> {
         // 1. Get all stashes
-        let mut stmt = self.conn.prepare("SELECT id, context_id, content, files, created_at, completed, completed_at, position, updated_at, enhanced_content FROM stashes WHERE deleted = 0 ORDER BY position ASC")?;
+        let mut stmt = self.conn.prepare("SELECT id, context_id, content, files, created_at, completed, completed_at, position, updated_at, enhanced_content FROM stashes WHERE deleted = 0 ORDER BY position ASC, id ASC")?;
         
         let stash_rows = stmt.query_map([], |row| {
             let files_str: String = row.get(3)?;
@@ -681,6 +718,72 @@ impl DbManager {
         Ok(())
     }
 
+    /// Orderings this device has changed and the server has not acknowledged.
+    ///
+    /// Uses the same three-state machine as `pending_sync` for the same reason: a reorder
+    /// landing while a push is in flight must survive the acknowledgement rather than be
+    /// cleared with the batch that did not contain it.
+    pub fn claim_pending_positions(&mut self) -> Result<Vec<StashPosition>> {
+        self.conn.execute(
+            "UPDATE stashes SET pending_position = 2 WHERE pending_position > 0",
+            [],
+        )?;
+
+        let mut stmt = self.conn.prepare(
+            "SELECT id, position, position_updated_at FROM stashes WHERE pending_position = 2",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(StashPosition {
+                id: row.get(0)?,
+                position: row.get(1)?,
+                position_updated_at: row.get(2)?,
+            })
+        })?;
+
+        rows.collect()
+    }
+
+    /// Clear the in-flight flag for orderings the server accepted.
+    pub fn mark_positions_synced(&mut self, ids: &[String]) -> Result<()> {
+        if ids.is_empty() {
+            return Ok(());
+        }
+
+        let tx = self.conn.transaction()?;
+        for id in ids {
+            tx.execute(
+                "UPDATE stashes SET pending_position = 0 WHERE id = ?1 AND pending_position = 2",
+                params![id],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Apply orderings received from other devices.
+    ///
+    /// Writes nothing but the position: content, `updated_at` and `pending_sync` are left
+    /// exactly as they are, which is the whole point of giving order its own channel. An
+    /// incoming ordering older than the local one is ignored, so a device that reordered
+    /// more recently keeps its arrangement.
+    pub fn import_positions(&mut self, positions: &[StashPosition]) -> Result<usize> {
+        if positions.is_empty() {
+            return Ok(0);
+        }
+
+        let tx = self.conn.transaction()?;
+        let mut applied = 0usize;
+        for entry in positions {
+            applied += tx.execute(
+                "UPDATE stashes SET position = ?2, position_updated_at = ?3 \
+                 WHERE id = ?1 AND position_updated_at < ?3",
+                params![entry.id, entry.position, entry.position_updated_at],
+            )?;
+        }
+        tx.commit()?;
+        Ok(applied)
+    }
+
     pub fn get_contexts_for_sync(&mut self) -> Result<Vec<Context>> {
         self.load_contexts_for_sync_where("")
     }
@@ -889,13 +992,25 @@ impl DbManager {
 
     /// Update positions for a list of stashes. 
     /// Assuming the input list represents the new order.
+    /// Persist a new ordering.
+    ///
+    /// Deliberately leaves `updated_at` and `pending_sync` alone. Stamping them made a
+    /// reorder look like a content edit: the whole record went to the server, and because
+    /// Last-Write-Wins resolves per record, a reorder carrying stale text could win
+    /// against - and destroy - an edit made on another device. Order now travels on
+    /// `position_updated_at` / `pending_position`, where it cannot touch content.
+    ///
+    /// Only rows whose position actually changes are stamped, so re-persisting an
+    /// unchanged list is free and does not queue a pointless push.
     pub fn update_stash_positions(&mut self, stashes: &Vec<StashItem>) -> Result<()> {
          let tx = self.conn.transaction()?;
+         let now = now_ts();
          for (i, stash) in stashes.iter().enumerate() {
              let pos = i as f64;
              tx.execute(
-                 "UPDATE stashes SET position = ?2, updated_at = ?3, pending_sync = 1 WHERE id = ?1",
-                 params![stash.id, pos, now_ts()]
+                 "UPDATE stashes SET position = ?2, position_updated_at = ?3, pending_position = 1 \
+                  WHERE id = ?1 AND position IS NOT ?2",
+                 params![stash.id, pos, now]
              )?;
          }
          tx.commit()?;
@@ -1189,6 +1304,201 @@ mod tests {
 
     /// Build a stash carrying an explicit `updated_at`, as the UI does when it spreads
     /// a loaded stash back into the object it saves.
+    #[test]
+    fn reordering_does_not_touch_the_record_or_its_timestamp() {
+        // The regression guard for a data-loss path. Reordering used to stamp updated_at
+        // and pending_sync, which made a cosmetic move indistinguishable from a content
+        // edit: the whole record was pushed, and per-record Last-Write-Wins let a reorder
+        // carrying stale text beat - and destroy - an edit made on another device.
+        let mut db = create_test_db();
+
+        let stash = stash_with_updated_at("s-move", "important text", Some(1_000));
+        db.save_stash(&stash, Some(0.0), WriteOrigin::SyncImport)
+            .expect("save should succeed");
+
+        let before: (u64, i64) = db
+            .conn
+            .query_row(
+                "SELECT updated_at, pending_sync FROM stashes WHERE id = 's-move'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .expect("row should exist");
+
+        let reordered = vec![
+            stash_with_updated_at("other", "", None),
+            stash_with_updated_at("s-move", "important text", Some(1_000)),
+        ];
+        db.update_stash_positions(&reordered)
+            .expect("reorder should succeed");
+
+        let after: (u64, i64, f64, i64) = db
+            .conn
+            .query_row(
+                "SELECT updated_at, pending_sync, position, pending_position \
+                 FROM stashes WHERE id = 's-move'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .expect("row should exist");
+
+        assert_eq!(
+            after.0, before.0,
+            "a reorder must not restamp updated_at - that is what let it win against a real edit"
+        );
+        assert_eq!(
+            after.1, before.1,
+            "a reorder must not queue the record itself for a push"
+        );
+        assert_eq!(after.2, 1.0, "the new position must be stored");
+        assert_eq!(after.3, 1, "the ordering must be queued on its own channel");
+    }
+
+    #[test]
+    fn an_unchanged_order_queues_nothing() {
+        let mut db = create_test_db();
+        let stash = stash_with_updated_at("s-still", "content", Some(1_000));
+        db.save_stash(&stash, Some(0.0), WriteOrigin::SyncImport)
+            .expect("save should succeed");
+
+        db.update_stash_positions(&vec![stash_with_updated_at("s-still", "content", Some(1_000))])
+            .expect("reorder should succeed");
+
+        let pending: i64 = db
+            .conn
+            .query_row(
+                "SELECT pending_position FROM stashes WHERE id = 's-still'",
+                [],
+                |r| r.get(0),
+            )
+            .expect("row should exist");
+
+        assert_eq!(
+            pending, 0,
+            "re-persisting the same order must not push anything"
+        );
+    }
+
+    #[test]
+    fn a_reorder_during_a_push_stays_queued() {
+        // Same guarantee the record channel already makes: the acknowledgement clears only
+        // what was actually sent, so a move made mid-flight is not silently dropped.
+        let mut db = create_test_db();
+        db.save_stash(
+            &stash_with_updated_at("s-race", "content", Some(1_000)),
+            Some(0.0),
+            WriteOrigin::SyncImport,
+        )
+        .expect("save should succeed");
+
+        db.update_stash_positions(&vec![
+            stash_with_updated_at("filler", "", None),
+            stash_with_updated_at("s-race", "content", Some(1_000)),
+        ])
+        .expect("reorder should succeed");
+
+        let claimed = db.claim_pending_positions().expect("claim should succeed");
+        assert_eq!(claimed.len(), 1);
+
+        // The user moves it again while the push is in flight.
+        db.update_stash_positions(&vec![stash_with_updated_at("s-race", "content", Some(1_000))])
+            .expect("second reorder should succeed");
+
+        db.mark_positions_synced(&["s-race".to_string()])
+            .expect("ack should succeed");
+
+        let pending: i64 = db
+            .conn
+            .query_row(
+                "SELECT pending_position FROM stashes WHERE id = 's-race'",
+                [],
+                |r| r.get(0),
+            )
+            .expect("row should exist");
+
+        assert_eq!(
+            pending, 1,
+            "the move made during the push must still be waiting to go out"
+        );
+    }
+
+    #[test]
+    fn an_older_incoming_order_is_ignored() {
+        let mut db = create_test_db();
+        db.save_stash(
+            &stash_with_updated_at("s-lww", "content", Some(1_000)),
+            Some(5.0),
+            WriteOrigin::SyncImport,
+        )
+        .expect("save should succeed");
+
+        db.conn
+            .execute(
+                "UPDATE stashes SET position = 5.0, position_updated_at = 2000 WHERE id = 's-lww'",
+                [],
+            )
+            .expect("setup should succeed");
+
+        let applied = db
+            .import_positions(&[StashPosition {
+                id: "s-lww".to_string(),
+                position: 99.0,
+                position_updated_at: 1_500,
+            }])
+            .expect("import should succeed");
+
+        let position: f64 = db
+            .conn
+            .query_row("SELECT position FROM stashes WHERE id = 's-lww'", [], |r| {
+                r.get(0)
+            })
+            .expect("row should exist");
+
+        assert_eq!(applied, 0, "an older ordering must not be applied");
+        assert_eq!(position, 5.0, "the more recent local order must survive");
+    }
+
+    #[test]
+    fn a_newer_incoming_order_moves_the_row_and_nothing_else() {
+        let mut db = create_test_db();
+        db.save_stash(
+            &stash_with_updated_at("s-in", "local text", Some(1_000)),
+            Some(5.0),
+            WriteOrigin::SyncImport,
+        )
+        .expect("save should succeed");
+
+        let applied = db
+            .import_positions(&[StashPosition {
+                id: "s-in".to_string(),
+                position: 2.0,
+                position_updated_at: 9_000,
+            }])
+            .expect("import should succeed");
+
+        let row: (f64, String, u64, i64) = db
+            .conn
+            .query_row(
+                "SELECT position, content, updated_at, pending_sync FROM stashes WHERE id = 's-in'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .expect("row should exist");
+
+        assert_eq!(applied, 1);
+        assert_eq!(row.0, 2.0, "the incoming order must be applied");
+        assert_eq!(
+            row.1, "local text",
+            "an incoming order must never rewrite content"
+        );
+        assert_eq!(
+            row.2, 1_000,
+            "an incoming order must not restamp the record"
+        );
+        assert_eq!(row.3, 0, "and must not queue the record for a push");
+    }
+
+
     fn stash_with_updated_at(id: &str, content: &str, updated_at: Option<u64>) -> StashItem {
         StashItem {
             id: id.to_string(),

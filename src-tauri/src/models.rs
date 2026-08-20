@@ -27,6 +27,18 @@ pub struct Attachment {
     pub created_at: String,
 }
 
+/// One stash's place in the order.
+///
+/// Travels separately from the record so a reorder never carries content with it.
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct StashPosition {
+    pub id: String,
+    pub position: f64,
+    /// Client clock, in Unix seconds - the Last-Write-Wins discriminator for ordering.
+    pub position_updated_at: u64,
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct StashItem {

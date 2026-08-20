@@ -40,6 +40,9 @@ function createAdapter(overrides: Partial<IStorageService> = {}) {
         disconnectWebSocket: vi.fn().mockResolvedValue(undefined),
         markStashesSynced: vi.fn().mockResolvedValue(undefined),
         markContextsSynced: vi.fn().mockResolvedValue(undefined),
+        claimPendingPositions: vi.fn().mockResolvedValue([]),
+        markPositionsSynced: vi.fn().mockResolvedValue(undefined),
+        importPositions: vi.fn().mockResolvedValue(0),
         ...overrides,
     } as Record<string, unknown>;
 
@@ -999,6 +1002,73 @@ describe('CloudSyncService', () => {
 
             expect(adapter.importStashes).toHaveBeenCalled();
             expect(flags.some((f) => f === true)).toBe(true);
+        });
+    });
+
+
+    describe('ordering', () => {
+        const moved = [{ id: 's1', position: 3, positionUpdatedAt: 1755512000 }];
+
+        it('sends claimed orderings apart from the records', async () => {
+            // Order travels on its own channel so a reorder never carries content with it.
+            // Riding the record meant a cosmetic move could overwrite text edited on
+            // another device, because Last-Write-Wins resolves per record.
+            const adapter = createAdapter({
+                claimPendingPositions: vi.fn().mockResolvedValue(moved),
+            });
+
+            const service = new CloudSyncService(adapter);
+            await service.initialize(settingsWith(cloudConfig()));
+            await flushPromises();
+
+            const payload = (adapter.syncStashesApi as any).mock.calls[0][0];
+            expect(payload.positions).toEqual(moved);
+            expect(payload.stashes).toHaveLength(0);
+        });
+
+        it('applies orderings from other devices and refreshes the queue', async () => {
+            const incoming = [{ id: 'elsewhere', position: 7, positionUpdatedAt: 1755512500 }];
+            const adapter = createAdapter({
+                syncStashesApi: vi.fn().mockResolvedValue({
+                    synced: [],
+                    serverTime: '2026-08-18T12:00:00Z',
+                    positions: incoming,
+                }),
+                importPositions: vi.fn().mockResolvedValue(1),
+            });
+
+            const seen: (boolean | undefined)[] = [];
+            const service = new CloudSyncService(adapter);
+            service.addListener((status, _m, applied) => {
+                if (status === 'success') seen.push(applied);
+            });
+
+            await service.initialize(settingsWith(cloudConfig()));
+            await flushPromises();
+
+            expect(adapter.importPositions).toHaveBeenCalledWith(incoming);
+            expect(seen.some((f) => f === true)).toBe(true);
+        });
+
+        it('does not re-apply the ordering it just sent', async () => {
+            // The server echoes back what it stored. Importing our own move would be
+            // harmless but pointless work, and it would report a remote change that never
+            // happened, forcing a full queue reload after every reorder.
+            const adapter = createAdapter({
+                claimPendingPositions: vi.fn().mockResolvedValue(moved),
+                syncStashesApi: vi.fn().mockResolvedValue({
+                    synced: [],
+                    serverTime: '2026-08-18T12:00:00Z',
+                    positions: moved,
+                }),
+            });
+
+            const service = new CloudSyncService(adapter);
+            await service.initialize(settingsWith(cloudConfig()));
+            await flushPromises();
+
+            expect(adapter.importPositions).not.toHaveBeenCalled();
+            expect(adapter.markPositionsSynced).toHaveBeenCalledWith(['s1']);
         });
     });
 

@@ -27,7 +27,7 @@
  * cannot make a record look spuriously newer than its local copy.
  */
 
-import type { IStorageService, StashItem, Context, CloudConfig, Settings } from '../types';
+import type { IStorageService, StashItem, Context, CloudConfig, Settings, StashPosition } from '../types';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { attachmentSync } from '../stores/attachment-sync.svelte';
 
@@ -96,6 +96,8 @@ interface SyncRequest {
     deviceName: string | null;
     lastSyncAt: string | null;
     stashes: SyncStashInput[];
+    /** Orderings this device changed, carried apart from the records. */
+    positions: StashPosition[];
 }
 
 /** A record the server refused to apply, with the reason why */
@@ -111,6 +113,8 @@ interface SyncResponse {
     rejected?: RejectedRecord[];
     /** True when `synced` only contains records changed since `lastSyncAt` */
     partial?: boolean;
+    /** Orderings other devices changed since the cursor. */
+    positions?: StashPosition[];
 }
 
 /** Context format for cloud API */
@@ -501,6 +505,10 @@ export class CloudSyncService {
                       this.adapter.claimPendingContexts(),
                   ]);
 
+            // Orderings are claimed separately from the records: a reorder must not drag
+            // the record's content along, or it can overwrite an edit made elsewhere.
+            const pushPositions = await this.adapter.claimPendingPositions();
+
             const sentStashIds = pushStashes.map(s => s.id);
             const sentContextIds = pushContexts.map(c => c.id);
 
@@ -529,6 +537,7 @@ export class CloudSyncService {
                         syntax: att.syntax || null,
                     })),
                 })),
+                positions: pushPositions,
             };
 
             // Prepare context sync payload
@@ -579,6 +588,23 @@ export class CloudSyncService {
                 stashCount = stashResponse.synced.length;
                 this.reportRejected('stashes', stashResponse.rejected);
                 await this.acknowledgePush('stashes', sentStashIds, stashResponse.rejected);
+
+                // Orderings the server accepted are cleared by id. Only rows still in
+                // flight are cleared, so a reorder made during the push stays queued.
+                if (pushPositions.length > 0) {
+                    await this.adapter.markPositionsSynced(pushPositions.map(p => p.id));
+                }
+
+                // Orderings from other devices. Counted as a remote change so the queue
+                // reloads - a sync that moved rows but changed no text still reorders
+                // what the user is looking at.
+                const incoming = (stashResponse.positions || []).filter(
+                    p => !pushPositions.some(sent => sent.id === p.id)
+                );
+                if (incoming.length > 0) {
+                    const moved = await this.adapter.importPositions(incoming);
+                    if (moved > 0) appliedRemoteChanges = true;
+                }
             }
 
             // Upload after merging so attachments pulled in this cycle are already

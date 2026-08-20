@@ -787,3 +787,48 @@ pub async fn mark_stashes_synced(
         .mark_synced("stashes", &ids)
         .map_err(|e| e.to_string())
 }
+
+/// Orderings this device has changed and the server has not acknowledged.
+///
+/// Separate from `claim_pending_stashes` on purpose: a reorder must not drag the record's
+/// content along with it, or a cosmetic move can overwrite text written on another device.
+#[tauri::command]
+pub async fn claim_pending_positions(
+    state: State<'_, Arc<DbState>>,
+) -> Result<Vec<crate::models::StashPosition>, String> {
+    Ok(state
+        .db
+        .lock()
+        .unwrap()
+        .claim_pending_positions()
+        .unwrap_or_default())
+}
+
+/// Clear the pending flag for orderings the server accepted.
+#[tauri::command]
+pub async fn mark_positions_synced(
+    state: State<'_, Arc<DbState>>,
+    ids: Vec<String>,
+) -> Result<(), String> {
+    state
+        .db
+        .lock()
+        .unwrap()
+        .mark_positions_synced(&ids)
+        .map_err(|e| e.to_string())
+}
+
+/// Apply orderings received from other devices; resolves to how many rows moved.
+#[tauri::command]
+pub async fn import_positions(
+    state: State<'_, Arc<DbState>>,
+    positions: Vec<crate::models::StashPosition>,
+) -> Result<u32, String> {
+    state
+        .db
+        .lock()
+        .unwrap()
+        .import_positions(&positions)
+        .map(|n| n as u32)
+        .map_err(|e| e.to_string())
+}
