@@ -23,6 +23,8 @@
 
     let contexts = $state<Context[]>([]);
     let stashCounts = $state<Record<string, number>>({});
+    /** Stashes per context including completed ones — what export can actually write. */
+    let stashTotals = $state<Record<string, number>>({});
     let contextSizes = $state<Record<string, number>>({});
     let allStashes = $state<StashItem[]>([]);
     let isLoading = $state(true);
@@ -77,9 +79,11 @@
             const stashes = await adapter.loadStashes();
             allStashes = stashes;
             const counts: Record<string, number> = { default: 0 };
+            const totals: Record<string, number> = { default: 0 };
             const sizes: Record<string, number> = { default: 0 };
             contexts.forEach((ctx) => {
                 counts[ctx.id] = 0;
+                totals[ctx.id] = 0;
                 sizes[ctx.id] = 0;
             });
 
@@ -88,6 +92,11 @@
                 if (!stash.completed) {
                     counts[ctxId] = (counts[ctxId] || 0) + 1;
                 }
+                // Counted separately from `counts` because export must consider completed
+                // stashes too. getContextStashes() hands them to the export dialog, so
+                // gating the button on the active-only count locked export for any
+                // context whose stashes were all completed.
+                totals[ctxId] = (totals[ctxId] || 0) + 1;
                 // Include size of all stashes (active and completed) in context size
                 // OR should it be only active? Usually storage management implies all.
                 // Let's count all valid attachments.
@@ -98,6 +107,7 @@
                 }
             });
             stashCounts = counts;
+            stashTotals = totals;
             contextSizes = sizes;
         } catch (e) {
             console.error("Failed to load contexts", e);
@@ -274,6 +284,7 @@
                             bind:context={contexts[defaultIndex]}
                             stats={{
                                 count: stashCounts["default"] || 0,
+                                total: stashTotals["default"] || 0,
                                 size: contextSizes["default"] || 0,
                             }}
                             onSave={saveContext}
@@ -294,6 +305,7 @@
                             autoFocus={context.id === newlyCreatedContextId}
                             stats={{
                                 count: stashCounts[context.id] || 0,
+                                total: stashTotals[context.id] || 0,
                                 size: contextSizes[context.id] || 0,
                             }}
                             onSave={saveContext}

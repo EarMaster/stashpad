@@ -35,6 +35,17 @@ import { attachmentSync } from '../stores/attachment-sync.svelte';
 const FALLBACK_SYNC_INTERVAL_MS = 15 * 60 * 1000;
 const DEBOUNCE_DELAY_MS = 2000;
 
+/**
+ * Floor on how often a WebSocket notification may start a sync.
+ *
+ * A remote notification is a hint that something changed, not an instruction to sync
+ * immediately. Without a floor, two devices notified by each other's syncs drove one
+ * another in a permanent loop, and the constant import work made the app unresponsive.
+ * The server no longer announces no-op requests, but this keeps a single misbehaving or
+ * older server from being able to do it again.
+ */
+const REMOTE_SYNC_MIN_INTERVAL_MS = 5000;
+
 /** First retry delay after a failed attachment upload; doubles with each failure. */
 const UPLOAD_RETRY_BASE_MS = 60_000;
 
@@ -214,6 +225,10 @@ export class CloudSyncService {
     private isSyncing = false;
     private wsUnlisten: UnlistenFn | null = null;
     private initialized = false;
+    /** Timer coalescing a burst of remote notifications into a single sync. */
+    private remoteSyncTimer: ReturnType<typeof setTimeout> | null = null;
+    /** When the last notification-driven sync started, for the rate floor. */
+    private lastRemoteSyncAt = 0;
     /**
      * Last value `shouldSync()` returned.
      *
@@ -414,6 +429,34 @@ export class CloudSyncService {
         this.debounceTimer = setTimeout(() => {
             void this.sync();
         }, DEBOUNCE_DELAY_MS);
+    }
+
+    /**
+     * Schedule a sync in response to a remote notification.
+     *
+     * Kept separate from `triggerSync` because the two have different failure modes. A
+     * local mutation is trusted and only needs debouncing; a remote notification arrives
+     * from another device and must additionally be rate-limited, or a pair of devices
+     * notified by each other's syncs will drive one another without pause.
+     *
+     * A burst collapses into one sync, and consecutive syncs are held to
+     * `REMOTE_SYNC_MIN_INTERVAL_MS` — a notification arriving inside that window is not
+     * dropped but deferred to the end of it, so nothing is missed.
+     */
+    private scheduleRemoteSync(): void {
+        if (!this.shouldSync()) return;
+
+        // A burst is already pending; the sync it will run covers this notification too.
+        if (this.remoteSyncTimer) return;
+
+        const sinceLast = Date.now() - this.lastRemoteSyncAt;
+        const wait = Math.max(DEBOUNCE_DELAY_MS, REMOTE_SYNC_MIN_INTERVAL_MS - sinceLast);
+
+        this.remoteSyncTimer = setTimeout(() => {
+            this.remoteSyncTimer = null;
+            this.lastRemoteSyncAt = Date.now();
+            void this.sync();
+        }, wait);
     }
 
     /**
@@ -815,8 +858,8 @@ export class CloudSyncService {
                 this.wsUnlisten = await listen<{ type: string, source_device: string, timestamp: string }>('cloud:sync-notification', (event) => {
                     // Do not sync if the notification came from our own device (loop prevention)
                     if (event.payload.source_device !== this.deviceId) {
-                        console.debug('[CloudSyncService] Received sync notification from', event.payload.source_device, '- triggering sync');
-                        void this.sync();
+                        console.debug('[CloudSyncService] Received sync notification from', event.payload.source_device, '- scheduling sync');
+                        this.scheduleRemoteSync();
                     }
                 });
             }
@@ -829,6 +872,12 @@ export class CloudSyncService {
         if (this.wsUnlisten) {
             this.wsUnlisten();
             this.wsUnlisten = null;
+        }
+        // Drop any sync a notification had queued: the socket is going away, and on a
+        // logout path the deferred sync would otherwise fire against cleared credentials.
+        if (this.remoteSyncTimer) {
+            clearTimeout(this.remoteSyncTimer);
+            this.remoteSyncTimer = null;
         }
         try {
             await this.adapter.disconnectWebSocket();
@@ -844,6 +893,10 @@ export class CloudSyncService {
         this.stopPeriodicSync();
         if (this.debounceTimer) {
             clearTimeout(this.debounceTimer);
+        }
+        if (this.remoteSyncTimer) {
+            clearTimeout(this.remoteSyncTimer);
+            this.remoteSyncTimer = null;
         }
         this.listeners.clear();
     }

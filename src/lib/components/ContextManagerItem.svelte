@@ -26,7 +26,7 @@
 
     let {
         context = $bindable(),
-        stats = { count: 0, size: 0 },
+        stats = { count: 0, total: 0, size: 0 },
         isDefault = false,
         autoFocus = false,
         onSave,
@@ -36,7 +36,11 @@
         onSelect,
     } = $props<{
         context: Context;
-        stats: { count: number; size: number };
+        /**
+         * `count` is active stashes, shown in the badge. `total` includes completed ones
+         * and is what export is gated on, since export writes those too.
+         */
+        stats: { count: number; total: number; size: number };
         isDefault?: boolean;
         autoFocus?: boolean;
         onSave?: (context: Context) => void;
@@ -107,7 +111,7 @@
             <ActionButton
                 variant="context"
                 onclick={onExport}
-                disabled={stats.count === 0}
+                disabled={stats.total === 0}
                 title={$_("contexts.exportContext")}
             >
                 <Upload size={14} />

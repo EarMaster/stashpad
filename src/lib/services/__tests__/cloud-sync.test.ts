@@ -14,6 +14,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { CloudSyncService } from '../cloud-sync';
+import { listen } from '@tauri-apps/api/event';
 import { attachmentSync } from '$lib/stores/attachment-sync.svelte';
 import type { IStorageService, Settings, CloudConfig, StashItem, Context } from '$lib/types';
 
@@ -83,6 +84,7 @@ async function flushPromises(): Promise<void> {
 
 /** Debounce window used by `triggerSync`. */
 const DEBOUNCE_MS = 2000;
+const REMOTE_FLOOR_MS = 5000;
 
 describe('CloudSyncService', () => {
     beforeEach(() => {
@@ -842,4 +844,99 @@ describe('CloudSyncService', () => {
             expect(adapter.syncStashesApi).not.toHaveBeenCalled();
         });
     });
+
+    describe('remote sync notifications', () => {
+        /**
+         * Build a service and hand back a way to fire the WebSocket notification the
+         * service subscribes to, so the coalescing can be driven directly.
+         */
+        async function withNotifications(adapter: IStorageService) {
+            let handler: ((event: unknown) => void) | null = null;
+            (listen as any).mockImplementation(
+                (name: string, cb: (event: unknown) => void) => {
+                    if (name === 'cloud:sync-notification') handler = cb;
+                    return Promise.resolve(() => {});
+                },
+            );
+
+            const service = new CloudSyncService(adapter);
+            await service.initialize(
+                settingsWith(cloudConfig({ lastSyncAt: '2026-08-18T11:00:00Z' })),
+            );
+            await flushPromises();
+
+            return {
+                service,
+                notify(sourceDevice: string) {
+                    handler?.({
+                        payload: {
+                            type: 'sync_available',
+                            source_device: sourceDevice,
+                            timestamp: '2026-08-20T10:00:00Z',
+                        },
+                    });
+                },
+            };
+        }
+
+        it('collapses a burst of notifications into a single sync', async () => {
+            // Each notification used to call sync() directly. Combined with a server that
+            // announced every request, two devices woke each other without pause and the
+            // constant import work under the shared database lock froze the UI.
+            localStorage.setItem('stashpad_device_id', 'device-a');
+            const adapter = createAdapter();
+            const { notify } = await withNotifications(adapter);
+
+            (adapter.syncStashesApi as any).mockClear();
+
+            for (let i = 0; i < 5; i++) notify('device-b');
+            await vi.advanceTimersByTimeAsync(REMOTE_FLOOR_MS + 100);
+            await flushPromises();
+
+            expect(adapter.syncStashesApi).toHaveBeenCalledTimes(1);
+        });
+
+        it('ignores a notification caused by this device', async () => {
+            localStorage.setItem('stashpad_device_id', 'device-a');
+            const adapter = createAdapter();
+            const { notify } = await withNotifications(adapter);
+
+            (adapter.syncStashesApi as any).mockClear();
+
+            notify('device-a');
+            await vi.advanceTimersByTimeAsync(REMOTE_FLOOR_MS + 100);
+            await flushPromises();
+
+            expect(adapter.syncStashesApi).not.toHaveBeenCalled();
+        });
+
+        it('defers a notification that arrives inside the rate floor instead of dropping it', async () => {
+            // The floor must not lose notifications: the second one carries real changes
+            // and has to be picked up once the window passes, or the device silently
+            // stays behind until the next fallback poll.
+            localStorage.setItem('stashpad_device_id', 'device-a');
+            const adapter = createAdapter();
+            const { notify } = await withNotifications(adapter);
+
+            (adapter.syncStashesApi as any).mockClear();
+
+            notify('device-b');
+            await vi.advanceTimersByTimeAsync(REMOTE_FLOOR_MS + 100);
+            await flushPromises();
+            expect(adapter.syncStashesApi).toHaveBeenCalledTimes(1);
+
+            // Immediately afterwards, well inside the floor: it must not sync straight
+            // away...
+            notify('device-b');
+            await vi.advanceTimersByTimeAsync(500);
+            await flushPromises();
+            expect(adapter.syncStashesApi).toHaveBeenCalledTimes(1);
+
+            // ...but it must still happen once the window passes.
+            await vi.advanceTimersByTimeAsync(REMOTE_FLOOR_MS);
+            await flushPromises();
+            expect(adapter.syncStashesApi).toHaveBeenCalledTimes(2);
+        });
+    });
+
 });
