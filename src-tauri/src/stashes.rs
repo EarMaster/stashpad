@@ -245,23 +245,91 @@ pub fn delete_completed_stashes(state: State<Arc<DbState>>, context_id: Option<S
     }
 }
 
+/// Remove the cache folders of the given stashes and clear the paths that pointed into
+/// them, so no attachment row is left claiming to hold a file that was just deleted.
+fn purge_stash_files(db: &DbManager, stashes: &[(String, Option<String>)]) {
+    for (id, context_id) in stashes {
+        let folder = get_stash_cache_path(id, context_id.as_deref());
+        if folder.exists() {
+            if let Err(e) = fs::remove_dir_all(&folder) {
+                log::warn!("Cleanup: could not remove {}: {}", folder.display(), e);
+            }
+        }
+        let _ = db.conn.execute(
+            "UPDATE attachments SET file_path = '' WHERE stash_id = ?1",
+            params![id],
+        );
+    }
+}
+
+/// Completed, not-yet-deleted stashes, optionally only those completed before `cutoff`
+/// (an RFC3339 timestamp).
+fn completed_stashes(db: &DbManager, cutoff: Option<&str>) -> Vec<(String, Option<String>)> {
+    let result = match cutoff {
+        Some(before) => db
+            .conn
+            .prepare(
+                "SELECT id, context_id FROM stashes \
+                 WHERE completed = 1 AND deleted = 0 AND completed_at IS NOT NULL \
+                 AND completed_at < ?1",
+            )
+            .and_then(|mut stmt| {
+                let rows = stmt.query_map(params![before], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+                })?;
+                Ok(rows.filter_map(|r| r.ok()).collect::<Vec<_>>())
+            }),
+        None => db
+            .conn
+            .prepare("SELECT id, context_id FROM stashes WHERE completed = 1 AND deleted = 0")
+            .and_then(|mut stmt| {
+                let rows = stmt.query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+                })?;
+                Ok(rows.filter_map(|r| r.ok()).collect::<Vec<_>>())
+            }),
+    };
+
+    result.unwrap_or_else(|e| {
+        log::error!("Cleanup: could not list completed stashes: {}", e);
+        Vec::new()
+    })
+}
+
 pub fn perform_startup_cleanup(db: &mut DbManager, settings: &Settings) {
-    let _cache_dir = get_app_dir().join("cache");
-    
-    if settings.clear_completed_strategy == "on-close" {
-         println!("Startup Cleanup: Clearing all completed stashes (on-close strategy)");
-         // To properly cleanup attachments, we'd need to iterate.
-         // For now, relies on db logic for data, but attachment cleanup might be skipped if we don't query 
-         // as done in delete_completed_stashes.
-         // Let's call delete logic internally if possible or just execute query.
-         let _ = db.delete_completed_stashes(None);
-         
-    } else if settings.clear_completed_strategy == "after-n-days" {
-         let _days = settings.clear_completed_days as i64;
-         // Clean older than days.
-         // This is complex to replicate quickly without duplicating delete_completed_stashes logic but with date filter.
-         // Leaving empty for now to strictly follow migration task (parity is good but DB is better).
-         // Future task: implement proper cron/cleanup.
+    match settings.clear_completed_strategy.as_str() {
+        "on-close" => {
+            let stale = completed_stashes(db, None);
+            log::info!("Startup cleanup: clearing {} completed stash(es)", stale.len());
+            purge_stash_files(db, &stale);
+            let _ = db.delete_completed_stashes(None);
+        }
+        "after-n-days" => {
+            // Previously an empty stub: the setting existed, was selectable, and did
+            // nothing at all. A setting that silently has no effect is worse than one
+            // that is not offered.
+            let days = settings.clear_completed_days.max(0) as i64;
+            let cutoff = (chrono::Utc::now() - chrono::Duration::days(days)).to_rfc3339();
+
+            let stale = completed_stashes(db, Some(&cutoff));
+            if stale.is_empty() {
+                return;
+            }
+
+            log::info!(
+                "Startup cleanup: clearing {} stash(es) completed more than {} day(s) ago",
+                stale.len(),
+                days
+            );
+            purge_stash_files(db, &stale);
+
+            for (id, _) in &stale {
+                if let Err(e) = db.delete_stash(id) {
+                    log::error!("Cleanup: could not delete stash {}: {}", id, e);
+                }
+            }
+        }
+        _ => {}
     }
 }
 

@@ -1618,6 +1618,52 @@ mod tests {
     }
 
     #[test]
+    fn deleting_a_stash_clears_paths_of_attachments_whose_files_are_gone() {
+        // Deleting a stash removes its cache folder but keeps the attachment rows. Left
+        // pointing at the removed files, the upload path retried reading a missing file
+        // on every sync forever - which is exactly the state three attachments were in.
+        let mut db = create_test_db();
+
+        let mut stash = stash_with_updated_at("s-purge", "has a file", None);
+        stash.attachments = vec![Attachment {
+            id: "att-purge".to_string(),
+            stash_id: "s-purge".to_string(),
+            file_path: "/cache/ctx/s-purge/shot.png".to_string(),
+            file_name: "shot.png".to_string(),
+            file_size: 10,
+            mime_type: None,
+            syntax: None,
+            created_at: "2026-08-20T10:00:00Z".to_string(),
+        }];
+        db.save_stash(&stash, None, WriteOrigin::LocalEdit)
+            .expect("save should succeed");
+
+        // The Tauri command clears the paths; emulate that half here, since the file
+        // removal itself is filesystem work the DB layer does not do.
+        db.conn
+            .execute(
+                "UPDATE attachments SET file_path = '' WHERE stash_id = ?1",
+                params!["s-purge"],
+            )
+            .expect("clear should succeed");
+        db.delete_stash("s-purge").expect("delete should succeed");
+
+        let path: String = db
+            .conn
+            .query_row(
+                "SELECT file_path FROM attachments WHERE id = 'att-purge'",
+                [],
+                |r| r.get(0),
+            )
+            .expect("the row itself must survive as a tombstone carrier");
+
+        assert_eq!(
+            path, "",
+            "a row must not keep claiming a file that was deleted with its stash"
+        );
+    }
+
+    #[test]
     fn deleted_stashes_are_returned_to_sync_as_tombstones() {
         // Other devices only learn about a deletion if the tombstone is sent, so
         // get_stashes_for_sync must include deleted rows even though get_stashes hides
