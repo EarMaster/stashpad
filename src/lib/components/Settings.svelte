@@ -273,6 +273,34 @@
     }
   }
 
+  /** True while a re-upload/repair pass is running, to keep the button honest. */
+  let isRepairingAttachments = $state(false);
+
+  /**
+   * Re-link cache files that lost their attachment row, then queue everything this
+   * device holds for upload again.
+   *
+   * Necessarily per-machine: the server never received these files, so only a device
+   * that still has them on disk can supply them.
+   */
+  async function handleRepairAttachments() {
+    isRepairingAttachments = true;
+    try {
+      const relinked = await adapter.repairOrphanedAttachments();
+      const queued = await adapter.requeueAttachmentUploads();
+      console.log(
+        `[Attachments] Re-linked ${relinked} orphaned file(s), queued ${queued} for upload`,
+      );
+      // Uploads happen inside the sync cycle, so kick one off rather than waiting for
+      // the fallback poll.
+      onTriggerSync?.();
+    } catch (e) {
+      console.error("Failed to repair attachments:", e);
+    } finally {
+      isRepairingAttachments = false;
+    }
+  }
+
   /** Clears all cloud auth data, erases the stored token, and disables sync. */
   async function handleCloudLogout() {
     // Must go through the backend command: save_settings deliberately restores a
@@ -551,6 +579,16 @@
                       class={syncStatus === "syncing" ? "animate-spin" : ""}
                     />
                   {/snippet}
+                </SettingsButton>
+                <SettingsButton
+                  variant="outline"
+                  title={$_("attachments.repairHint")}
+                  onclick={handleRepairAttachments}
+                  disabled={isRepairingAttachments || syncStatus === "syncing"}
+                >
+                  {isRepairingAttachments
+                    ? $_("attachments.repairing")
+                    : $_("attachments.repair")}
                 </SettingsButton>
                 <SettingsButton
                   variant="destructive"

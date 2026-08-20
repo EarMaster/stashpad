@@ -173,15 +173,23 @@ pub fn delete_stash(state: State<Arc<DbState>>, id: String) {
 
     if let Some((_, context_id)) = stash_info {
         let stash_path = get_stash_cache_path(&id, context_id.as_deref());
-        
+
         // delete directory recursively
         if stash_path.exists() {
              if let Err(e) = fs::remove_dir_all(&stash_path) {
                  println!("Failed to delete stash attachments: {}", e);
              }
         }
+
+        // The files are gone, so the rows must stop claiming to hold them. Left as-is
+        // they point at paths that no longer exist, and the upload path then retries
+        // reading a missing file on every sync forever.
+        let _ = db.conn.execute(
+            "UPDATE attachments SET file_path = '' WHERE stash_id = ?1",
+            params![id],
+        );
     }
-    
+
     if let Err(e) = db.delete_stash(&id) {
          println!("Failed to delete stash from DB: {}", e);
     }
@@ -223,6 +231,13 @@ pub fn delete_completed_stashes(state: State<Arc<DbState>>, context_id: Option<S
          if stash_folder.exists() {
              let _ = fs::remove_dir_all(stash_folder);
          }
+
+         // Same as delete_stash: the rows outlive the files, so clear the paths rather
+         // than leave them pointing at a directory that was just removed.
+         let _ = db.conn.execute(
+             "UPDATE attachments SET file_path = '' WHERE stash_id = ?1",
+             params![id],
+         );
     }
 
     if let Err(e) = db.delete_completed_stashes(context_id) {
@@ -695,4 +710,150 @@ pub fn mark_stashes_synced(
         .unwrap()
         .mark_synced("stashes", &ids)
         .map_err(|e| e.to_string())
+}
+
+/// Queue every attachment on this device for upload again.
+///
+/// Clears the local `uploaded_at` marker for rows whose file is actually present, so the
+/// next sync re-sends them. Rows with no local file are left alone - this device does not
+/// have those bytes, and only a device that does can supply them.
+///
+/// Necessarily per-machine: the server never received the files, so there is nothing
+/// there to re-upload from.
+#[tauri::command]
+pub async fn requeue_attachment_uploads(state: State<'_, Arc<DbState>>) -> Result<u32, String> {
+    let db = state.db.lock().unwrap();
+
+    let rows: Vec<(String, String)> = {
+        let mut stmt = db
+            .conn
+            .prepare("SELECT id, file_path FROM attachments WHERE TRIM(file_path) <> ''")
+            .map_err(|e| e.to_string())?;
+        let mapped = stmt
+            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+            .map_err(|e| e.to_string())?;
+        mapped.filter_map(|r| r.ok()).collect()
+    };
+
+    let mut queued = 0u32;
+    for (id, path) in rows {
+        if !std::path::Path::new(&path).exists() {
+            continue;
+        }
+        db.conn
+            .execute(
+                "UPDATE attachments SET uploaded_at = NULL WHERE id = ?1",
+                params![id],
+            )
+            .map_err(|e| e.to_string())?;
+        queued += 1;
+    }
+
+    log::info!("[Attachment] Re-queued {} attachment(s) for upload", queued);
+    Ok(queued)
+}
+
+/// Re-link cache files that have no attachment row.
+///
+/// Files can outlive their row - an interrupted edit, or a row removed while its bytes
+/// stayed on disk. Such a file is invisible: the app never shows it and sync never
+/// uploads it. The cache layout is `cache/<context-id>/<stash-id>/<filename>`, so the
+/// owning stash can be recovered from the path itself.
+///
+/// Only files belonging to a stash that still exists are re-linked; anything else is
+/// left untouched rather than guessed at.
+#[tauri::command]
+pub async fn repair_orphaned_attachments(state: State<'_, Arc<DbState>>) -> Result<u32, String> {
+    let cache_dir = get_app_dir().join("cache");
+    if !cache_dir.exists() {
+        return Ok(0);
+    }
+
+    let db = state.db.lock().unwrap();
+
+    let known: std::collections::HashSet<String> = {
+        let mut stmt = db
+            .conn
+            .prepare("SELECT file_path FROM attachments WHERE TRIM(file_path) <> ''")
+            .map_err(|e| e.to_string())?;
+        let mapped = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(|e| e.to_string())?;
+        mapped.filter_map(|r| r.ok()).collect()
+    };
+
+    let mut repaired = 0u32;
+
+    // cache/<context>/<stash>/<file>
+    for ctx_entry in fs::read_dir(&cache_dir).map_err(|e| e.to_string())?.flatten() {
+        if !ctx_entry.path().is_dir() {
+            continue;
+        }
+        for stash_entry in fs::read_dir(ctx_entry.path())
+            .map_err(|e| e.to_string())?
+            .flatten()
+        {
+            if !stash_entry.path().is_dir() {
+                continue;
+            }
+            let stash_id = stash_entry.file_name().to_string_lossy().to_string();
+
+            // Only adopt files into a stash that still exists.
+            let stash_exists: bool = db
+                .conn
+                .query_row(
+                    "SELECT COUNT(*) FROM stashes WHERE id = ?1 AND deleted = 0",
+                    params![stash_id],
+                    |row| row.get::<_, i64>(0).map(|c| c > 0),
+                )
+                .unwrap_or(false);
+            if !stash_exists {
+                continue;
+            }
+
+            for file_entry in fs::read_dir(stash_entry.path())
+                .map_err(|e| e.to_string())?
+                .flatten()
+            {
+                let path = file_entry.path();
+                if !path.is_file() {
+                    continue;
+                }
+                let path_str = path.to_string_lossy().to_string();
+                if known.contains(&path_str) {
+                    continue;
+                }
+
+                let file_name = match path.file_name() {
+                    Some(n) => n.to_string_lossy().to_string(),
+                    None => continue,
+                };
+                // Partial downloads are working files, not orphans.
+                if file_name.starts_with('.') && file_name.ends_with(".part") {
+                    continue;
+                }
+
+                let size = file_entry.metadata().map(|m| m.len() as i64).unwrap_or(0);
+
+                db.conn
+                    .execute(
+                        "INSERT INTO attachments (id, stash_id, file_path, file_name, file_size, mime_type, syntax, created_at, uploaded_at) \
+                         VALUES (?1, ?2, ?3, ?4, ?5, NULL, NULL, ?6, NULL)",
+                        params![
+                            uuid::Uuid::new_v4().to_string(),
+                            stash_id,
+                            path_str,
+                            file_name,
+                            size,
+                            chrono::Utc::now().to_rfc3339()
+                        ],
+                    )
+                    .map_err(|e| e.to_string())?;
+                repaired += 1;
+            }
+        }
+    }
+
+    log::info!("[Attachment] Re-linked {} orphaned file(s)", repaired);
+    Ok(repaired)
 }
