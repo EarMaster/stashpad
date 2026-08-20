@@ -233,8 +233,8 @@ export class DesktopStorageAdapter implements IStorageService {
         return await invoke('start_cloud_auth');
     }
 
-    async exchangeLinkCodeApi(token: string): Promise<CloudConfig> {
-        return await invoke('exchange_link_code_api', { token });
+    async exchangeLinkCodeApi(token: string, deviceId?: string): Promise<CloudConfig> {
+        return await invoke('exchange_link_code_api', { token, deviceId });
     }
 
     async connectWebSocket(): Promise<void> {

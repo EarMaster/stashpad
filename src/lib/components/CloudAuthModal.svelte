@@ -21,6 +21,7 @@
     import { openUrl } from "@tauri-apps/plugin-opener";
     import { onOpenUrl } from "@tauri-apps/plugin-deep-link";
     import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
+    import { getOrCreateDeviceId } from "$lib/services/cloud-sync";
     import {
         Loader2,
         ExternalLink,
@@ -124,6 +125,7 @@
         try {
             const data = await new DesktopStorageAdapter().exchangeLinkCodeApi(
                 linkCode.trim(),
+                getOrCreateDeviceId(),
             );
 
             // Persist the new status in settings state

@@ -226,6 +226,24 @@ function toSeconds(ms: number): number {
 /**
  * CloudSyncService manages automatic data synchronization
  */
+/**
+ * Get or create the identifier this installation is known by on the server.
+ *
+ * Shared with the account linking flow: the id is sent when a link code is exchanged
+ * so the server can tie the token it issues to this installation, which is what lets
+ * the account page revoke this one instance without touching the others. Linking and
+ * syncing must therefore agree on the value, so both read it from here.
+ */
+export function getOrCreateDeviceId(): string {
+    const key = 'stashpad_device_id';
+    let deviceId = localStorage.getItem(key);
+    if (!deviceId) {
+        deviceId = crypto.randomUUID();
+        localStorage.setItem(key, deviceId);
+    }
+    return deviceId;
+}
+
 export class CloudSyncService {
     private adapter: IStorageService;
     private settings: Settings | null = null;
@@ -272,17 +290,16 @@ export class CloudSyncService {
         this.deviceId = this.getOrCreateDeviceId();
     }
 
+    /** The identifier this installation is known by on the server. */
+    getDeviceId(): string {
+        return this.deviceId;
+    }
+
     /**
      * Get or create a persistent device ID for sync tracking
      */
     private getOrCreateDeviceId(): string {
-        const key = 'stashpad_device_id';
-        let deviceId = localStorage.getItem(key);
-        if (!deviceId) {
-            deviceId = crypto.randomUUID();
-            localStorage.setItem(key, deviceId);
-        }
-        return deviceId;
+        return getOrCreateDeviceId();
     }
 
     /**

@@ -197,7 +197,7 @@ export interface IStorageService {
     setAutostart(enabled: boolean): Promise<void>;
     getAutostartEnabled(): Promise<boolean>;
     startCloudAuth(): Promise<CloudConfig>;
-    exchangeLinkCodeApi(token: string): Promise<CloudConfig>;
+    exchangeLinkCodeApi(token: string, deviceId?: string): Promise<CloudConfig>;
     /** Fetch account info from cloud and update local subscription status */
     fetchCloudAccount(): Promise<CloudConfig>;
     /** What this account is storing in the cloud. */

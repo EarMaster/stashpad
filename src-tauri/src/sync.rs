@@ -209,6 +209,7 @@ pub async fn fetch_cloud_account(
 pub async fn exchange_link_code_api(
     settings_state: State<'_, Arc<SettingsState>>,
     token: String,
+    device_id: Option<String>,
 ) -> Result<CloudConfig, String> {
     let endpoint = {
         let settings = settings_state.settings.lock().unwrap();
@@ -220,7 +221,9 @@ pub async fn exchange_link_code_api(
     let response = client
         .post(format!("{}/auth/exchange-token", endpoint.trim_end_matches('/')))
         .header("Content-Type", "application/json")
-        .json(&serde_json::json!({ "token": token }))
+        // The device id ties the issued token to this installation, so the account page
+        // can revoke this instance on its own instead of every session at once.
+        .json(&serde_json::json!({ "token": token, "device_id": device_id }))
         .send()
         .await
         .map_err(|e| format!("Failed to reach server: {}", e))?;
