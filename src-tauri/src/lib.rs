@@ -393,6 +393,7 @@ pub fn run() {
             utils::get_autostart_enabled,
             sync::start_cloud_auth,
             sync::fetch_cloud_account,
+            sync::fetch_cloud_usage,
             utils::check_screen_recording_permission,
             utils::open_macos_screen_recording_settings,
             utils::check_apple_intelligence_available,

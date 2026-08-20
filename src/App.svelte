@@ -573,6 +573,8 @@
             contextSelectorOpen = true;
             isCycling = false;
          }}
+         {syncStatus}
+         {syncStatusMessage}
       />
 
       <div class="flex-1 flex flex-col min-h-0">

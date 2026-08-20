@@ -17,9 +17,10 @@
 <script lang="ts">
   import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
   import type { SyncStatus } from "$lib/services/cloud-sync";
-  import type { Settings, AIConfig } from "$lib/types";
+  import type { Settings, AIConfig, CloudUsage } from "$lib/types";
   import {
     _,
+    locale,
     setLocale,
     SUPPORTED_LOCALES,
     LOCALE_DISPLAY_NAMES,
@@ -30,6 +31,7 @@
   import { fade } from "svelte/transition";
   import { onMount } from "svelte";
   import { APP_VERSION } from "$lib/utils/version";
+  import { formatBytes } from "$lib/utils/format";
   import {
     AI_PROVIDER_PRESETS,
     getPresetById,
@@ -125,6 +127,31 @@
   // macOS Screen Recording permission state
   const isMac = navigator.platform.includes("Mac");
   let hasScreenRecordingPermission = $state(true);
+
+  /** Cloud storage usage, fetched when the panel opens. Null until it arrives. */
+  let cloudUsage = $state<CloudUsage | null>(null);
+
+  /** Clamped so an account past its allowance shows a full bar, not an overflowing one. */
+  let usagePercent = $derived(
+    cloudUsage && cloudUsage.quotaBytes > 0
+      ? Math.min(100, (cloudUsage.attachmentBytes / cloudUsage.quotaBytes) * 100)
+      : 0,
+  );
+
+  onMount(async () => {
+    // Only subscribers have cloud storage to report; everyone else is local-only and
+    // bounded by their own disk, so there is nothing to show.
+    const config = settings.cloudConfig;
+    if (!config?.enabled || !config.userId || config.subscriptionTier === "free") {
+      return;
+    }
+    try {
+      cloudUsage = await adapter.fetchCloudUsage();
+    } catch (e) {
+      // Usage is informational; failing to fetch it must not disturb the panel.
+      console.warn("[Settings] Could not fetch cloud usage:", e);
+    }
+  });
 
   onMount(async () => {
     isWin10 = await adapter.isWindows10();
@@ -510,6 +537,53 @@
                       {$_("settings.cloudSync.auth.neverSynced")}
                     {/if}
                   </div>
+
+                  <!-- Storage usage. Only meaningful with a subscription: without one
+                       nothing is stored in the cloud at all. -->
+                  {#if cloudUsage}
+                    <div class="pl-3 pt-1.5 space-y-1">
+                      <div class="flex items-center justify-between text-[10px]">
+                        <span class="text-muted-foreground">
+                          {$_("settings.cloudSync.usage.attachments", {
+                            values: { count: cloudUsage.attachments },
+                          })}
+                        </span>
+                        <span
+                          class={cloudUsage.overQuota
+                            ? "text-red-500 font-medium"
+                            : "text-muted-foreground"}
+                        >
+                          {formatBytes(cloudUsage.attachmentBytes, $locale || "en")}
+                          / {formatBytes(cloudUsage.quotaBytes, $locale || "en")}
+                        </span>
+                      </div>
+
+                      <div class="h-1 w-full rounded-full bg-muted overflow-hidden">
+                        <div
+                          class="h-full rounded-full transition-all {cloudUsage.overQuota
+                            ? bg-red-500
+                            : bg-primary}"
+                          style="width: {usagePercent}%"
+                        ></div>
+                      </div>
+
+                      <div class="text-[10px] text-muted-foreground">
+                        {$_("settings.cloudSync.usage.records", {
+                          values: {
+                            stashes: cloudUsage.stashes,
+                            contexts: cloudUsage.contexts,
+                          },
+                        })}
+                      </div>
+
+                      {#if cloudUsage.overQuota}
+                        <div class="text-[10px] text-red-500">
+                          {$_("settings.cloudSync.usage.overQuota")}
+                        </div>
+                      {/if}
+                    </div>
+                  {/if}
+
                 {:else if settings.cloudConfig.enabled && settings.cloudConfig.userId && syncStatus === "auth-error"}
                   <!-- Auth Error -->
                   <div class="flex items-center gap-1.5 pt-0.5">

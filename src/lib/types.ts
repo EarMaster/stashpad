@@ -200,6 +200,8 @@ export interface IStorageService {
     exchangeLinkCodeApi(token: string): Promise<CloudConfig>;
     /** Fetch account info from cloud and update local subscription status */
     fetchCloudAccount(): Promise<CloudConfig>;
+    /** What this account is storing in the cloud. */
+    fetchCloudUsage(): Promise<CloudUsage>;
 
     // Cloud sync proxy methods
     syncStashesApi(payload: unknown): Promise<unknown>;
@@ -242,6 +244,16 @@ export interface ArchiveMetadata {
     name: string;
     description: string;
     rules: unknown[];
+}
+
+/** What an account is storing in the cloud. Attachment bytes are the only capped part. */
+export interface CloudUsage {
+    stashes: number;
+    contexts: number;
+    attachments: number;
+    attachmentBytes: number;
+    quotaBytes: number;
+    overQuota: boolean;
 }
 
 export interface ExportSummary {

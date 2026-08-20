@@ -181,6 +181,11 @@
       "noUpdateMessage": "You are already running the latest version of Stashpad."
     },
     "cloudSync": {
+      "usage": {
+        "attachments": "{count} attachments",
+        "records": "{stashes} stashes, {contexts} contexts",
+        "overQuota": "You are over your storage allowance. Nothing is blocked, but please remove attachments you no longer need."
+      },
       "title": "Cloud Sync",
       "enable": {
         "label": "Enable Cloud Sync",

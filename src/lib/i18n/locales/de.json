@@ -176,6 +176,11 @@
       "noUpdateMessage": "Sie verwenden bereits die neueste Version von Stashpad."
     },
     "cloudSync": {
+      "usage": {
+        "attachments": "{count} Anhänge",
+        "records": "{stashes} Stashes, {contexts} Kontexte",
+        "overQuota": "Dein Speicherkontingent ist überschritten. Es wird nichts blockiert, bitte lösche aber nicht mehr benötigte Anhänge."
+      },
       "title": "Cloud-Synchronisierung",
       "enable": {
         "label": "Cloud-Sync aktivieren",

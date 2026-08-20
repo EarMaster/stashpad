@@ -13,7 +13,7 @@
 // See the GNU Affero General Public License for more details.
 
 import { invoke } from '@tauri-apps/api/core';
-import type { IStorageService, StashItem, AppContext, Settings, FilePreviewData, Context, Attachment, CloudConfig, ExportSummary, ImportPreview } from '../types';
+import type { IStorageService, StashItem, AppContext, Settings, FilePreviewData, Context, Attachment, CloudConfig, ExportSummary, ImportPreview, CloudUsage } from '../types';
 
 /** Called after any local write so cloud sync can be scheduled. */
 type MutationListener = () => void;
@@ -243,6 +243,11 @@ export class DesktopStorageAdapter implements IStorageService {
 
     async disconnectWebSocket(): Promise<void> {
         return invoke('disconnect_websocket');
+    }
+
+    /** What this account is storing in the cloud. Fetched on demand, never cached. */
+    async fetchCloudUsage(): Promise<CloudUsage> {
+        return await invoke<CloudUsage>('fetch_cloud_usage');
     }
 
     async fetchCloudAccount(): Promise<CloudConfig> {

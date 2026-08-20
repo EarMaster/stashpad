@@ -17,10 +17,19 @@
 <script lang="ts">
   import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
   import type { AppContext, Settings, Context } from "$lib/types";
+  import type { SyncStatus } from "$lib/services/cloud-sync";
   import { _ } from "$lib/i18n";
   import { onMount } from "svelte";
   import { getCurrentWindow } from "@tauri-apps/api/window";
-  import { Settings as SettingsIcon, Minus, X } from "lucide-svelte";
+  import {
+    Settings as SettingsIcon,
+    Minus,
+    X,
+    Cloud,
+    CloudOff,
+    Check,
+    Loader2,
+  } from "lucide-svelte";
   import logoIcon from "../../../assets/stashpad/Icon-Darkmode.svg";
   import logoIconLight from "../../../assets/stashpad/Icon.svg";
   import logoTypo from "../../../assets/stashpad/Typo.svg";
@@ -40,6 +49,8 @@
     currentContextId = $bindable(),
     onOpenContextSwitcher,
     autoDetectedWindowTitle = $bindable(),
+    syncStatus = "idle",
+    syncStatusMessage = "",
   } = $props<{
     transferMode: string;
     onOpenSettings: () => void;
@@ -49,7 +60,31 @@
     onOpenContextSwitcher: () => void;
     /** Window title - only set when auto-detection matched a context */
     autoDetectedWindowTitle?: string;
+    syncStatus?: SyncStatus;
+    syncStatusMessage?: string;
   }>();
+
+  /** Sync state is only worth a slot in the header once the user has cloud sync on. */
+  let showSyncStatus = $derived(
+    !!settings.cloudConfig?.enabled && !!settings.cloudConfig?.userId,
+  );
+
+  let syncLabel = $derived.by(() => {
+    switch (syncStatus) {
+      case "syncing":
+        return $_("settings.cloudSync.auth.syncing");
+      case "success":
+        return $_("settings.cloudSync.auth.syncSuccess");
+      case "error":
+        return syncStatusMessage
+          ? `${$_("settings.cloudSync.auth.syncError")} (${syncStatusMessage})`
+          : $_("settings.cloudSync.auth.syncError");
+      case "auth-error":
+        return $_("settings.cloudSync.auth.loginAgain");
+      default:
+        return $_("settings.cloudSync.title");
+    }
+  });
 
   const adapter = new DesktopStorageAdapter();
 
@@ -172,6 +207,29 @@
 
   <!-- Right Side: Window Controls -->
   <div class="relative z-10 flex items-center gap-1 shrink-0">
+    {#if showSyncStatus}
+      <!-- Sync state, shown only once cloud sync is on. Opens Settings, which is where
+           the details and the manual trigger live. -->
+      <button
+        class="p-1.5 rounded-md transition-colors pointer-events-auto hover:bg-muted"
+        onclick={onOpenSettings}
+        title={syncLabel}
+        aria-label={syncLabel}
+        use:tooltip
+      >
+        {#if syncStatus === "syncing"}
+          <Loader2 size={16} class="animate-spin text-blue-500" />
+        {:else if syncStatus === "success"}
+          <Check size={16} class="text-green-500" />
+        {:else if syncStatus === "error"}
+          <CloudOff size={16} class="text-red-500" />
+        {:else if syncStatus === "auth-error"}
+          <CloudOff size={16} class="text-amber-500" />
+        {:else}
+          <Cloud size={16} class="text-muted-foreground" />
+        {/if}
+      </button>
+    {/if}
     <button
       class="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded-md transition-colors pointer-events-auto"
       onclick={onOpenSettings}

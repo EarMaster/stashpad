@@ -791,3 +791,52 @@ pub async fn disconnect_websocket(ws_state: State<'_, Arc<WsState>>) -> Result<(
     }
     Ok(())
 }
+
+/// What this account is storing in the cloud.
+///
+/// Mirrors the server's `AccountUsage`. Kept as a plain struct rather than reusing the
+/// settings types because none of it is persisted: it is fetched on demand when the user
+/// opens Settings, and is stale the moment anything syncs.
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CloudUsage {
+    pub stashes: i64,
+    pub contexts: i64,
+    pub attachments: i64,
+    pub attachment_bytes: i64,
+    pub quota_bytes: i64,
+    pub over_quota: bool,
+}
+
+#[tauri::command]
+pub async fn fetch_cloud_usage(
+    settings_state: State<'_, Arc<SettingsState>>,
+) -> Result<CloudUsage, String> {
+    let (endpoint, token) = {
+        let settings = settings_state.settings.lock().unwrap();
+        let config = settings.cloud_config.as_ref().ok_or("Cloud config missing")?;
+        let token = config.access_token.clone().ok_or("Not authenticated")?;
+        (config.endpoint.clone(), token)
+    };
+
+    let client = api_client()?;
+    let response = client
+        .get(format!("{}/account/usage", endpoint.trim_end_matches('/')))
+        .header("Authorization", format!("Bearer {}", token))
+        .send()
+        .await
+        .map_err(|e| format!("Failed to fetch usage: {}", e))?;
+
+    if response.status() == 401 {
+        return Err("Authentication expired. Please log in again.".into());
+    }
+
+    if !response.status().is_success() {
+        return Err(format!("Failed to fetch usage: {}", response.status()));
+    }
+
+    response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse usage: {}", e))
+}
