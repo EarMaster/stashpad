@@ -533,8 +533,14 @@ impl DbManager {
             stashes.push(s?);
         }
 
-        // 2. Get all attachments
-        let mut att_stmt = self.conn.prepare("SELECT id, stash_id, file_path, file_name, file_size, mime_type, syntax, created_at FROM attachments")?;
+        // 2. Get the attachments of those stashes - not the whole table. The unfiltered
+        // scan this replaces read every attachment row in the database on every queue
+        // refresh, then handed the lot to the webview to deserialize on its main thread.
+        let mut att_stmt = self.conn.prepare(
+            "SELECT a.id, a.stash_id, a.file_path, a.file_name, a.file_size, a.mime_type, \
+             a.syntax, a.created_at FROM attachments a \
+             JOIN stashes s ON s.id = a.stash_id WHERE s.deleted = 0",
+        )?;
         
         let att_rows = att_stmt.query_map([], |row| {
              Ok(Attachment {
@@ -601,7 +607,18 @@ impl DbManager {
             stashes.push(s?);
         }
 
-        let mut att_stmt = self.conn.prepare("SELECT id, stash_id, file_path, file_name, file_size, mime_type, syntax, created_at FROM attachments")?;
+        // Only the attachments belonging to the stashes just loaded. This used to be a
+        // bare `SELECT ... FROM attachments` with no filter, so pushing a single edited
+        // stash still read - and shipped over IPC - every attachment row in the
+        // database. The join reuses the same trusted filter, so the two result sets
+        // cannot drift apart.
+        let att_sql = format!(
+            "SELECT a.id, a.stash_id, a.file_path, a.file_name, a.file_size, a.mime_type, \
+             a.syntax, a.created_at FROM attachments a \
+             JOIN stashes s ON s.id = a.stash_id {}",
+            filter
+        );
+        let mut att_stmt = self.conn.prepare(&att_sql)?;
         
         let att_rows = att_stmt.query_map([], |row| {
              Ok(Attachment {

@@ -33,7 +33,8 @@
     * Add new keys to `src/lib/i18n/locales/en.json` and `de.json`.
 
 ### Storage Strategy
-* **Metadata:** Local JSON file (`~/.stashpad/db.json`).
+* **Metadata:** Local SQLite database (`~/.stashpad/stashpad.db`), plus
+  `~/.stashpad/settings.json` for settings. Secrets go to the OS keychain.
 * **Assets:** Local file system with hierarchical organization:
   * `~/.stashpad/cache/<context-id>/<stash-id>/<filename>` - Assets are stored in context/stash subdirectories
   * This structure prevents file name collisions and enables proper cleanup when stashes or contexts are deleted

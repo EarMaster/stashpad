@@ -12,85 +12,13 @@
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 // See the GNU Affero General Public License for more details.
 
-use std::fs;
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tauri::State;
 use std::time::{SystemTime, UNIX_EPOCH};
 use rusqlite::params;
 use crate::models::Context;
-use crate::utils::get_app_dir;
 use crate::state::DbState;
 use crate::db::WriteOrigin;
-use crate::settings::{get_settings_path, persist_settings_to_disk};
-
-pub fn get_contexts_path() -> PathBuf {
-    get_app_dir().join("contexts.json")
-}
-
-/// Loads contexts from disk.
-/// On first run, migrates contexts from settings.json if present.
-pub fn load_contexts_from_disk() -> Vec<Context> {
-    let contexts_path = get_contexts_path();
-    
-    // Try to load from contexts.json first
-    if contexts_path.exists() {
-        if let Ok(file) = fs::File::open(&contexts_path) {
-            if let Ok(contexts) = serde_json::from_reader(file) {
-                return contexts;
-            }
-        }
-    }
-    
-    // contexts.json doesn't exist or is invalid - try to migrate from settings.json
-    let settings_path = get_settings_path();
-    if settings_path.exists() {
-        if let Ok(file) = fs::File::open(&settings_path) {
-            // Parse settings as a raw JSON value to extract contexts
-            if let Ok(value) = serde_json::from_reader::<_, serde_json::Value>(file) {
-                if let Some(contexts_value) = value.get("contexts") {
-                    if let Ok(contexts) = serde_json::from_value::<Vec<Context>>(contexts_value.clone()) {
-                        if !contexts.is_empty() {
-                            println!("Migrating {} contexts from settings.json to contexts.json", contexts.len());
-                            // Persist to new location
-                            persist_contexts_to_disk(&contexts);
-                            // Remove contexts from settings.json
-                            remove_contexts_from_settings();
-                            return contexts;
-                        }
-                    }
-                }
-            }
-        }
-    }
-    
-    Vec::new() // Default empty
-}
-
-pub fn persist_contexts_to_disk(contexts: &Vec<Context>) {
-    let path = get_contexts_path();
-    if let Ok(file) = fs::File::create(path) {
-        let _ = serde_json::to_writer_pretty(file, contexts);
-    }
-}
-
-/// Removes the 'contexts' field from settings.json after migration.
-/// This keeps settings.json clean and prevents duplicate data.
-pub fn remove_contexts_from_settings() {
-    let path = get_settings_path();
-    if let Ok(file) = fs::File::open(&path) {
-        if let Ok(mut value) = serde_json::from_reader::<_, serde_json::Value>(file) {
-            if let Some(obj) = value.as_object_mut() {
-                if obj.remove("contexts").is_some() {
-                    if let Ok(file) = fs::File::create(&path) {
-                        let _ = serde_json::to_writer_pretty(file, &value);
-                        println!("Removed 'contexts' from settings.json after migration");
-                    }
-                }
-            }
-        }
-    }
-}
 
 #[tauri::command]
 pub async fn get_contexts(state: State<'_, Arc<DbState>>) -> Result<Vec<Context>, String> {
@@ -98,7 +26,7 @@ pub async fn get_contexts(state: State<'_, Arc<DbState>>) -> Result<Vec<Context>
     // treat "no contexts" as a valid state, and surfacing an error here would break the
     // startup path. The Result is required because async commands that borrow State
     // must return one.
-    Ok(match state.db.lock().unwrap().get_contexts() {
+    Ok(match state.lock_db().get_contexts() {
         Ok(contexts) => contexts,
         Err(e) => {
             println!("Failed to get contexts: {}", e);
@@ -110,7 +38,7 @@ pub async fn get_contexts(state: State<'_, Arc<DbState>>) -> Result<Vec<Context>
 #[tauri::command]
 pub async fn save_contexts(state: State<'_, Arc<DbState>>, contexts: Vec<Context>) -> Result<(), String> {
     println!("Saving {} contexts", contexts.len());
-    let mut db = state.db.lock().unwrap();
+    let mut db = state.lock_db();
     let tx_result = db.conn.transaction().and_then(|tx| {
         for ctx in &contexts {
             let rules_json = serde_json::to_string(&ctx.rules).unwrap_or_default();
@@ -143,9 +71,7 @@ pub async fn save_contexts(state: State<'_, Arc<DbState>>, contexts: Vec<Context
 pub async fn save_context(state: State<'_, Arc<DbState>>, context: Context) -> Result<(), String> {
     println!("Saving context: {} ({})", context.name, context.id);
     if let Err(e) = state
-        .db
-        .lock()
-        .unwrap()
+        .lock_db()
         .save_context(&context, WriteOrigin::LocalEdit)
     {
         println!("Failed to save context: {}", e);
@@ -161,9 +87,7 @@ pub async fn save_context(state: State<'_, Arc<DbState>>, context: Context) -> R
 #[tauri::command]
 pub async fn import_contexts(state: State<'_, Arc<DbState>>, contexts: Vec<Context>) -> Result<(), String> {
     state
-        .db
-        .lock()
-        .unwrap()
+        .lock_db()
         .import_contexts(&contexts)
         .map_err(|e| e.to_string())
 }
@@ -171,7 +95,7 @@ pub async fn import_contexts(state: State<'_, Arc<DbState>>, contexts: Vec<Conte
 #[tauri::command]
 pub async fn delete_context(state: State<'_, Arc<DbState>>, id: String) -> Result<(), String> {
     println!("Deleting context: {}", id);
-    if let Err(e) = state.db.lock().unwrap().delete_context(&id) {
+    if let Err(e) = state.lock_db().delete_context(&id) {
         println!("Failed to delete context: {}", e);
     }
     Ok(())
@@ -180,7 +104,7 @@ pub async fn delete_context(state: State<'_, Arc<DbState>>, id: String) -> Resul
 /// Contexts with local changes the server has not acknowledged yet.
 #[tauri::command]
 pub async fn claim_pending_contexts(state: State<'_, Arc<DbState>>) -> Result<Vec<Context>, String> {
-    Ok(state.db.lock().unwrap().claim_pending_contexts().unwrap_or_default())
+    Ok(state.lock_db().claim_pending_contexts().unwrap_or_default())
 }
 
 /// Clear the pending flag for contexts the server accepted.
@@ -190,9 +114,7 @@ pub async fn mark_contexts_synced(
     ids: Vec<String>,
 ) -> Result<(), String> {
     state
-        .db
-        .lock()
-        .unwrap()
+        .lock_db()
         .mark_synced("contexts", &ids)
         .map_err(|e| e.to_string())
 }

@@ -14,10 +14,28 @@
 
 use std::fs;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 use std::sync::{Arc, Mutex};
 use tauri::State;
 use crate::models::AppContext;
-use crate::state::TrackerState;
+use crate::state::{TrackerState, lock_or_recover};
+
+/// Run blocking work on the blocking pool and flatten the join error away.
+///
+/// Tauri runs `async fn` commands on the shared async runtime, and Tokio does not move a
+/// task that blocks its worker - so any command doing filesystem, registry,
+/// credential-store or subprocess work has to hand it to the blocking pool, or it starves
+/// the pool every other command needs and the whole app stops answering `invoke`.
+async fn run_blocking<T, F>(work: F) -> Result<T, String>
+where
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+    T: Send + 'static,
+{
+    match tauri::async_runtime::spawn_blocking(work).await {
+        Ok(result) => result,
+        Err(e) => Err(format!("Background task failed: {}", e)),
+    }
+}
 
 // Window vibrancy effects (Windows and macOS only)
 #[cfg(target_os = "windows")]
@@ -185,12 +203,46 @@ pub fn apply_window_effects_to_window(window: &tauri::WebviewWindow, enabled: Op
     }
 }
 
+/// The machine name, resolved once per process.
+///
+/// This used to shell out to `hostname` on every call, on the main thread, and without
+/// `CREATE_NO_WINDOW` - so on Windows it also flashed a console window. Windows exposes
+/// the name in the environment, so no process is needed there at all.
+static DEVICE_NAME: OnceLock<String> = OnceLock::new();
+
+fn resolve_device_name() -> String {
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(name) = std::env::var("COMPUTERNAME") {
+            if !name.trim().is_empty() {
+                return name.trim().to_string();
+            }
+        }
+    }
+
+    // Unix: the variable is often not exported to children, so fall back to the tool.
+    // No console window exists to flash here.
+    #[cfg(not(target_os = "windows"))]
+    {
+        if let Ok(name) = std::env::var("HOSTNAME") {
+            if !name.trim().is_empty() {
+                return name.trim().to_string();
+            }
+        }
+        if let Ok(output) = std::process::Command::new("hostname").output() {
+            let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !name.is_empty() {
+                return name;
+            }
+        }
+    }
+
+    "Unknown Device".to_string()
+}
+
 #[tauri::command]
-pub fn get_device_name() -> String {
-    std::process::Command::new("hostname")
-        .output()
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .unwrap_or_else(|_| "Unknown Device".to_string())
+pub async fn get_device_name() -> String {
+    DEVICE_NAME.get_or_init(resolve_device_name).clone()
 }
 
 #[tauri::command]
@@ -210,12 +262,18 @@ pub fn get_installation_source() -> String {
     "standalone".to_string()
 }
 
+/// Put text on the system clipboard.
+///
+/// `async` on purpose: a non-async command runs on the main thread, and opening the
+/// clipboard can block when another process is holding it.
 #[tauri::command]
-pub fn copy_to_clipboard(text: String) -> Result<(), String> {
-    println!("Copying to clipboard");
-    let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
-    clipboard.set_text(text).map_err(|e| e.to_string())?;
-    Ok(())
+pub async fn copy_to_clipboard(text: String) -> Result<(), String> {
+    run_blocking(move || {
+        let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
+        clipboard.set_text(text).map_err(|e| e.to_string())?;
+        Ok(())
+    })
+    .await
 }
 
 /// Reads text content from the system clipboard.
@@ -223,11 +281,21 @@ pub fn copy_to_clipboard(text: String) -> Result<(), String> {
 /// Used by the Shift+Paste override on macOS where
 /// `navigator.clipboard.readText()` triggers a permission prompt.
 #[tauri::command]
-pub fn read_clipboard_text() -> Result<String, String> {
-    let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
-    clipboard.get_text().map_err(|e| e.to_string())
+pub async fn read_clipboard_text() -> Result<String, String> {
+    run_blocking(|| {
+        let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
+        clipboard.get_text().map_err(|e| e.to_string())
+    })
+    .await
 }
 
+/// Begin an OS drag from the stash.
+///
+/// Deliberately **not** `async`: on Windows this ends in `DoDragDrop`, which must run on
+/// the thread that owns the window and runs its own modal message loop until the drop
+/// completes. Moving it to a worker would break dragging outright. The trade-off is that
+/// a drag which never receives its mouse-up holds the UI thread, so the work done before
+/// the drag call is kept minimal.
 #[tauri::command]
 pub fn start_drag(window: tauri::Window, text: String, files: Vec<String>) -> Result<(), String> {
     println!("Starting drag with {} files", files.len());
@@ -289,7 +357,7 @@ const CLI_APPS: &[&str] = &[
 
 #[tauri::command]
 pub fn get_smart_transfer_target(state: State<Arc<Mutex<TrackerState>>>) -> String {
-    let state = state.lock().unwrap();
+    let state = lock_or_recover(&state);
     if let Some(app) = &state.last_external_app {
         let lower = app.process_name.to_lowercase();
         // aggressive matching
@@ -302,8 +370,16 @@ pub fn get_smart_transfer_target(state: State<Arc<Mutex<TrackerState>>>) -> Stri
     "GUI".into()
 }
 
+/// Reveal a file in the platform file manager.
+///
+/// `async` because `canonicalize` blocks on a disconnected network path or a removed
+/// drive, and on the main thread that freezes the window itself.
 #[tauri::command]
-pub fn show_in_folder(path: String) {
+pub async fn show_in_folder(path: String) {
+    let _ = tauri::async_runtime::spawn_blocking(move || show_in_folder_blocking(path)).await;
+}
+
+fn show_in_folder_blocking(path: String) {
     // Security: verify the path exists and canonicalize it before passing to OS commands
     let file_path = std::path::Path::new(&path);
     let canonical = match file_path.canonicalize() {
@@ -366,8 +442,25 @@ pub fn open_macos_screen_recording_settings() {
     }
 }
 
+/// Whether this is Windows 10 rather than 11, resolved once per process.
+///
+/// The answer cannot change while the app is running, but this ran a `cmd /c ver`
+/// subprocess on the main thread on every call - and it is called on both the app mount
+/// and the settings mount. Process creation under AV or EDR is not cheap.
+static IS_WINDOWS_10: OnceLock<bool> = OnceLock::new();
+
 #[tauri::command]
-pub fn is_windows_10() -> bool {
+pub async fn is_windows_10() -> bool {
+    if let Some(cached) = IS_WINDOWS_10.get() {
+        return *cached;
+    }
+    let detected = tauri::async_runtime::spawn_blocking(detect_windows_10)
+        .await
+        .unwrap_or(false);
+    *IS_WINDOWS_10.get_or_init(|| detected)
+}
+
+fn detect_windows_10() -> bool {
     #[cfg(target_os = "windows")]
     {
         use std::process::Command;
@@ -403,29 +496,42 @@ pub fn is_windows_10() -> bool {
     }
 }
 
+/// Enable or disable launch-at-login. Registry (or launch agent) I/O, so off-thread.
 #[tauri::command]
-pub fn set_autostart(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
-    use tauri_plugin_autostart::ManagerExt;
-    
-    let autostart_manager = app.autolaunch();
-    
-    if enabled {
-        autostart_manager.enable().map_err(|e| format!("Failed to enable autostart: {}", e))?;
-        println!("Autostart enabled");
-    } else {
-        autostart_manager.disable().map_err(|e| format!("Failed to disable autostart: {}", e))?;
-        println!("Autostart disabled");
-    }
-    
-    Ok(())
+pub async fn set_autostart(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    run_blocking(move || {
+        use tauri_plugin_autostart::ManagerExt;
+
+        let autostart_manager = app.autolaunch();
+
+        if enabled {
+            autostart_manager
+                .enable()
+                .map_err(|e| format!("Failed to enable autostart: {}", e))?;
+            log::info!("Autostart enabled");
+        } else {
+            autostart_manager
+                .disable()
+                .map_err(|e| format!("Failed to disable autostart: {}", e))?;
+            log::info!("Autostart disabled");
+        }
+
+        Ok(())
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn get_autostart_enabled(app: tauri::AppHandle) -> Result<bool, String> {
-    use tauri_plugin_autostart::ManagerExt;
-    
-    let autostart_manager = app.autolaunch();
-    autostart_manager.is_enabled().map_err(|e| format!("Failed to check autostart status: {}", e))
+pub async fn get_autostart_enabled(app: tauri::AppHandle) -> Result<bool, String> {
+    run_blocking(move || {
+        use tauri_plugin_autostart::ManagerExt;
+
+        let autostart_manager = app.autolaunch();
+        autostart_manager
+            .is_enabled()
+            .map_err(|e| format!("Failed to check autostart status: {}", e))
+    })
+    .await
 }
 
 #[tauri::command]
@@ -511,7 +617,7 @@ pub fn open_system_prompt_file() {
 
 #[tauri::command]
 pub fn get_previous_app_info(state: State<Arc<Mutex<TrackerState>>>) -> AppContext {
-    let state = state.lock().unwrap();
+    let state = lock_or_recover(&state);
     if let Some(app) = &state.last_external_app {
         let mut app_ctx = app.clone();
         app_ctx.detected_context_id = state.current_context_id.clone();
@@ -525,3 +631,19 @@ pub fn get_previous_app_info(state: State<Arc<Mutex<TrackerState>>>) -> AppConte
     }
 }
 
+
+/// Record an error the webview could not handle itself.
+///
+/// In a release build the webview console is discarded, so a render error that killed
+/// the UI left no trace anywhere. Routing it through `log::error!` puts it in the same
+/// app log as backend failures, which is the only place a user can be asked to look.
+///
+/// The message is truncated by character, not byte, so a multi-byte stack trace cannot
+/// panic the command - the same mistake that used to kill the sync commands.
+#[tauri::command]
+pub fn log_frontend_error(message: String) {
+    const MAX_CHARS: usize = 4000;
+    let trimmed: String = message.chars().take(MAX_CHARS).collect();
+    let elided = message.chars().nth(MAX_CHARS).is_some();
+    log::error!("[frontend] {}{}", trimmed, if elided { " […]" } else { "" });
+}

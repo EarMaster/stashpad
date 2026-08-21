@@ -14,7 +14,7 @@
 
 use std::fs;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tauri::{State, Manager};
 use crate::models::{Settings, CloudConfig, default_cloud_endpoint};
 use crate::utils::get_app_dir;
@@ -23,7 +23,7 @@ use crate::keychain::{
     store_api_key_in_keychain, store_cloud_token_in_keychain, 
     encrypt_api_key, decrypt_api_key
 };
-use crate::state::SettingsState;
+use crate::state::{SettingsState, lock_or_recover};
 
 pub fn get_settings_path() -> PathBuf {
     get_app_dir().join("settings.json")
@@ -133,23 +133,90 @@ pub fn validate_settings(mut settings: Settings) -> Settings {
     settings
 }
 
+/// How a secret was last persisted, so an unchanged one is never rewritten.
+#[derive(Clone, PartialEq)]
+struct StoredSecret {
+    value: String,
+    /// `true` when the keychain took it, `false` when we fell back to encrypted JSON.
+    in_keychain: bool,
+}
+
+/// What the last successful `persist_settings_to_disk` wrote, per slot.
+///
+/// Writing the settings file is cheap; getting a secret into the OS credential store
+/// is not. Every successful sync stamps `lastSyncAt` and saves settings, and sync runs
+/// a couple of seconds after every local edit - so without this cache, simply typing a
+/// stash drove a credential-store write for the API key *and* the cloud token, on a
+/// Tokio worker, indefinitely. That is why "the app freezes" looked sync-related: the
+/// credential store, not the network, was the bottleneck.
+static LAST_API_KEY: Mutex<Option<StoredSecret>> = Mutex::new(None);
+static LAST_CLOUD_TOKEN: Mutex<Option<StoredSecret>> = Mutex::new(None);
+
+/// Persist one secret, skipping the credential store when the value has not changed.
+///
+/// Returns what belongs in `settings.json` for this slot: an empty string when the
+/// keychain holds the secret, or the encrypted value when it does not.
+fn persist_secret(
+    cache: &Mutex<Option<StoredSecret>>,
+    store: fn(&str) -> bool,
+    secret: &str,
+    label: &str,
+) -> String {
+    {
+        let cached = lock_or_recover(cache);
+        if let Some(previous) = cached.as_ref() {
+            if previous.value == secret {
+                // Already where it needs to be - no credential-store round trip.
+                return if previous.in_keychain {
+                    String::new()
+                } else {
+                    encrypt_api_key(secret)
+                };
+            }
+        }
+    }
+
+    let in_keychain = store(secret);
+    if !in_keychain {
+        log::info!("Keychain unavailable for {}, using encrypted JSON", label);
+    }
+    *lock_or_recover(cache) = Some(StoredSecret {
+        value: secret.to_string(),
+        in_keychain,
+    });
+
+    if in_keychain {
+        String::new()
+    } else {
+        encrypt_api_key(secret)
+    }
+}
+
+/// Forget the cached secrets, so the next save writes them again.
+///
+/// Needed after an explicit logout: the credential is deleted behind the cache's back,
+/// and a later save of the same token must not be skipped as "unchanged".
+pub fn invalidate_secret_cache() {
+    *lock_or_recover(&LAST_API_KEY) = None;
+    *lock_or_recover(&LAST_CLOUD_TOKEN) = None;
+}
+
+/// Write `settings.json`, moving any secrets into the keychain first.
+///
+/// Blocking: touches the OS credential store and the filesystem. Callers running on
+/// the async runtime must go through [`persist_settings_off_thread`] instead, or they
+/// park a Tokio worker.
 pub fn persist_settings_to_disk(settings: &Settings) {
     let path = get_settings_path();
     let mut settings_to_save = settings.clone();
-    
+
     // Handle API key storage - try keychain first, fallback to encryption
     if let Some(ref mut ai_config) = settings_to_save.ai_config {
         let api_key = ai_config.api_key.clone();
-        
+
         if !api_key.is_empty() {
-            if store_api_key_in_keychain(&api_key) {
-                // Keychain success - store empty in JSON
-                ai_config.api_key = String::new();
-            } else {
-                // Keychain failed - use encrypted JSON storage
-                log::info!("Keychain unavailable for API key, using encrypted JSON");
-                ai_config.api_key = encrypt_api_key(&api_key);
-            }
+            ai_config.api_key =
+                persist_secret(&LAST_API_KEY, store_api_key_in_keychain, &api_key, "API key");
         }
     }
 
@@ -157,27 +224,65 @@ pub fn persist_settings_to_disk(settings: &Settings) {
     if let Some(ref mut cloud_config) = settings_to_save.cloud_config {
         if let Some(ref token) = cloud_config.access_token {
             if !token.is_empty() {
-                let token_clone = token.clone();
-                if store_cloud_token_in_keychain(&token_clone) {
-                    // Keychain success - store empty in JSON
-                    cloud_config.access_token = Some(String::new());
-                } else {
-                    // Keychain failed - use encrypted JSON storage
-                    log::info!("Keychain unavailable for cloud token, using encrypted JSON");
-                    cloud_config.access_token = Some(encrypt_api_key(&token_clone));
-                }
+                cloud_config.access_token = Some(persist_secret(
+                    &LAST_CLOUD_TOKEN,
+                    store_cloud_token_in_keychain,
+                    token,
+                    "cloud token",
+                ));
             }
         }
     }
-    
-    if let Ok(file) = fs::File::create(path) {
-        let _ = serde_json::to_writer_pretty(file, &settings_to_save);
+
+    write_settings_file(&path, &settings_to_save);
+}
+
+/// Serialize the settings to `path` via a temporary file and a rename.
+///
+/// The previous `File::create` truncated the real file before writing a byte, so an
+/// interrupted write left a half-written or empty `settings.json`. Losing it costs the
+/// cloud config and `lastSyncAt`, and a missing `lastSyncAt` makes the next sync push
+/// the entire dataset. A rename is atomic, so a reader sees either the old file or the
+/// new one and never a partial one.
+fn write_settings_file(path: &PathBuf, settings: &Settings) {
+    let temp = path.with_extension("json.tmp");
+
+    match fs::File::create(&temp) {
+        Ok(file) => {
+            if let Err(e) = serde_json::to_writer_pretty(file, settings) {
+                log::error!("Failed to write settings: {}", e);
+                let _ = fs::remove_file(&temp);
+                return;
+            }
+        }
+        Err(e) => {
+            log::error!("Failed to create temporary settings file: {}", e);
+            return;
+        }
+    }
+
+    if let Err(e) = fs::rename(&temp, path) {
+        log::error!("Failed to replace settings file: {}", e);
+        let _ = fs::remove_file(&temp);
+    }
+}
+
+/// Persist settings without blocking the async runtime.
+///
+/// The credential store can take a noticeable moment, and Tokio does not move a task
+/// that blocks its worker - so doing this inline on an async command starved the pool
+/// and left every `invoke` in the app unanswered while the window kept painting.
+pub async fn persist_settings_off_thread(settings: Settings) {
+    if let Err(e) =
+        tauri::async_runtime::spawn_blocking(move || persist_settings_to_disk(&settings)).await
+    {
+        log::error!("Settings persistence task failed: {}", e);
     }
 }
 
 #[tauri::command]
 pub async fn get_settings(state: State<'_, Arc<SettingsState>>) -> Result<Settings, String> {
-    let mut settings = state.settings.lock().unwrap().clone();
+    let mut settings = state.lock_settings().clone();
     if let Some(ref mut cloud_config) = settings.cloud_config {
         cloud_config.access_token = None;
     }
@@ -186,39 +291,43 @@ pub async fn get_settings(state: State<'_, Arc<SettingsState>>) -> Result<Settin
 
 #[tauri::command]
 pub async fn save_settings(app: tauri::AppHandle, state: State<'_, Arc<SettingsState>>, mut settings: Settings) -> Result<(), String> {
-    let old_theme = {
-        let current = state.settings.lock().unwrap();
-        current.theme.clone()
-    };
-    
-    let old_autostart = {
-        let current = state.settings.lock().unwrap();
-        current.autostart
-    };
-    
-    // Don't save empty api keys if we already have one
-    if let Some(ref mut new_ai_config) = settings.ai_config {
-        let current = state.settings.lock().unwrap();
-        if let Some(ref current_ai_config) = current.ai_config {
-            if new_ai_config.api_key.is_empty() && !current_ai_config.api_key.is_empty() {
-                new_ai_config.api_key = current_ai_config.api_key.clone();
-            }
-        }
-    }
-    
-    // Verify changes to cloud access token
-    if let Some(ref mut new_cloud_config) = settings.cloud_config {
-        let current = state.settings.lock().unwrap();
-        if let Some(ref current_cloud_config) = current.cloud_config {
-            if new_cloud_config.access_token.is_none() && current_cloud_config.access_token.is_some() {
-                new_cloud_config.access_token = current_cloud_config.access_token.clone();
-            }
-        }
-    }
+    // One critical section, not five. Each `lock_settings()` is a blocking acquire on
+    // an async worker, and this command runs on every keystroke in the settings panel;
+    // taking the lock five times per call multiplied that contention for no reason.
+    let (old_theme, old_autostart) = {
+        let current = state.lock_settings();
 
-    persist_settings_to_disk(&settings);
-    let mut state_settings = state.settings.lock().unwrap();
-    *state_settings = settings.clone();
+        // Don't save empty api keys if we already have one
+        if let Some(ref mut new_ai_config) = settings.ai_config {
+            if let Some(ref current_ai_config) = current.ai_config {
+                if new_ai_config.api_key.is_empty() && !current_ai_config.api_key.is_empty() {
+                    new_ai_config.api_key = current_ai_config.api_key.clone();
+                }
+            }
+        }
+
+        // Verify changes to cloud access token
+        if let Some(ref mut new_cloud_config) = settings.cloud_config {
+            if let Some(ref current_cloud_config) = current.cloud_config {
+                if new_cloud_config.access_token.is_none()
+                    && current_cloud_config.access_token.is_some()
+                {
+                    new_cloud_config.access_token = current_cloud_config.access_token.clone();
+                }
+            }
+        }
+
+        (current.theme.clone(), current.autostart)
+    };
+
+    // Publish to the in-memory state first, then write to disk off-thread. Callers only
+    // need the new values to be live; waiting on the credential store and the
+    // filesystem before returning is what used to stall the whole runtime.
+    {
+        let mut state_settings = state.lock_settings();
+        *state_settings = settings.clone();
+    }
+    persist_settings_off_thread(settings.clone()).await;
 
     // Reapply theme and window effects if changed
     if settings.theme != old_theme {
@@ -228,15 +337,23 @@ pub async fn save_settings(app: tauri::AppHandle, state: State<'_, Arc<SettingsS
         }
     }
 
-    // Toggle autostart
+    // Toggle autostart. Registry work, so it goes off-thread too.
     if settings.autostart != old_autostart {
-        use tauri_plugin_autostart::ManagerExt;
-        let autostart_manager = app.autolaunch();
-        if settings.autostart {
-            let _ = autostart_manager.enable();
-        } else {
-            let _ = autostart_manager.disable();
-        }
+        let enable = settings.autostart;
+        let app_handle = app.clone();
+        let _ = tauri::async_runtime::spawn_blocking(move || {
+            use tauri_plugin_autostart::ManagerExt;
+            let autostart_manager = app_handle.autolaunch();
+            let result = if enable {
+                autostart_manager.enable()
+            } else {
+                autostart_manager.disable()
+            };
+            if let Err(e) = result {
+                log::warn!("Failed to change autostart: {}", e);
+            }
+        })
+        .await;
     }
     Ok(())
 }
@@ -249,21 +366,35 @@ pub async fn save_settings(app: tauri::AppHandle, state: State<'_, Arc<SettingsS
 /// logout needs its own command that erases it explicitly.
 #[tauri::command]
 pub async fn cloud_logout(state: State<'_, Arc<SettingsState>>) -> Result<(), String> {
-    let mut settings = state.settings.lock().unwrap();
+    // Clear under the lock, then release it before touching the credential store. The
+    // lock used to be held across a blocking delete and a full settings write, so every
+    // other command that reads settings blocked its own worker waiting on it.
+    let cleared = {
+        let mut settings = state.lock_settings();
 
-    if let Some(ref mut config) = settings.cloud_config {
-        config.access_token = None;
-        config.user_id = None;
-        config.email = None;
-        config.subscription_tier = None;
-        config.subscription_status = None;
-        config.subscription_period_end = None;
-        config.enterprise_owner_id = None;
-        config.last_sync_at = None;
-        config.enabled = false;
-    }
+        if let Some(ref mut config) = settings.cloud_config {
+            config.access_token = None;
+            config.user_id = None;
+            config.email = None;
+            config.subscription_tier = None;
+            config.subscription_status = None;
+            config.subscription_period_end = None;
+            config.enterprise_owner_id = None;
+            config.last_sync_at = None;
+            config.enabled = false;
+        }
 
-    crate::keychain::delete_cloud_token_from_keychain();
-    persist_settings_to_disk(&settings);
+        settings.clone()
+    };
+
+    let _ = tauri::async_runtime::spawn_blocking(|| {
+        crate::keychain::delete_cloud_token_from_keychain();
+        // The credential is gone behind the cache's back, so drop what it remembers or
+        // a later save of the same token would be skipped as unchanged.
+        invalidate_secret_cache();
+    })
+    .await;
+
+    persist_settings_off_thread(cleared).await;
     Ok(())
 }

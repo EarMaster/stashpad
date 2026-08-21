@@ -267,7 +267,10 @@ fn strip_archive_prefix(name: &str) -> String {
     let bytes = name.as_bytes();
     if bytes.len() > 9
         && bytes[8] == b'_'
-        && name[..8].chars().all(|c| c.is_ascii_hexdigit())
+        // Compared on the raw bytes. The previous `name[..8].chars()` was safe - the
+        // `bytes[8] == b'_'` guard above already proves byte 8 starts a character - but
+        // it allocated a char iterator over a slice we only ever test for ASCII digits.
+        && bytes[..8].iter().all(|b| b.is_ascii_hexdigit())
     {
         return name[9..].to_string();
     }
@@ -506,7 +509,7 @@ pub async fn export_context_archive(
     let wanted: HashSet<String> = stash_ids.into_iter().collect();
 
     let (context, stashes) = {
-        let db = state.db.lock().unwrap();
+        let db = state.lock_db();
         let contexts = db.get_contexts().map_err(|e| e.to_string())?;
         let context = contexts.into_iter().find(|c: &Context| c.id == context_id);
 
@@ -584,16 +587,27 @@ pub async fn export_context_archive(
     );
 
     let dest = PathBuf::from(&dest_path);
-    if let Some(parent) = dest.parent() {
-        fs::create_dir_all(parent).map_err(|e| format!("Failed to create folder: {}", e))?;
-    }
-
     let attachment_count = attachment_sources.len() as u32;
+    let stash_count = stashes.len() as u32;
 
-    if attachment_sources.is_empty() {
-        fs::write(&dest, markdown).map_err(|e| format!("Failed to write export: {}", e))?;
-    } else {
-        let file = fs::File::create(&dest).map_err(|e| format!("Failed to write export: {}", e))?;
+    // Deflating every attachment in a context is the single heaviest thing this app
+    // does, so it belongs on the blocking pool rather than an async worker. Tokio does
+    // not migrate a task that blocks its worker, so exporting a large context inline
+    // took a worker out of circulation for the whole compression pass.
+    let write_dest = dest.clone();
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        if let Some(parent) = write_dest.parent() {
+            fs::create_dir_all(parent).map_err(|e| format!("Failed to create folder: {}", e))?;
+        }
+
+        if attachment_sources.is_empty() {
+            fs::write(&write_dest, markdown)
+                .map_err(|e| format!("Failed to write export: {}", e))?;
+            return Ok(());
+        }
+
+        let file =
+            fs::File::create(&write_dest).map_err(|e| format!("Failed to write export: {}", e))?;
         let mut zip = zip::ZipWriter::new(file);
         let options: zip::write::FileOptions<'_, ()> =
             zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
@@ -617,10 +631,13 @@ pub async fn export_context_archive(
         }
 
         zip.finish().map_err(|e| e.to_string())?;
-    }
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("Export task failed: {}", e))??;
 
     Ok(ExportSummary {
-        stashes: stashes.len() as u32,
+        stashes: stash_count,
         attachments: attachment_count,
         path: dest_path,
     })
@@ -640,23 +657,30 @@ pub async fn read_import_archive(
 
     let token = Uuid::new_v4().to_string();
     let temp_dir = transfer_temp_root().join(&token);
-    fs::create_dir_all(&temp_dir).map_err(|e| format!("Failed to prepare import: {}", e))?;
 
     let is_zip = source
         .extension()
         .map(|e| e.eq_ignore_ascii_case("zip"))
         .unwrap_or(false);
 
-    let markdown = if is_zip {
-        extract_archive(&source, &temp_dir)?
-    } else {
-        fs::read_to_string(&source).map_err(|e| format!("Failed to read file: {}", e))?
-    };
+    // Inflating the archive to disk is blocking work, so it runs on the blocking pool.
+    let extract_dir = temp_dir.clone();
+    let markdown = tauri::async_runtime::spawn_blocking(move || -> Result<String, String> {
+        fs::create_dir_all(&extract_dir)
+            .map_err(|e| format!("Failed to prepare import: {}", e))?;
+        if is_zip {
+            extract_archive(&source, &extract_dir)
+        } else {
+            fs::read_to_string(&source).map_err(|e| format!("Failed to read file: {}", e))
+        }
+    })
+    .await
+    .map_err(|e| format!("Import task failed: {}", e))??;
 
     let parsed = parse_markdown(&markdown, &context_id);
 
     let existing = {
-        let db = state.db.lock().unwrap();
+        let db = state.lock_db();
         db.get_stashes()
             .map_err(|e| e.to_string())?
             .into_iter()
@@ -729,68 +753,79 @@ pub async fn commit_import(
 ) -> Result<u32, String> {
     let temp_dir = transfer_temp_root().join(&token);
 
-    let mut prepared: Vec<StashItem> = Vec::with_capacity(stashes.len());
+    // All the file copying happens on the blocking pool: an import can move hundreds of
+    // attachments, and every byte of that was previously copied on an async worker.
+    let copy_context = context_id.clone();
+    let copy_temp = temp_dir.clone();
+    let prepared: Vec<StashItem> = tauri::async_runtime::spawn_blocking(
+        move || -> Result<Vec<StashItem>, String> {
+            let mut prepared: Vec<StashItem> = Vec::with_capacity(stashes.len());
 
-    for mut stash in stashes {
-        stash.context_id = Some(context_id.clone());
+            for mut stash in stashes {
+                stash.context_id = Some(copy_context.clone());
 
-        // Copy each referenced file out of the extraction directory and into the stash's
-        // own cache folder, building the attachment rows as we go.
-        let mut attachments: Vec<Attachment> = Vec::new();
-        if !stash.files.is_empty() {
-            let target_dir = get_stash_cache_path(&stash.id, Some(&context_id));
-            fs::create_dir_all(&target_dir)
-                .map_err(|e| format!("Failed to create attachment folder: {}", e))?;
+                // Copy each referenced file out of the extraction directory and into the
+                // stash's own cache folder, building the attachment rows as we go.
+                let mut attachments: Vec<Attachment> = Vec::new();
+                if !stash.files.is_empty() {
+                    let target_dir = get_stash_cache_path(&stash.id, Some(&copy_context));
+                    fs::create_dir_all(&target_dir)
+                        .map_err(|e| format!("Failed to create attachment folder: {}", e))?;
 
-            for name in &stash.files {
-                let archived = archive_file_name(&stash.id, name);
-                let candidates = [
-                    temp_dir.join(ATTACHMENTS_DIR).join(&archived),
-                    temp_dir.join(ATTACHMENTS_DIR).join(name),
-                ];
+                    for name in &stash.files {
+                        let archived = archive_file_name(&stash.id, name);
+                        let candidates = [
+                            copy_temp.join(ATTACHMENTS_DIR).join(&archived),
+                            copy_temp.join(ATTACHMENTS_DIR).join(name),
+                        ];
 
-                let Some(source) = candidates.iter().find(|p| p.exists()) else {
-                    log::warn!("[Import] {} is referenced but not in the archive", name);
-                    continue;
-                };
+                        let Some(source) = candidates.iter().find(|p| p.exists()) else {
+                            log::warn!("[Import] {} is referenced but not in the archive", name);
+                            continue;
+                        };
 
-                let dest = target_dir.join(name);
-                if let Err(e) = fs::copy(source, &dest) {
-                    log::warn!("[Import] could not place {}: {}", name, e);
-                    continue;
+                        let dest = target_dir.join(name);
+                        if let Err(e) = fs::copy(source, &dest) {
+                            log::warn!("[Import] could not place {}: {}", name, e);
+                            continue;
+                        }
+
+                        let size = fs::metadata(&dest).map(|m| m.len()).unwrap_or(0) as i64;
+                        attachments.push(Attachment {
+                            id: Uuid::new_v4().to_string(),
+                            stash_id: stash.id.clone(),
+                            file_path: dest.to_string_lossy().into_owned(),
+                            file_name: name.clone(),
+                            file_size: size,
+                            mime_type: mime_guess::from_path(&dest).first().map(|m| m.to_string()),
+                            syntax: None,
+                            created_at: Utc::now().to_rfc3339(),
+                        });
+                    }
                 }
 
-                let size = fs::metadata(&dest).map(|m| m.len()).unwrap_or(0) as i64;
-                attachments.push(Attachment {
-                    id: Uuid::new_v4().to_string(),
-                    stash_id: stash.id.clone(),
-                    file_path: dest.to_string_lossy().into_owned(),
-                    file_name: name.clone(),
-                    file_size: size,
-                    mime_type: mime_guess::from_path(&dest).first().map(|m| m.to_string()),
-                    syntax: None,
-                    created_at: Utc::now().to_rfc3339(),
-                });
+                // The legacy `files` column is not carried forward; attachments replace it.
+                stash.files = Vec::new();
+                stash.attachments = attachments;
+                prepared.push(stash);
             }
-        }
 
-        // The legacy `files` column is not carried forward; attachments replace it.
-        stash.files = Vec::new();
-        stash.attachments = attachments;
-        prepared.push(stash);
-    }
+            Ok(prepared)
+        },
+    )
+    .await
+    .map_err(|e| format!("Import task failed: {}", e))??;
 
     // One transaction for the lot, rather than the two-commands-per-stash-plus-one-per-file
     // the webview used to issue. insert_local_stashes, not import_stashes: these records
     // are new on this device and have to reach the cloud, so they stay pending.
     state
-        .db
-        .lock()
-        .unwrap()
+        .lock_db()
         .insert_local_stashes(&prepared)
         .map_err(|e| e.to_string())?;
 
-    let _ = fs::remove_dir_all(&temp_dir);
+    let cleanup_dir = temp_dir.clone();
+    let _ = tauri::async_runtime::spawn_blocking(move || fs::remove_dir_all(&cleanup_dir)).await;
 
     Ok(prepared.len() as u32)
 }
@@ -855,6 +890,20 @@ mod tests {
         assert_eq!(done.content, "second entry");
         assert!(active.created_at.starts_with("2026-08-18T10:00:00"));
         assert!(done.created_at.starts_with("2026-08-17T09:30:00"));
+    }
+
+    #[test]
+    /// Non-ASCII names are left intact rather than mistaken for a prefixed one.
+    #[test]
+    fn a_non_ascii_attachment_name_keeps_its_leading_characters() {
+        // Each 'ü' is two bytes, so byte 8 lands mid-character in this name.
+        assert_eq!(strip_archive_prefix("üüüüüüüüü.png"), "üüüüüüüüü.png");
+        // An emoji-led name is longer than nine bytes but has no boundary at 8 either.
+        assert_eq!(strip_archive_prefix("🎉🎉🎉_shot.png"), "🎉🎉🎉_shot.png");
+        // A genuine prefix is still stripped.
+        assert_eq!(strip_archive_prefix("abcdef12_shot.png"), "shot.png");
+        // Eight characters that are not hex are left alone.
+        assert_eq!(strip_archive_prefix("zzzzzzzz_shot.png"), "zzzzzzzz_shot.png");
     }
 
     #[test]

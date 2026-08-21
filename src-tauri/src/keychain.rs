@@ -12,6 +12,8 @@
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 // See the GNU Affero General Public License for more details.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use crate::utils::get_app_dir;
 
 /// Simple obfuscation key for API key storage (fallback)
@@ -35,8 +37,21 @@ pub fn create_cloud_keychain_entry() -> Result<keyring::Entry, keyring::Error> {
     keyring::Entry::new_with_target(KEYCHAIN_CLOUD_TARGET, KEYCHAIN_SERVICE, KEYCHAIN_CLOUD_USER)
 }
 
-/// Store a secret in the system keychain and verify it can be retrieved.
-/// Generic helper used for both AI API key and cloud access token.
+/// Whether this process has already proved the keychain round-trips correctly.
+///
+/// The read-back verification below is worth doing once - a credential store that
+/// accepts writes but cannot return them would silently lose the user's API key -
+/// but it used to run on *every* write. Combined with a `save_settings` fired from
+/// `oninput`, that meant a `CredWrite` plus a `CredRead` per keystroke, each one
+/// blocking a Tokio worker. Verifying once per process keeps the safety check and
+/// drops the per-write cost.
+static KEYCHAIN_VERIFIED: AtomicBool = AtomicBool::new(false);
+
+/// Store a secret in the system keychain.
+///
+/// Returns `false` when the secret could not be stored, so the caller can fall back
+/// to encrypted JSON. The first successful write of a process is read back to confirm
+/// the store actually works; later writes trust it.
 pub fn store_secret_in_keychain(
     create_entry: fn() -> Result<keyring::Entry, keyring::Error>,
     delete_fn: fn(),
@@ -46,42 +61,35 @@ pub fn store_secret_in_keychain(
         delete_fn();
         return true;
     }
-    match create_entry() {
-        Ok(entry) => {
-            match entry.set_password(secret) {
-                Ok(_) => {
-                    // Verify we can actually retrieve it
-                    match create_entry() {
-                        Ok(verify_entry) => {
-                            match verify_entry.get_password() {
-                                Ok(retrieved) if retrieved == secret => {
-                                    log::debug!("Secret stored and verified in system keychain");
-                                    true
-                                }
-                                Ok(_) => {
-                                    log::warn!("Keychain verification failed: retrieved value doesn't match");
-                                    false
-                                }
-                                Err(_) => {
-                                    log::warn!("Keychain verification failed on retrieval");
-                                    false
-                                }
-                            }
-                        }
-                        Err(_) => {
-                            log::warn!("Keychain verification failed on entry creation");
-                            false
-                        }
-                    }
-                }
-                Err(_) => {
-                    log::warn!("Failed to store secret in keychain");
-                    false
-                }
-            }
-        }
+    let entry = match create_entry() {
+        Ok(entry) => entry,
         Err(_) => {
             log::warn!("Failed to create keychain entry");
+            return false;
+        }
+    };
+    if entry.set_password(secret).is_err() {
+        log::warn!("Failed to store secret in keychain");
+        return false;
+    }
+
+    if KEYCHAIN_VERIFIED.load(Ordering::Relaxed) {
+        return true;
+    }
+
+    // First write of this process: prove the store can return what it took.
+    match create_entry().and_then(|verify| verify.get_password()) {
+        Ok(retrieved) if retrieved == secret => {
+            log::debug!("Secret stored and verified in system keychain");
+            KEYCHAIN_VERIFIED.store(true, Ordering::Relaxed);
+            true
+        }
+        Ok(_) => {
+            log::warn!("Keychain verification failed: retrieved value doesn't match");
+            false
+        }
+        Err(_) => {
+            log::warn!("Keychain verification failed on retrieval");
             false
         }
     }

@@ -87,13 +87,13 @@ pub async fn save_stash(
     let invert = options.invert_position;
     
     // Position Logic for DB
-    let settings = settings_state.settings.lock().unwrap();
+    let settings = settings_state.lock_settings();
     let default_pos = settings.new_stash_position.clone();
     drop(settings); 
 
     let effective_position_str = get_effective_position(invert, &default_pos);
     
-    let mut db = state.db.lock().unwrap();
+    let mut db = state.lock_db();
     
     // 1. Get existing stash to check changes
     let existing: Option<StashItem> = db.conn.query_row(
@@ -133,22 +133,22 @@ pub async fn save_stash(
 
 #[tauri::command]
 pub async fn load_stashes(state: State<'_, Arc<DbState>>) -> Result<Vec<StashItem>, String> {
-    Ok(state.db.lock().unwrap().get_stashes().unwrap_or_default())
+    Ok(state.lock_db().get_stashes().unwrap_or_default())
 }
 
 #[tauri::command]
 pub async fn load_stashes_for_sync(state: State<'_, Arc<DbState>>) -> Result<Vec<StashItem>, String> {
-    Ok(state.db.lock().unwrap().get_stashes_for_sync().unwrap_or_default())
+    Ok(state.lock_db().get_stashes_for_sync().unwrap_or_default())
 }
 
 #[tauri::command]
 pub async fn get_contexts_for_sync(state: State<'_, Arc<DbState>>) -> Result<Vec<Context>, String> {
-    Ok(state.db.lock().unwrap().get_contexts_for_sync().unwrap_or_default())
+    Ok(state.lock_db().get_contexts_for_sync().unwrap_or_default())
 }
 
 #[tauri::command]
 pub async fn import_stashes(state: State<'_, Arc<DbState>>, stashes_list: Vec<StashItem>) -> Result<(), String> {
-    state.db.lock().unwrap().import_stashes(&stashes_list).map_err(|e| e.to_string())
+    state.lock_db().import_stashes(&stashes_list).map_err(|e| e.to_string())
 }
 
 pub fn get_stash_cache_path(id: &str, context_id: Option<&str>) -> std::path::PathBuf {
@@ -162,7 +162,7 @@ pub fn get_stash_cache_path(id: &str, context_id: Option<&str>) -> std::path::Pa
 
 #[tauri::command]
 pub async fn delete_stash(state: State<'_, Arc<DbState>>, id: String) -> Result<(), String> {
-    let mut db = state.db.lock().unwrap();
+    let mut db = state.lock_db();
     
     // File cleanup logic (requires querying stash first)
     // We can do a quick SELECT to get context_id
@@ -197,53 +197,79 @@ pub async fn delete_stash(state: State<'_, Arc<DbState>>, id: String) -> Result<
     Ok(())
 }
 
+/// Sanitize one path component so a stash or context id cannot escape the cache dir.
+fn safe_component(value: &str) -> String {
+    value.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|', '.'], "_")
+}
+
 #[tauri::command]
 pub async fn delete_completed_stashes(state: State<'_, Arc<DbState>>, context_id: Option<String>) -> Result<(), String> {
-    let mut db = state.db.lock().unwrap();
-    let cache_dir = get_app_dir().join("cache");
-
-    // Get list of completed stashes to delete attachments
-    // Uses parameterized queries to prevent SQL injection
+    // Collect under the lock, delete files with the lock released, then write back.
+    //
+    // This used to hold the global database mutex across a `remove_dir_all` per stash -
+    // so clearing a few hundred completed stashes with attachments blocked every other
+    // command for the duration. The `.unwrap()`s on the queries were worse: a panic
+    // there poisoned the mutex, and because Tauri does not catch panics in commands the
+    // caller's `invoke` never settled either. One failed query bricked the app.
     let to_delete_data: Vec<(String, Option<String>)> = {
-        if let Some(ref cid) = context_id {
-            let mut stmt = db.conn.prepare(
-                "SELECT id, context_id FROM stashes WHERE completed = 1 AND context_id = ?1 AND deleted = 0"
-            ).unwrap();
-            let rows = stmt.query_map(params![cid], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
-            }).unwrap();
-            rows.filter_map(|r| r.ok()).collect()
-        } else {
-            let mut stmt = db.conn.prepare(
-                "SELECT id, context_id FROM stashes WHERE completed = 1 AND deleted = 0"
-            ).unwrap();
-            let rows = stmt.query_map([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
-            }).unwrap();
-            rows.filter_map(|r| r.ok()).collect()
+        let db = state.lock_db();
+        let (sql, bind): (&str, Option<&String>) = match context_id.as_ref() {
+            Some(cid) => (
+                "SELECT id, context_id FROM stashes WHERE completed = 1 AND context_id = ?1 AND deleted = 0",
+                Some(cid),
+            ),
+            None => (
+                "SELECT id, context_id FROM stashes WHERE completed = 1 AND deleted = 0",
+                None,
+            ),
+        };
+
+        let mut stmt = db.conn.prepare(sql).map_err(|e| e.to_string())?;
+        let map_row = |row: &rusqlite::Row<'_>| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+        };
+        let rows = match bind {
+            Some(cid) => stmt.query_map(params![cid], map_row),
+            None => stmt.query_map([], map_row),
         }
+        .map_err(|e| e.to_string())?;
+
+        rows.filter_map(|r| r.ok()).collect()
     };
 
-    for (id, ctx_id_opt) in to_delete_data {
-         let ctx_id = ctx_id_opt.as_deref().unwrap_or("default");
-         // Sanitize path components to prevent directory traversal
-         let safe_ctx = ctx_id.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|', '.'], "_");
-         let safe_stash_id = id.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|', '.'], "_");
-         let stash_folder = cache_dir.join(&safe_ctx).join(&safe_stash_id);
-         if stash_folder.exists() {
-             let _ = fs::remove_dir_all(stash_folder);
-         }
+    // Filesystem work, off the lock and off the async worker.
+    let cache_dir = get_app_dir().join("cache");
+    let folders: Vec<std::path::PathBuf> = to_delete_data
+        .iter()
+        .map(|(id, ctx_id_opt)| {
+            let ctx_id = ctx_id_opt.as_deref().unwrap_or("default");
+            cache_dir.join(safe_component(ctx_id)).join(safe_component(id))
+        })
+        .collect();
 
-         // Same as delete_stash: the rows outlive the files, so clear the paths rather
-         // than leave them pointing at a directory that was just removed.
-         let _ = db.conn.execute(
-             "UPDATE attachments SET file_path = '' WHERE stash_id = ?1",
-             params![id],
-         );
-    }
+    let _ = tauri::async_runtime::spawn_blocking(move || {
+        for folder in folders {
+            if folder.exists() {
+                let _ = fs::remove_dir_all(folder);
+            }
+        }
+    })
+    .await;
 
-    if let Err(e) = db.delete_completed_stashes(context_id) {
-        log::error!("Failed to delete completed stashes: {}", e);
+    {
+        let mut db = state.lock_db();
+        for (id, _) in &to_delete_data {
+            // Same as delete_stash: the rows outlive the files, so clear the paths rather
+            // than leave them pointing at a directory that was just removed.
+            let _ = db.conn.execute(
+                "UPDATE attachments SET file_path = '' WHERE stash_id = ?1",
+                params![id],
+            );
+        }
+
+        if let Err(e) = db.delete_completed_stashes(context_id) {
+            log::error!("Failed to delete completed stashes: {}", e);
+        }
     }
     Ok(())
 }
@@ -345,7 +371,7 @@ pub fn perform_startup_cleanup(db: &mut DbManager, settings: &Settings) -> usize
 pub async fn save_stashes(state: State<'_, Arc<DbState>>, stashes_list: Vec<StashItem>) -> Result<(), String> {
     // This is used for REORDERING, which rewrites a row per visible stash.
     println!("Saving stash order ({} items)", stashes_list.len());
-    let mut db = state.db.lock().unwrap();
+    let mut db = state.lock_db();
     if let Err(e) = db.update_stash_positions(&stashes_list) {
         println!("Failed to update stash positions: {}", e);
     }
@@ -354,8 +380,12 @@ pub async fn save_stashes(state: State<'_, Arc<DbState>>, stashes_list: Vec<Stas
  
 #[tauri::command]
 pub async fn trigger_auto_cleanup(state: State<'_, Arc<DbState>>, settings_state: State<'_, Arc<SettingsState>>) -> Result<u32, String> {
-    let mut db = state.db.lock().unwrap();
-    let settings = settings_state.settings.lock().unwrap();
+    // Copy the settings out before taking the database lock. Holding both at once was
+    // the only place in the codebase that established the reverse ordering, and this
+    // command fires every five minutes from the frontend, so it was a standing
+    // deadlock risk against `save_stash`, which takes settings then db.
+    let settings = settings_state.lock_settings().clone();
+    let mut db = state.lock_db();
     Ok(perform_startup_cleanup(&mut db, &settings) as u32)
 }
  
@@ -368,115 +398,173 @@ pub async fn trigger_auto_cleanup(state: State<'_, Arc<DbState>>, settings_state
 /// 
 /// This structure prevents file name collisions and allows for proper cleanup
 /// when stashes or contexts are deleted.
+/// Metadata that travels alongside a raw asset upload.
+///
+/// Sent as one URI-encoded JSON header rather than as separate headers, because a
+/// filename is arbitrary Unicode and HTTP header values are not.
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AssetMeta {
+    name: String,
+    context_id: Option<String>,
+    stash_id: Option<String>,
+    syntax: Option<String>,
+}
+
+/// Header carrying the URI-encoded [`AssetMeta`] JSON.
+const ASSET_META_HEADER: &str = "x-stashpad-asset";
+
+/// Save an asset whose bytes arrive as a raw IPC body.
+///
+/// The bytes used to be sent as a JSON array of integers - the frontend did
+/// `Array.from(new Uint8Array(buffer))`, so a pasted screenshot became a
+/// multi-million-element JavaScript array that then had to be `JSON.stringify`d, all on
+/// the webview's main thread. That is the "app freezes when I paste an image" path. A
+/// raw body transfers the same bytes with no per-byte JavaScript work at all.
 #[tauri::command]
 pub async fn save_asset(
     state: State<'_, Arc<DbState>>,
-    name: String, 
-    data: Vec<u8>, 
-    context_id: Option<String>, 
-    stash_id: Option<String>,
-    syntax: Option<String>
+    request: tauri::ipc::Request<'_>,
 ) -> Result<Attachment, String> {
-    println!(
-        "Saving asset: {} ({} bytes) context: {:?} stash: {:?}", 
-        name, data.len(), context_id, stash_id
+    let tauri::ipc::InvokeBody::Raw(data) = request.body() else {
+        return Err("Asset upload must send a raw body".into());
+    };
+
+    let raw_meta = request
+        .headers()
+        .get(ASSET_META_HEADER)
+        .ok_or_else(|| format!("Missing `{}` header", ASSET_META_HEADER))?
+        .to_str()
+        .map_err(|_| "Asset metadata header is not valid text".to_string())?;
+
+    let decoded = urlencoding::decode(raw_meta)
+        .map_err(|e| format!("Could not decode asset metadata: {}", e))?;
+    let meta: AssetMeta = serde_json::from_str(&decoded)
+        .map_err(|e| format!("Could not parse asset metadata: {}", e))?;
+
+    write_asset(state, meta, data.clone()).await
+}
+
+/// Shared implementation: put `data` on disk under the stash's cache folder and record it.
+async fn write_asset(
+    state: State<'_, Arc<DbState>>,
+    meta: AssetMeta,
+    data: Vec<u8>,
+) -> Result<Attachment, String> {
+    let AssetMeta {
+        name,
+        context_id,
+        stash_id,
+        syntax,
+    } = meta;
+
+    log::info!(
+        "Saving asset: {} ({} bytes) context: {:?} stash: {:?}",
+        name,
+        data.len(),
+        context_id,
+        stash_id
     );
 
     // Build the target directory based on provided IDs
     let mut target_dir = get_app_dir().join("cache");
-    
+
     if let Some(ctx_id) = &context_id {
         // Sanitize context ID to prevent path traversal
-        let safe_ctx = ctx_id.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|', '.'], "_");
-        target_dir = target_dir.join(&safe_ctx);
-        
+        target_dir = target_dir.join(safe_component(ctx_id));
+
         if let Some(s_id) = &stash_id {
             // Sanitize stash ID to prevent path traversal
             let safe_stash = s_id.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_");
             target_dir = target_dir.join(&safe_stash);
         }
     }
-    
-    // Create the directory structure if it doesn't exist
-    if !target_dir.exists() {
-        fs::create_dir_all(&target_dir)
-            .map_err(|e| format!("Failed to create directory: {}", e))?;
-    }
 
     // Basic sanitization of filename
     let safe_name = std::path::Path::new(&name)
         .file_name()
         .unwrap_or_else(|| std::ffi::OsStr::new("unknown_file"))
-        .to_string_lossy();
+        .to_string_lossy()
+        .into_owned();
 
-    let file_path = target_dir.join(safe_name.as_ref());
+    let file_path = target_dir.join(&safe_name);
 
-    match fs::write(&file_path, data) {
-        Ok(_) => {
-            let path_str = file_path.to_string_lossy().into_owned();
-            
-            // If we have a stash_id, save metadata to DB
-            if let Some(s_id) = &stash_id {
-                let file_size = fs::metadata(&file_path).map(|m| m.len()).unwrap_or(0) as i64;
-                // Simple mime guess or default
-                let mime_type = mime_guess::from_path(&file_path).first().map(|m| m.to_string());
-                use uuid::Uuid;
-                let att_id = Uuid::new_v4().to_string();
-                let created_at = chrono::Utc::now().to_rfc3339();
-
-                let db = state.db.lock().unwrap();
-                // Direct insert for simplicity - ideally this would be a method on DbManager
-                let res = db.conn.execute(
-                     "INSERT INTO attachments (id, stash_id, file_path, file_name, file_size, mime_type, syntax, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                     params![
-                         att_id,
-                         s_id,
-                         path_str,
-                         safe_name.as_ref(), 
-                         file_size,
-                         mime_type,
-                         syntax,
-                         created_at
-                     ]
-                );
-                
-                if let Err(e) = res {
-                     println!("Failed to save attachment metadata (likely due to missing stash parent): {}", e);
-                     // Suppress error so frontend receives the Attachment object. 
-                     // The attachment will be saved to DB when save_stash is called.
-                }
-
-                Ok(Attachment {
-                    id: att_id,
-                    stash_id: s_id.clone(),
-                    file_path: path_str,
-                    file_name: safe_name.into(),
-                    file_size,
-                    mime_type,
-                    syntax,
-                    created_at,
-                })
-            } else {
-                 // Context-only or loose file - return dummy attachment or error? 
-                 // Stashpad architecture implies assets belong to stashes usually. 
-                 // But context implementation might just return path.
-                 // We should probably enforce stash_id for new flow, but for compat:
-                 // Return partial attachment or change signature?
-                 // Let's create a temporary/dummy attachment struct for compat if stash_id missing
-                 Ok(Attachment {
-                    id: "".into(),
-                    stash_id: "".into(),
-                    file_path: path_str,
-                    file_name: safe_name.into(),
-                    file_size: 0,
-                    mime_type: None,
-                    syntax: None,
-                    created_at: "".into(),
-                })
-            }
+    // Directory creation and the write itself are blocking, and an attachment is a whole
+    // file, so they go to the blocking pool rather than parking an async worker.
+    let write_dir = target_dir.clone();
+    let write_path = file_path.clone();
+    let file_size = tauri::async_runtime::spawn_blocking(move || -> Result<i64, String> {
+        if !write_dir.exists() {
+            fs::create_dir_all(&write_dir)
+                .map_err(|e| format!("Failed to create directory: {}", e))?;
         }
-        Err(e) => Err(format!("Failed to write file: {}", e)),
+        fs::write(&write_path, data).map_err(|e| format!("Failed to write file: {}", e))?;
+        Ok(fs::metadata(&write_path).map(|m| m.len()).unwrap_or(0) as i64)
+    })
+    .await
+    .map_err(|e| format!("Asset write task failed: {}", e))??;
+
+    let path_str = file_path.to_string_lossy().into_owned();
+
+    // If we have a stash_id, save metadata to DB
+    let Some(s_id) = stash_id else {
+        // Context-only or loose file: there is no attachment row to create, so report
+        // just enough for the caller to reference the file it asked us to write.
+        return Ok(Attachment {
+            id: String::new(),
+            stash_id: String::new(),
+            file_path: path_str,
+            file_name: safe_name,
+            file_size: 0,
+            mime_type: None,
+            syntax: None,
+            created_at: String::new(),
+        });
+    };
+
+    // Simple mime guess or default
+    let mime_type = mime_guess::from_path(&file_path).first().map(|m| m.to_string());
+    use uuid::Uuid;
+    let att_id = Uuid::new_v4().to_string();
+    let created_at = chrono::Utc::now().to_rfc3339();
+
+    {
+        let db = state.lock_db();
+        // Direct insert for simplicity - ideally this would be a method on DbManager
+        let res = db.conn.execute(
+            "INSERT INTO attachments (id, stash_id, file_path, file_name, file_size, mime_type, syntax, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                att_id,
+                s_id,
+                path_str,
+                safe_name,
+                file_size,
+                mime_type,
+                syntax,
+                created_at
+            ],
+        );
+
+        if let Err(e) = res {
+            log::warn!(
+                "Failed to save attachment metadata (likely due to missing stash parent): {}",
+                e
+            );
+            // Suppressed on purpose so the frontend still receives the Attachment object.
+            // The row is written when save_stash runs.
+        }
     }
+
+    Ok(Attachment {
+        id: att_id,
+        stash_id: s_id,
+        file_path: path_str,
+        file_name: safe_name,
+        file_size,
+        mime_type,
+        syntax,
+        created_at,
+    })
 }
 
 /// Imports an asset from an external file path into the cache directory.
@@ -543,7 +631,7 @@ pub async fn save_asset_from_path(
                 let att_id = Uuid::new_v4().to_string();
                 let created_at = chrono::Utc::now().to_rfc3339();
 
-                let db = state.db.lock().unwrap();
+                let db = state.lock_db();
                 let res = db.conn.execute(
                      "INSERT INTO attachments (id, stash_id, file_path, file_name, file_size, mime_type, syntax, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                      params![
@@ -623,7 +711,7 @@ pub async fn delete_asset(state: State<'_, Arc<DbState>>, path: String) -> Resul
     // Normalized path string for DB query
     let path_str = file_path.to_string_lossy();
     
-    let db = state.db.lock().unwrap();
+    let db = state.lock_db();
     // We use a simplified query here. Note that paths might have different separators on Windows so we might need care.
     // But since we store exact path string on save, exact match should work if string is consistent.
     // For robustness, we could also ignore failures here if record not found.
@@ -640,6 +728,17 @@ pub async fn delete_asset(state: State<'_, Arc<DbState>>, path: String) -> Resul
 /// - Other: Returns unsupported type indicator
 #[tauri::command]
 pub async fn read_file_for_preview(path: String) -> Result<crate::models::FilePreviewData, String> {
+    // On the blocking pool, not the async worker: this canonicalizes a path, reads a
+    // whole file, and base64-encodes it into a String. A large screenshot is tens of
+    // megabytes of allocation and encoding, and Tokio does not move a task that blocks
+    // its worker - so doing it inline starved the pool every other command shares.
+    match tauri::async_runtime::spawn_blocking(move || read_file_for_preview_blocking(path)).await {
+        Ok(result) => result,
+        Err(e) => Err(format!("Preview task failed: {}", e)),
+    }
+}
+
+fn read_file_for_preview_blocking(path: String) -> Result<crate::models::FilePreviewData, String> {
     let file_path = std::path::Path::new(&path);
     
     // Security: validate that the path is within the cache directory
@@ -768,7 +867,7 @@ pub async fn read_file_for_preview(path: String) -> Result<crate::models::FilePr
 /// push means a database round-trip per record on the server, on every local edit.
 #[tauri::command]
 pub async fn claim_pending_stashes(state: State<'_, Arc<DbState>>) -> Result<Vec<StashItem>, String> {
-    Ok(state.db.lock().unwrap().claim_pending_stashes().unwrap_or_default())
+    Ok(state.lock_db().claim_pending_stashes().unwrap_or_default())
 }
 
 /// Clear the pending flag for stashes the server accepted.
@@ -781,9 +880,7 @@ pub async fn mark_stashes_synced(
     ids: Vec<String>,
 ) -> Result<(), String> {
     state
-        .db
-        .lock()
-        .unwrap()
+        .lock_db()
         .mark_synced("stashes", &ids)
         .map_err(|e| e.to_string())
 }
@@ -797,9 +894,7 @@ pub async fn claim_pending_positions(
     state: State<'_, Arc<DbState>>,
 ) -> Result<Vec<crate::models::StashPosition>, String> {
     Ok(state
-        .db
-        .lock()
-        .unwrap()
+        .lock_db()
         .claim_pending_positions()
         .unwrap_or_default())
 }
@@ -811,9 +906,7 @@ pub async fn mark_positions_synced(
     ids: Vec<String>,
 ) -> Result<(), String> {
     state
-        .db
-        .lock()
-        .unwrap()
+        .lock_db()
         .mark_positions_synced(&ids)
         .map_err(|e| e.to_string())
 }
@@ -825,9 +918,7 @@ pub async fn import_positions(
     positions: Vec<crate::models::StashPosition>,
 ) -> Result<u32, String> {
     state
-        .db
-        .lock()
-        .unwrap()
+        .lock_db()
         .import_positions(&positions)
         .map(|n| n as u32)
         .map_err(|e| e.to_string())

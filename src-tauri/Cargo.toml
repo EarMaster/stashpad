@@ -46,8 +46,6 @@ keyring = "3"
 aes-gcm = "0.10"
 sha2 = "0.10"
 rand = "0.8"
-tiny_http = "0.12"
-url = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-deep-link = "2"
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }

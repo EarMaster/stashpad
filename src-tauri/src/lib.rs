@@ -12,12 +12,17 @@
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 // See the GNU Affero General Public License for more details.
 
+use std::collections::HashMap;
 use std::fs;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::thread;
 
-use tauri::menu::{Menu, MenuBuilder, MenuItemBuilder, SubmenuBuilder};
+use tauri::menu::Menu;
+// Only the macOS branch builds a custom menu; importing these unconditionally warns on
+// every other platform.
+#[cfg(target_os = "macos")]
+use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::window::Color;
 use tauri::Manager;
 use active_win_pos_rs::get_active_window;
@@ -33,8 +38,8 @@ mod stashes;
 mod transfer;
 pub mod db;
 
-use models::AppContext;
-use state::{DbState, TrackerState, WsState, SettingsState};
+use models::{AppContext, Context};
+use state::{DbState, TrackerState, WsState, SettingsState, lock_or_recover};
 use utils::{
     get_app_dir, ensure_storage_ready, apply_window_effects_to_window,
     get_system_prompt_path,
@@ -42,6 +47,93 @@ use utils::{
 use settings::load_settings_from_disk;
 use stashes::perform_startup_cleanup;
 use db::DbManager;
+
+/// How often the active window is sampled for auto context detection.
+///
+/// The frontend polls `get_previous_app_info` once a second, so sampling twice as
+/// often only bought contention on the database mutex.
+const WINDOW_POLL_INTERVAL: Duration = Duration::from_secs(1);
+
+/// Matches the active window against context rules, caching compiled regexes.
+///
+/// The regex for a rule used to be compiled on every tick - in fact twice, since the
+/// first compile's result was discarded. Rules change rarely, so the compilation is
+/// cached and keyed by the pattern actually used.
+struct ContextMatcher {
+    /// pattern (already case-folded when needed) -> compiled regex, or `None` when the
+    /// pattern does not compile, so a bad rule is not retried twice a second.
+    compiled: HashMap<String, Option<regex::Regex>>,
+}
+
+impl ContextMatcher {
+    fn new() -> Self {
+        Self {
+            compiled: HashMap::new(),
+        }
+    }
+
+    /// The id of the first context whose rules match, if any.
+    fn match_context(
+        &mut self,
+        contexts: &[Context],
+        app_name: &str,
+        title: &str,
+    ) -> Option<String> {
+        for ctx in contexts {
+            for rule in &ctx.rules {
+                let target = if rule.rule_type == "process" {
+                    app_name
+                } else {
+                    title
+                };
+
+                let matched = if rule.use_regex {
+                    let pattern = if rule.match_case {
+                        rule.value.clone()
+                    } else {
+                        format!("(?i){}", rule.value)
+                    };
+                    self.regex_for(pattern)
+                        .map(|re| re.is_match(target))
+                        .unwrap_or(false)
+                } else if rule.match_case {
+                    if rule.match_type == "exact" {
+                        target == rule.value
+                    } else {
+                        target.contains(&rule.value)
+                    }
+                } else {
+                    let target = target.to_lowercase();
+                    let value = rule.value.to_lowercase();
+                    if rule.match_type == "exact" {
+                        target == value
+                    } else {
+                        target.contains(&value)
+                    }
+                };
+
+                if matched {
+                    return Some(ctx.id.clone());
+                }
+            }
+        }
+        None
+    }
+
+    /// The compiled form of `pattern`, compiling it at most once.
+    fn regex_for(&mut self, pattern: String) -> Option<&regex::Regex> {
+        self.compiled
+            .entry(pattern)
+            .or_insert_with_key(|p| match regex::Regex::new(p) {
+                Ok(re) => Some(re),
+                Err(e) => {
+                    log::warn!("Ignoring context rule with invalid regex {:?}: {}", p, e);
+                    None
+                }
+            })
+            .as_ref()
+    }
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -52,21 +144,9 @@ pub fn run() {
     // 1. Initialize Storage
     ensure_storage_ready();
 
-    // 2. Initialize DB and Migrate
+    // 2. Initialize DB
     let db_path = get_app_dir().join("stashpad.db");
-    let mut db_manager = DbManager::new(&db_path).expect("Failed to init DB");
-    
-    // Check for migration
-    let legacy_stashes_path = get_app_dir().join("db.json");
-    if legacy_stashes_path.exists() { 
-         println!("Migrating legacy JSON data to SQLite...");
-         // Using stashes method (we might need to expose a migration method or move to stashes)
-         // For now, load_stashes_from_disk was in old lib.rs. We moved contexts to load_contexts_from_disk.
-         // Let's assume DbManager handles this. We might need to copy load_stashes_from_disk if it doesn't exist.
-         // Wait, load_stashes_from_disk wasn't extracted yet? I will need to make sure it's in stashes.rs.
-         // Ah, let's look at legacy migration:
-         // let stashes = stashes::load_stashes_from_disk();
-    }
+    let db_manager = DbManager::new(&db_path).expect("Failed to init DB");
 
     let db_state = Arc::new(DbState {
         db: Arc::new(Mutex::new(db_manager)),
@@ -81,13 +161,12 @@ pub fn run() {
         task_handle: Mutex::new(None),
     });
     
-    // Perform startup cleanup
+    // Perform startup cleanup. Settings are copied out first so the two locks are never
+    // held at once - the same ordering every command uses.
     {
-        // For startup cleanup, we need to lock DB.
-        // We reuse logic but adapted.
-        let mut db_lock = db_state.db.lock().unwrap();
-        let settings_lock = settings_state.settings.lock().unwrap();
-        perform_startup_cleanup(&mut db_lock, &settings_lock);
+        let settings_snapshot = settings_state.lock_settings().clone();
+        let mut db_lock = db_state.lock_db();
+        perform_startup_cleanup(&mut db_lock, &settings_snapshot);
     }
     
     let tracker_state_clone = tracker_state.clone();
@@ -95,12 +174,22 @@ pub fn run() {
     // Clone db state for background thread
     let db_state_clone = db_state.clone();
     
-    // Start background polling
+    // Start background polling.
+    //
+    // This thread used to hold the global DB mutex across `get_contexts()` *and* the
+    // whole nested rule loop, recompiling every regex rule twice per tick (the first
+    // compile's result was thrown away outright) - twice a second, forever. Every
+    // stash and sync command contends on that same mutex, so the poller was a
+    // permanent tax on the rest of the app. Now it copies the rules out under the
+    // lock, releases it, and matches against the copy, with compiled regexes cached
+    // between ticks.
     thread::spawn(move || {
+        let mut matcher = ContextMatcher::new();
+
         loop {
             // Check settings first
             let is_auto = {
-                let settings = settings_state_clone.settings.lock().unwrap();
+                let settings = settings_state_clone.lock_settings();
                 settings.auto_context_detection
             };
 
@@ -109,68 +198,21 @@ pub fn run() {
                     let app_name = window.app_name;
                     let title = window.title;
 
-                    // Match context
-                    let mut matched_context_id = None;
-                    {
-                        if let Ok(db) = db_state_clone.db.lock() {
-                            if let Ok(contexts) = db.get_contexts() {
-                                'ctx_loop: for ctx in contexts.iter() {
-                                    for rule in &ctx.rules {
-                                        let mut target = if rule.rule_type == "process" {
-                                            app_name.clone()
-                                        } else {
-                                            title.clone()
-                                        };
-                                        
-                                        let mut rule_value = rule.value.clone();
+                    // Copy the rules out and drop the lock immediately. Matching is
+                    // pure computation and has no business holding the database.
+                    let contexts = {
+                        let db = db_state_clone.lock_db();
+                        db.get_contexts().unwrap_or_default()
+                    };
 
-                                        if !rule.match_case {
-                                            target = target.to_lowercase();
-                                            rule_value = rule_value.to_lowercase();
-                                        }
-
-                                        let matched = if rule.use_regex {
-                                            if let Ok(_re) = regex::Regex::new(&rule.value) {
-                                                let re_str = if rule.match_case {
-                                                    rule.value.clone()
-                                                } else {
-                                                    format!("(?i){}", rule.value)
-                                                };
-                                                if let Ok(re_case) = regex::Regex::new(&re_str) {
-                                                    let orig_target = if rule.rule_type == "process" {
-                                                        &app_name
-                                                    } else {
-                                                        &title
-                                                    };
-                                                    re_case.is_match(orig_target)
-                                                } else {
-                                                    false
-                                                }
-                                            } else {
-                                                false
-                                            }
-                                        } else if rule.match_type == "exact" {
-                                            target == rule_value
-                                        } else {
-                                            target.contains(&rule_value)
-                                        };
-
-                                        if matched {
-                                            matched_context_id = Some(ctx.id.clone());
-                                            break 'ctx_loop;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    let matched_context_id = matcher.match_context(&contexts, &app_name, &title);
 
                     let app_name_lower = app_name.to_lowercase();
                     if !app_name_lower.contains("stashpad")
-                        && app_name_lower != "app" 
+                        && app_name_lower != "app"
                         && app_name_lower != "webview"
                     {
-                        let mut state = tracker_state_clone.lock().unwrap();
+                        let mut state = lock_or_recover(&tracker_state_clone);
                         state.last_external_app = Some(AppContext {
                             window_title: title,
                             process_name: app_name,
@@ -180,7 +222,7 @@ pub fn run() {
                     }
                 }
             }
-            thread::sleep(Duration::from_millis(500));
+            thread::sleep(WINDOW_POLL_INTERVAL);
         }
     });
 
@@ -198,7 +240,7 @@ pub fn run() {
         }))
         .setup(move |app| {
             // Apply initial window effects based on saved settings
-            let settings = settings_state_for_setup.settings.lock().unwrap();
+            let settings = settings_state_for_setup.lock_settings();
             let visual_effects_enabled = settings.visual_effects_enabled;
             let theme = settings.theme.clone();
             drop(settings); // Release lock
@@ -394,7 +436,6 @@ pub fn run() {
             contexts::delete_context,
             utils::set_autostart,
             utils::get_autostart_enabled,
-            sync::start_cloud_auth,
             sync::fetch_cloud_account,
             sync::fetch_cloud_usage,
             utils::check_screen_recording_permission,
@@ -413,7 +454,8 @@ pub fn run() {
             sync::download_attachment_from_cloud,
             sync::connect_websocket,
             sync::disconnect_websocket,
-            utils::get_installation_source
+            utils::get_installation_source,
+            utils::log_frontend_error
         ])
         .plugin(tauri_plugin_deep_link::init())
         .setup(|_app| {
@@ -437,20 +479,58 @@ fn cleanup_websocket_state<R: tauri::Runtime>(app_handle: &tauri::AppHandle<R>) 
     use tauri::Manager;
     if let Some(ws_arc_state) = app_handle.try_state::<Arc<WsState>>() {
         let ws_arc: &Arc<WsState> = ws_arc_state.inner();
-        if let Some(handle) = ws_arc.task_handle.lock().unwrap().take() {
+        if let Some(handle) = lock_or_recover(&ws_arc.task_handle).take() {
             handle.abort();
         }
     }
 }
 
+/// Checkpoint the WAL on the way out, but never at the cost of hanging the exit.
+///
+/// This runs on the main thread during `RunEvent::Exit`. A plain `.lock()` here blocks
+/// until whatever worker holds the database is done - a large archive import or a
+/// cleanup pass over thousands of stashes - so the window disappeared while the process
+/// stayed alive, which is the "app won't close, needs killing" report.
+///
+/// Skipping the checkpoint is safe: the WAL is not lost, SQLite simply replays it the
+/// next time the database is opened. A missed truncation is a slightly larger file, not
+/// data loss, so a bounded wait is strictly better than an unbounded one.
 fn cleanup_database_state<R: tauri::Runtime>(app_handle: &tauri::AppHandle<R>) {
     use std::sync::Arc;
     use tauri::Manager;
-    if let Some(db_state) = app_handle.try_state::<Arc<DbState>>() {
-        let db_arc = &db_state.db;
-        if let Ok(db) = db_arc.lock() {
-            let _: rusqlite::Result<()> = db.prepare_shutdown();
-            println!("DB shutdown successful (WAL checkpointed).");
+
+    /// Total time we are willing to spend waiting for the database on shutdown.
+    const SHUTDOWN_LOCK_BUDGET: Duration = Duration::from_secs(2);
+    const RETRY_DELAY: Duration = Duration::from_millis(25);
+
+    let Some(db_state) = app_handle.try_state::<Arc<DbState>>() else {
+        return;
+    };
+    let db_arc = &db_state.db;
+    let deadline = std::time::Instant::now() + SHUTDOWN_LOCK_BUDGET;
+
+    loop {
+        match db_arc.try_lock() {
+            Ok(db) => {
+                let _: rusqlite::Result<()> = db.prepare_shutdown();
+                println!("DB shutdown successful (WAL checkpointed).");
+                return;
+            }
+            Err(std::sync::TryLockError::Poisoned(poisoned)) => {
+                // A panic already happened; still worth checkpointing.
+                let _: rusqlite::Result<()> = poisoned.into_inner().prepare_shutdown();
+                return;
+            }
+            Err(std::sync::TryLockError::WouldBlock) => {
+                if std::time::Instant::now() >= deadline {
+                    log::warn!(
+                        "Database still busy at exit; skipping WAL checkpoint so the \
+                         process can terminate. The WAL replays on next launch."
+                    );
+                    return;
+                }
+                thread::sleep(RETRY_DELAY);
+            }
         }
     }
 }
