@@ -22,7 +22,6 @@ use tauri::menu::Menu;
 // every other platform.
 #[cfg(target_os = "macos")]
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
-use tauri::window::Color;
 use tauri::Manager;
 use active_win_pos_rs::get_active_window;
 
@@ -40,7 +39,7 @@ pub mod db;
 use models::{AppContext, Context};
 use state::{DbState, TrackerState, WsState, SettingsState, lock_or_recover};
 use utils::{
-    get_app_dir, ensure_storage_ready, apply_window_effects_to_window,
+    get_app_dir, ensure_storage_ready, apply_window_effects_to_window, apply_window_background,
     get_system_prompt_path,
 };
 use settings::load_settings_from_disk;
@@ -250,14 +249,10 @@ pub fn run() {
             drop(settings); // Release lock
 
             if let Some(window) = app.get_webview_window("main") {
-                #[cfg(any(target_os = "windows", target_os = "macos"))]
-                {
-                    let _ = window.set_background_color(Some(Color(0, 0, 0, 0)));
-                }
-                #[cfg(target_os = "linux")]
-                {
-                    let _ = window.set_background_color(Some(Color(24, 24, 27, 255)));
-                }
+                // Clear only when translucency is actually on. A permanently transparent
+                // window is what let the desktop show through wherever the webview had
+                // not painted.
+                apply_window_background(&window, visual_effects_enabled, theme.as_deref());
 
                 // Build app menu with "Check for Updates…" item on macOS;
                 // fall back to default menu on other platforms.

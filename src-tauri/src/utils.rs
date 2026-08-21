@@ -100,6 +100,78 @@ pub fn ensure_storage_ready() {
     }
 }
 
+/// Whether the UI is dark right now, resolving "system" against the OS rather than
+/// assuming one or the other.
+fn resolve_is_dark(window: &tauri::WebviewWindow, theme: Option<&str>) -> bool {
+    match theme {
+        Some("light") => false,
+        Some("dark") => true,
+        _ => !matches!(window.theme(), Ok(tauri::Theme::Light)),
+    }
+}
+
+/// Paint the window itself in the current theme colour, unless translucency needs it
+/// left clear.
+///
+/// The webview surface is transparent, so whatever it has not painted shows the window
+/// underneath. With a transparent window that meant the DWM backdrop - a blurred image
+/// of the desktop - which is exactly what appeared below the fold after a theme change
+/// and got reported as the window "splitting". An opaque theme-coloured window makes
+/// that impossible to notice and costs nothing while the webview is painting normally.
+///
+/// Kept out of `apply_window_effects_to_window` on purpose: the background has to
+/// follow the theme even when effects are switched off and that function does nothing.
+///
+/// Note that Windows does not honour this for every part of the client area - measured,
+/// not assumed - so it is a belt rather than the fix. What actually removed the blurred
+/// desktop from that gap was dropping the unconditional `windowEffects` blur from
+/// tauri.conf.json.
+pub fn apply_window_background(
+    window: &tauri::WebviewWindow,
+    effects_enabled: Option<bool>,
+    theme: Option<&str>,
+) {
+    use tauri::window::Color;
+
+    // Matches the default `apply_window_effects_to_window` uses, so the two cannot
+    // disagree about whether the window is meant to be translucent. Linux has no
+    // vibrancy support, so it is never left clear.
+    let translucent = effects_enabled.unwrap_or(true) && !cfg!(target_os = "linux");
+
+    let color = if translucent {
+        Color(0, 0, 0, 0)
+    } else if resolve_is_dark(window, theme) {
+        Color(24, 24, 27, 255) // --background, dark  (#18181b)
+    } else {
+        Color(249, 250, 251, 255) // --background, light (#f9fafb)
+    };
+
+    let _ = window.set_background_color(Some(color));
+}
+
+/// Make the webview re-lay-out and re-commit its whole surface.
+///
+/// A theme change repaints every pixel, and on Windows the composited result could come
+/// out truncated partway down the window, leaving the rest showing the backdrop. A
+/// manual reload cleared it; so does a one-pixel resize and back, which is the cheapest
+/// way to get a WM_SIZE through to the webview.
+pub fn nudge_webview_relayout(window: &tauri::WebviewWindow) {
+    #[cfg(target_os = "windows")]
+    {
+        use tauri::PhysicalSize;
+        if let Ok(size) = window.inner_size() {
+            if size.width > 0 && size.height > 0 {
+                let _ = window.set_size(PhysicalSize::new(size.width, size.height + 1));
+                let _ = window.set_size(size);
+            }
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = window;
+    }
+}
+
 /// 
 /// Platform support:
 /// - Windows 11: Mica effect (theme handled by OS)
@@ -118,15 +190,9 @@ pub fn apply_window_effects_to_window(window: &tauri::WebviewWindow, enabled: Op
         // Apply OS-specific vibrancy effects
         #[cfg(target_os = "windows")]
         {
-            // Determine if we should use dark or light colors based on theme.
-            // "dark"/"light" are explicit; "system" (and an absent setting) has to be
-            // resolved against the OS, otherwise a light desktop gets a dark native
-            // backdrop showing through underneath a light UI.
-            let is_dark = match _theme {
-                Some("light") => false,
-                Some("dark") => true,
-                _ => !matches!(window.theme(), Ok(tauri::Theme::Light)),
-            };
+            // "system" (and an absent setting) has to be resolved against the OS, or a
+            // light desktop gets a dark native backdrop underneath a light UI.
+            let is_dark = resolve_is_dark(window, _theme);
             
             // Choose Acrylic background color based on theme
             // Dark: zinc-900 (18, 18, 18), Light: zinc-50 (249, 250, 251)
