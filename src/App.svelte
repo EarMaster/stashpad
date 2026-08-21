@@ -165,7 +165,11 @@
             // success reloaded the entire stash list - content and attachments, over IPC,
             // followed by a full re-render - after syncs that had pulled nothing at all,
             // which is most of them.
-            if (status === "success" && appliedRemoteChanges) {
+            // Keyed on the flag alone, not on the status. A sync can pull remote data
+            // down and still report 'error' because an *upload* failed; gating on
+            // "success" meant those pulled stashes stayed invisible until something
+            // else happened to reload the queue.
+            if (appliedRemoteChanges) {
                refreshTrigger++;
             }
          },

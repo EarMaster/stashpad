@@ -52,6 +52,25 @@ const UPLOAD_RETRY_BASE_MS = 60_000;
 /** Ceiling on the upload retry delay. */
 const UPLOAD_RETRY_MAX_MS = 30 * 60 * 1000;
 
+/**
+ * How many attachments one sync cycle will attempt.
+ *
+ * Uploads run one at a time and each is bounded only by the 300 s transfer timeout, so
+ * a backlog of stalled files could hold `isSyncing` - and therefore stash and context
+ * sync too - for hours, with the header stuck on "syncing" the whole time. Whatever is
+ * left over goes out on the next cycle instead.
+ */
+const MAX_UPLOADS_PER_CYCLE = 10;
+
+/**
+ * Wall-clock ceiling on the attachment phase of a single sync.
+ *
+ * A cap on the count alone is not enough: ten files that each take the full transfer
+ * timeout is still nearly an hour. Once this elapses the phase stops and the remainder
+ * is picked up next cycle.
+ */
+const ATTACHMENT_PHASE_BUDGET_MS = 2 * 60 * 1000;
+
 /** Sync status for UI feedback */
 export type SyncStatus = 'idle' | 'syncing' | 'success' | 'error' | 'offline' | 'auth-error';
 
@@ -639,9 +658,15 @@ export class CloudSyncService {
 
             // Stashes syncing while attachments silently fail is not a success.
             if (this.lastAttachmentError) {
+                // `appliedRemoteChanges` is passed here too: a failed *upload* says
+                // nothing about the data this sync pulled *down*. Omitting it meant a
+                // sync that had written remote stashes locally never refreshed the
+                // queue, so the new stashes stayed invisible until something else
+                // happened to trigger a reload.
                 this.setStatus(
                     'error',
-                    `Attachments could not be uploaded: ${this.lastAttachmentError}`
+                    `Attachments could not be uploaded: ${this.lastAttachmentError}`,
+                    appliedRemoteChanges
                 );
             } else {
                 this.setStatus(
@@ -994,17 +1019,34 @@ export class CloudSyncService {
             .flatMap(s => s.attachments || [])
             .filter(att => att.filePath && att.filePath.trim() !== '');
 
+        // Cleared here, not inside the loop below: returning early with a stale error
+        // still set pinned the sync status to 'error' forever once the last failing
+        // attachment was deleted, with nothing left to retry and clear it.
+        this.lastAttachmentError = null;
+
         if (attachments.length === 0) return false;
 
         let uploaded = false;
         const failures: string[] = [];
         const now = Date.now();
+        const deadline = now + ATTACHMENT_PHASE_BUDGET_MS;
+        let attempted = 0;
+        let deferred = 0;
 
         for (const att of attachments) {
             // Back off after a failure instead of re-reading and re-sending the whole
             // file on every sync. A permanently broken attachment would otherwise burn
             // its full size in upload bandwidth on every cycle, indefinitely.
             if (now < (this.attachmentRetryAfter.get(att.id) ?? 0)) continue;
+
+            // Bounded per cycle, by count and by wall clock. Uploads are serial and each
+            // one can take the full transfer timeout, so an unbounded loop held the sync
+            // lock - and with it stash and context sync - for as long as the backlog took.
+            if (attempted >= MAX_UPLOADS_PER_CYCLE || Date.now() >= deadline) {
+                deferred++;
+                continue;
+            }
+            attempted++;
 
             try {
                 if (await this.adapter.uploadAttachmentToCloud(att.id)) {
@@ -1030,6 +1072,15 @@ export class CloudSyncService {
             }
         }
 
+        // Say so rather than looking like everything was covered.
+        if (deferred > 0) {
+            console.log(
+                `[CloudSync] ${deferred} attachment(s) deferred to the next cycle (per-cycle limit reached)`
+            );
+            // More work is waiting and nothing will announce it, so come back for it.
+            this.triggerSync();
+        }
+
         // A swallowed console.warn was the only sign of this failing, so uploads could
         // break indefinitely while the app still reported a healthy sync. Surface it.
         if (failures.length > 0) {
@@ -1037,8 +1088,6 @@ export class CloudSyncService {
             console.error(
                 `[CloudSync] ${failures.length} attachment upload(s) failed. First error: ${failures[0]}`
             );
-        } else {
-            this.lastAttachmentError = null;
         }
 
         return uploaded;

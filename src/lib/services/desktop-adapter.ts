@@ -105,18 +105,31 @@ export class DesktopStorageAdapter implements IStorageService {
      * Save an asset file to the cache directory.
      * Files are organized hierarchically: cache/<contextId>/<stashId>/<filename>
      */
+    /**
+     * Save a file's bytes into the cache directory.
+     *
+     * The bytes go over IPC as a **raw body**, not as JSON. This used to be
+     * `Array.from(new Uint8Array(buffer))`, which turned a pasted screenshot into a
+     * multi-million-element JavaScript array and then had to `JSON.stringify` it - all
+     * synchronously on the webview's main thread, which is what made pasting a large
+     * image freeze the window. Metadata rides along in one URI-encoded header, because
+     * a filename is arbitrary Unicode and header values are not.
+     */
     async saveAsset(file: File, contextId?: string, stashId?: string, syntax?: string): Promise<Attachment> {
         const buffer = await file.arrayBuffer();
-        const bytes = new Uint8Array(buffer);
-        const attachment: Attachment = await invoke('save_asset', {
-            name: file.name,
-            data: Array.from(bytes),
-            context_id: contextId ?? null,
-            contextId: contextId ?? null,
-            stash_id: stashId ?? null,
-            stashId: stashId ?? null,
-            syntax: syntax ?? null
-        });
+        const meta = encodeURIComponent(
+            JSON.stringify({
+                name: file.name,
+                contextId: contextId ?? null,
+                stashId: stashId ?? null,
+                syntax: syntax ?? null,
+            })
+        );
+        const attachment: Attachment = await invoke(
+            'save_asset',
+            new Uint8Array(buffer),
+            { headers: { 'x-stashpad-asset': meta } }
+        );
         notifyMutation();
         return attachment;
     }

@@ -546,6 +546,78 @@ describe('CloudSyncService', () => {
     });
 
     describe('attachments', () => {
+        it('uploads at most a bounded number of attachments per sync cycle', async () => {
+            // Uploads run one at a time, each bounded only by the 300 s transfer timeout,
+            // so an unbounded loop held `isSyncing` - and with it stash and context sync -
+            // for as long as the whole backlog took, with the header stuck on "syncing".
+            const attachments = Array.from({ length: 25 }, (_, i) => ({
+                id: `a${i}`,
+                fileName: `shot${i}.png`,
+                fileSize: 10,
+                filePath: `/cache/ctx/s1/shot${i}.png`,
+            }));
+
+            const adapter = createAdapter({
+                loadStashesForSync: vi.fn().mockResolvedValue([
+                    {
+                        id: 's1',
+                        content: 'many files',
+                        createdAt: '2026-08-18T10:00:00Z',
+                        updatedAt: 1755512000,
+                        attachments,
+                    },
+                ]),
+            });
+
+            const service = new CloudSyncService(adapter);
+            await service.initialize(settingsWith(cloudConfig()));
+            await flushPromises();
+
+            // 10 is MAX_UPLOADS_PER_CYCLE; the rest are deferred to a later cycle rather
+            // than attempted in this one.
+            expect(adapter.uploadAttachmentToCloud).toHaveBeenCalledTimes(10);
+        });
+
+        it('clears a stale attachment error once there is nothing left to upload', async () => {
+            // The early return for "no attachments" used to happen before the error was
+            // cleared, so deleting the last failing attachment pinned the status to
+            // 'error' permanently - nothing was left to retry and clear it.
+            const failing = {
+                id: 'a1',
+                fileName: 'shot.png',
+                fileSize: 10,
+                filePath: '/cache/ctx/s1/shot.png',
+            };
+            const stashWith = (atts: unknown[]) => [
+                {
+                    id: 's1',
+                    content: 'file',
+                    createdAt: '2026-08-18T10:00:00Z',
+                    updatedAt: 1755512000,
+                    attachments: atts,
+                },
+            ];
+
+            const adapter = createAdapter({
+                loadStashesForSync: vi.fn().mockResolvedValue(stashWith([failing])),
+                uploadAttachmentToCloud: vi.fn().mockRejectedValue(new Error('R2 unreachable')),
+            });
+
+            const service = new CloudSyncService(adapter);
+            await service.initialize(settingsWith(cloudConfig()));
+            await flushPromises();
+            expect(service.getStatus()).toBe('error');
+
+            // The attachment is gone now, so the next sync has nothing to upload.
+            (adapter.loadStashesForSync as ReturnType<typeof vi.fn>).mockResolvedValue(
+                stashWith([])
+            );
+            await service.sync();
+            await flushPromises();
+
+            expect(service.getStatus()).toBe('success');
+        });
+
         it('downloads bytes for a pulled attachment that has no local file', async () => {
             // Sync used to be upload-only, leaving the receiving device with attachment
             // rows whose filePath was empty - a file the UI listed but could never open.

@@ -29,7 +29,7 @@
   import ShortcutInput from "./ShortcutInput.svelte";
   import CloudAuthModal from "./CloudAuthModal.svelte";
   import { fade } from "svelte/transition";
-  import { onMount } from "svelte";
+  import { onDestroy, onMount } from "svelte";
   import { APP_VERSION } from "$lib/utils/version";
   import { formatBytes } from "$lib/utils/format";
   import {
@@ -84,13 +84,50 @@
 
   const adapter = new DesktopStorageAdapter();
 
+  /** Trailing delay for `saveSoon`. Long enough to collapse a typing burst. */
+  const SAVE_DEBOUNCE_MS = 400;
+  let saveTimer: ReturnType<typeof setTimeout> | null = null;
+
   async function save() {
+    // A pending debounced save is now redundant - this call carries the same state.
+    if (saveTimer) {
+      clearTimeout(saveTimer);
+      saveTimer = null;
+    }
     try {
       await adapter.saveSettings(settings);
     } catch (e) {
       console.error("Failed to save settings", e);
     }
   }
+
+  /**
+   * Save after the user stops typing.
+   *
+   * Text inputs fire on every keystroke, and each `save_settings` writes the whole
+   * settings file and can reach the OS credential store. Ten characters used to mean
+   * ten concurrent commands, each blocking a Tokio worker, until nothing in the app
+   * could answer an `invoke` any more. Discrete controls - toggles, selects, shortcut
+   * pickers - still call `save()` directly, because they fire once per interaction.
+   */
+  function saveSoon() {
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      saveTimer = null;
+      void save();
+    }, SAVE_DEBOUNCE_MS);
+  }
+
+  // Leaving the panel mid-burst must not discard the last keystroke.
+  onDestroy(() => {
+    if (saveTimer) {
+      clearTimeout(saveTimer);
+      saveTimer = null;
+      void adapter.saveSettings(settings).catch((e) => {
+        console.error("Failed to save settings", e);
+      });
+    }
+  });
 
   /**
    * Parses text and splits by #tag patterns.
@@ -843,7 +880,7 @@
                 const val = parseInt(e.currentTarget.value);
                 if (!isNaN(val) && val >= 0) {
                   settings.pasteAsAttachmentThreshold = val;
-                  save();
+                  saveSoon();
                 }
               }}
             />
@@ -958,7 +995,7 @@
                   const val = parseInt(e.currentTarget.value);
                   if (!isNaN(val)) {
                     settings.clearCompletedDays = val;
-                    save();
+                    saveSoon();
                   }
                 }}
               />
@@ -1313,7 +1350,7 @@
                     if (settings.aiConfig) {
                       settings.aiConfig.endpoint = e.currentTarget.value;
                       connectionTestResult = null;
-                      save();
+                      saveSoon();
                     }
                   }}
                 />
@@ -1341,7 +1378,7 @@
                       if (settings.aiConfig) {
                         settings.aiConfig.apiKey = e.currentTarget.value;
                         connectionTestResult = null;
-                        save();
+                        saveSoon();
                       }
                     }}
                   />
@@ -1382,7 +1419,7 @@
                     if (settings.aiConfig) {
                       settings.aiConfig.model = e.currentTarget.value;
                       connectionTestResult = null;
-                      save();
+                      saveSoon();
                     }
                   }}
                 />

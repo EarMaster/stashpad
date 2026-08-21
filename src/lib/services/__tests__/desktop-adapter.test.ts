@@ -116,12 +116,24 @@ describe('DesktopStorageAdapter', () => {
 
             const result = await adapter.saveAsset(mockFile, 'context-id', 'stash-id', 'plaintext');
 
-            expect(mockInvoke).toHaveBeenCalledWith('save_asset', {
+            // Bytes travel as a raw IPC body, with the metadata in a URI-encoded header.
+            // Sending them as a JSON number array meant a pasted image was converted
+            // element by element on the webview's main thread, which froze the window.
+            const [command, payload, options] = mockInvoke.mock.calls[0];
+            expect(command).toBe('save_asset');
+            expect(payload).toBeInstanceOf(Uint8Array);
+            expect(new TextDecoder().decode(payload as Uint8Array)).toBe(fileContent);
+            expect(
+                JSON.parse(
+                    decodeURIComponent(
+                        (options as { headers: Record<string, string> }).headers[
+                            'x-stashpad-asset'
+                        ]
+                    )
+                )
+            ).toEqual({
                 name: 'test.txt',
-                data: expect.any(Array),
-                context_id: 'context-id',
                 contextId: 'context-id',
-                stash_id: 'stash-id',
                 stashId: 'stash-id',
                 syntax: 'plaintext',
             });
@@ -140,12 +152,18 @@ describe('DesktopStorageAdapter', () => {
 
             await adapter.saveAsset(mockFile);
 
-            expect(mockInvoke).toHaveBeenCalledWith('save_asset', {
+            const [, , options] = mockInvoke.mock.calls[0];
+            expect(
+                JSON.parse(
+                    decodeURIComponent(
+                        (options as { headers: Record<string, string> }).headers[
+                            'x-stashpad-asset'
+                        ]
+                    )
+                )
+            ).toEqual({
                 name: 'test.txt',
-                data: expect.any(Array),
-                context_id: null,
                 contextId: null,
-                stash_id: null,
                 stashId: null,
                 syntax: null,
             });
