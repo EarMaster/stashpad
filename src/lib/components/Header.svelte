@@ -18,6 +18,7 @@
   import type { AppContext, Settings, Context } from "$lib/types";
   import type { SyncStatus } from "$lib/services/cloud-sync";
   import { _ } from "$lib/i18n";
+  import { createSyncDisplay } from "$lib/utils/sync-display.svelte";
   import { onMount } from "svelte";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import {
@@ -76,8 +77,12 @@
     !!settings.cloudConfig?.enabled && !!settings.cloudConfig?.userId,
   );
 
+  // Displayed state, not the live one: a sync that finishes quickly never shows up,
+  // so the icon stops flipping every few seconds. See createSyncDisplay().
+  const syncDisplay = createSyncDisplay(() => syncStatus);
+
   let syncLabel = $derived.by(() => {
-    switch (syncStatus) {
+    switch (syncDisplay.current) {
       case "syncing":
         return $_("settings.cloudSync.auth.syncing");
       case "success":
@@ -241,13 +246,13 @@
         aria-label={syncLabel}
         use:tooltip
       >
-        {#if syncStatus === "syncing"}
+        {#if syncDisplay.current === "syncing"}
           <Loader2 size={16} class="animate-spin text-blue-500" />
-        {:else if syncStatus === "success"}
+        {:else if syncDisplay.current === "success"}
           <Check size={16} class="text-green-500" />
-        {:else if syncStatus === "error"}
+        {:else if syncDisplay.current === "error"}
           <CloudOff size={16} class="text-red-500" />
-        {:else if syncStatus === "auth-error"}
+        {:else if syncDisplay.current === "auth-error"}
           <CloudOff size={16} class="text-amber-500" />
         {:else}
           <Cloud size={16} class="text-muted-foreground" />

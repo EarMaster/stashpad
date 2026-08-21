@@ -44,7 +44,6 @@
     EyeOff,
     Loader2,
     Sparkles,
-    Check,
     X,
     AlertCircle,
     ExternalLink,
@@ -57,8 +56,13 @@
   import type { UpdateInfo } from "$lib/stores/updater.svelte";
   import { tooltip } from "$lib/actions/tooltip";
   import { openUrl } from "@tauri-apps/plugin-opener";
+  import {
+    waitlistUrl,
+    websiteOriginFromEndpoint,
+  } from "$lib/utils/cloud-urls";
 
   import { getRelativeTime } from "$lib/utils/date";
+  import { createSyncDisplay } from "$lib/utils/sync-display.svelte";
 
   let {
     settings = $bindable(),
@@ -188,6 +192,30 @@
   // macOS Screen Recording permission state
   const isMac = navigator.platform.includes("Mac");
   let hasScreenRecordingPermission = $state(true);
+
+  /**
+   * Whether this install is actually on cloud sync - the same condition the header
+   * uses for its sync indicator. False for everyone outside the closed beta, and
+   * also for a beta member who has not linked this device yet, which is why the
+   * notice below sits alongside the enable button rather than replacing it.
+   */
+  let inCloudBeta = $derived(
+    !!settings.cloudConfig?.enabled && !!settings.cloudConfig?.userId,
+  );
+
+  /**
+   * Displayed sync state. Short syncs never surface, so the rows below hold still
+   * instead of reflowing every few seconds. The raw syncStatus still drives the
+   * manual sync button, which has to know the truth.
+   */
+  const syncDisplay = createSyncDisplay(() => syncStatus);
+
+  /** Opens the cloud sync waitlist on the website. */
+  function openWaitlist() {
+    openUrl(waitlistUrl(settings.cloudConfig?.endpoint)).catch((err) => {
+      console.error("Failed to open the waitlist:", err);
+    });
+  }
 
   /** Cloud storage usage, fetched when the panel opens. Null until it arrives. */
   let cloudUsage = $state<CloudUsage | null>(null);
@@ -388,18 +416,11 @@
     const endpoint = settings.cloudConfig?.endpoint;
     if (!endpoint) return;
 
-    let accountUrl: string;
-    try {
-      const url = new URL(endpoint);
-      // Strip the 'api.' subdomain prefix if present (e.g. api.stashpad.org → stashpad.org)
-      if (url.hostname.startsWith("api.")) {
-        url.hostname = url.hostname.slice("api.".length);
-      }
-      accountUrl = `${url.origin}/account`;
-    } catch {
-      // Fallback: use the legacy /account/home redirect on the API
-      accountUrl = `${endpoint}/account/home`;
-    }
+    const origin = websiteOriginFromEndpoint(endpoint);
+    // Fallback: use the legacy /account/home redirect on the API
+    const accountUrl = origin
+      ? `${origin}/account`
+      : `${endpoint}/account/home`;
 
     openUrl(accountUrl).catch((err) => {
       console.error("Failed to open account portal:", err);
@@ -542,50 +563,40 @@
 
               <!-- Authentication & Sync state -->
               <div class="text-xs text-muted-foreground flex flex-col gap-1">
-                {#if settings.cloudConfig.enabled && settings.cloudConfig.userId && syncStatus !== "auth-error"}
-                  <!-- Authenticated -->
+                {#if settings.cloudConfig.enabled && settings.cloudConfig.userId && syncDisplay.current !== "auth-error"}
+                  <!-- Authenticated. Identity only: sync activity lives on the line
+                       below, so a state change can never resize this row and shove
+                       the rest of the panel around. -->
                   <div class="flex items-center gap-1.5 pt-0.5">
-                    {#if syncStatus === "syncing"}
-                      <Loader2 size={12} class="animate-spin text-blue-500" />
-                      <span class="text-blue-500"
-                        >{$_("settings.cloudSync.auth.syncing")}</span
-                      >
-                    {:else if syncStatus === "success"}
-                      <Check size={12} class="text-green-500" />
-                      <span class="text-green-500"
-                        >{$_("settings.cloudSync.auth.syncSuccess")}</span
-                      >
-                    {:else if syncStatus === "error"}
-                      <AlertCircle size={12} class="text-red-500" />
-                      <span class="text-red-500">
-                        {$_("settings.cloudSync.auth.syncError")}
-                        {#if syncStatusMessage}
-                          <span
-                            class="opacity-80 block text-[10px] whitespace-normal"
-                            >({syncStatusMessage})</span
-                          >
-                        {/if}
-                      </span>
-                    {:else}
-                      <span
-                        class="w-1.5 h-1.5 rounded-full bg-green-500 shrink-0"
-                        aria-hidden="true"
-                      ></span>
-                      <span class="text-green-500 font-medium"
-                        >{$_("settings.cloudSync.auth.authenticated")}</span
-                      >
-                    {/if}
-
+                    <span
+                      class="w-1.5 h-1.5 rounded-full bg-green-500 shrink-0"
+                      aria-hidden="true"
+                    ></span>
+                    <span class="text-green-500 font-medium"
+                      >{$_("settings.cloudSync.auth.authenticated")}</span
+                    >
                     {#if settings.cloudConfig.email}
-                      <span class="text-muted-foreground"
+                      <span class="text-muted-foreground truncate"
                         >— {settings.cloudConfig.email}</span
                       >
                     {/if}
                   </div>
 
-                  <!-- Last Sync Time -->
-                  <div class="text-[10px] text-muted-foreground/80 pl-3">
-                    {#if settings.cloudConfig.lastSyncAt}
+                  <!-- Sync activity and last-sync time share one fixed-height line.
+                       "Synced successfully" is not shown separately: the timestamp
+                       flipping to "just now" says the same thing without a reflow. -->
+                  <div
+                    class="flex items-center gap-1 h-4 text-[10px] text-muted-foreground/80 pl-3"
+                  >
+                    {#if syncDisplay.current === "syncing"}
+                      <Loader2
+                        size={10}
+                        class="animate-spin text-blue-500 shrink-0"
+                      />
+                      <span class="text-blue-500"
+                        >{$_("settings.cloudSync.auth.syncing")}</span
+                      >
+                    {:else if settings.cloudConfig.lastSyncAt}
                       {$_("settings.cloudSync.auth.lastSync", {
                         values: {
                           time: getRelativeTime(
@@ -598,6 +609,22 @@
                       {$_("settings.cloudSync.auth.neverSynced")}
                     {/if}
                   </div>
+
+                  {#if syncDisplay.current === "error"}
+                    <!-- A real failure is worth the extra space it takes. -->
+                    <div class="flex items-start gap-1.5 pl-3 text-red-500">
+                      <AlertCircle size={12} class="shrink-0 mt-0.5" />
+                      <span>
+                        {$_("settings.cloudSync.auth.syncError")}
+                        {#if syncStatusMessage}
+                          <span
+                            class="opacity-80 block text-[10px] whitespace-normal"
+                            >({syncStatusMessage})</span
+                          >
+                        {/if}
+                      </span>
+                    </div>
+                  {/if}
 
                   <!-- Storage usage. Only meaningful with a subscription: without one
                        nothing is stored in the cloud at all. -->
@@ -645,7 +672,7 @@
                     </div>
                   {/if}
 
-                {:else if settings.cloudConfig.enabled && settings.cloudConfig.userId && syncStatus === "auth-error"}
+                {:else if settings.cloudConfig.enabled && settings.cloudConfig.userId && syncDisplay.current === "auth-error"}
                   <!-- Auth Error -->
                   <div class="flex items-center gap-1.5 pt-0.5">
                     <AlertCircle size={12} class="text-red-500 shrink-0" />
@@ -670,7 +697,7 @@
 
             <!-- Action Button -->
             <div class="shrink-0 flex items-center gap-2 justify-end">
-              {#if settings.cloudConfig.enabled && settings.cloudConfig.userId && syncStatus !== "auth-error"}
+              {#if settings.cloudConfig.enabled && settings.cloudConfig.userId && syncDisplay.current !== "auth-error"}
                 <SettingsButton
                   variant="outline"
                   iconOnly
@@ -693,7 +720,7 @@
                 >
                   {$_("settings.cloudSync.auth.logout")}
                 </SettingsButton>
-              {:else if settings.cloudConfig.enabled && settings.cloudConfig.userId && syncStatus === "auth-error"}
+              {:else if settings.cloudConfig.enabled && settings.cloudConfig.userId && syncDisplay.current === "auth-error"}
                 <SettingsButton
                   variant="outside"
                   onclick={() => {
@@ -714,6 +741,31 @@
               {/if}
             </div>
           </div>
+
+          {#if !inCloudBeta}
+            <!-- Closed-beta notice: cloud sync cannot be self-enabled yet -->
+            <div
+              class="flex items-start gap-3 p-3 rounded-lg border border-amber-500/30 bg-amber-500/10"
+              transition:fade={{ duration: 150 }}
+            >
+              <span class="text-amber-500 text-lg shrink-0 mt-0.5">🧪</span>
+              <div class="flex-1 space-y-1.5">
+                <div class="text-xs font-medium text-amber-500">
+                  {$_("settings.cloudSync.beta.title")}
+                </div>
+                <div class="text-[10px] text-muted-foreground/80 italic">
+                  {$_("settings.cloudSync.beta.description")}
+                </div>
+                <button
+                  class="inline-flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium bg-amber-500/20 text-amber-500 hover:bg-amber-500/30 transition-colors"
+                  onclick={openWaitlist}
+                >
+                  {$_("settings.cloudSync.beta.waitlist")}
+                  <ExternalLink size={12} />
+                </button>
+              </div>
+            </div>
+          {/if}
 
           <!-- Subscription Status -->
           {#if settings.cloudConfig.enabled && settings.cloudConfig.userId}

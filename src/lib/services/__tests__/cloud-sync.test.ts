@@ -545,27 +545,32 @@ describe('CloudSyncService', () => {
     });
 
     describe('attachments', () => {
-        it('uploads at most a bounded number of attachments per sync cycle', async () => {
+        /** A stash carrying `count` attachments that all have local bytes. */
+        function stashWithAttachments(count: number) {
+            return [
+                {
+                    id: 's1',
+                    content: 'many files',
+                    createdAt: '2026-08-18T10:00:00Z',
+                    updatedAt: 1755512000,
+                    attachments: Array.from({ length: count }, (_, i) => ({
+                        id: `a${i}`,
+                        fileName: `shot${i}.png`,
+                        fileSize: 10,
+                        filePath: `/cache/ctx/s1/shot${i}.png`,
+                    })),
+                },
+            ];
+        }
+
+        it('transfers at most a bounded number of attachments per sync cycle', async () => {
             // Uploads run one at a time, each bounded only by the 300 s transfer timeout,
             // so an unbounded loop held `isSyncing` - and with it stash and context sync -
             // for as long as the whole backlog took, with the header stuck on "syncing".
-            const attachments = Array.from({ length: 25 }, (_, i) => ({
-                id: `a${i}`,
-                fileName: `shot${i}.png`,
-                fileSize: 10,
-                filePath: `/cache/ctx/s1/shot${i}.png`,
-            }));
-
             const adapter = createAdapter({
-                loadStashesForSync: vi.fn().mockResolvedValue([
-                    {
-                        id: 's1',
-                        content: 'many files',
-                        createdAt: '2026-08-18T10:00:00Z',
-                        updatedAt: 1755512000,
-                        attachments,
-                    },
-                ]),
+                loadStashesForSync: vi.fn().mockResolvedValue(stashWithAttachments(25)),
+                // Every call reports a real transfer, so each one costs bandwidth.
+                uploadAttachmentToCloud: vi.fn().mockResolvedValue(true),
             });
 
             const service = new CloudSyncService(adapter);
@@ -575,6 +580,36 @@ describe('CloudSyncService', () => {
             // 10 is MAX_UPLOADS_PER_CYCLE; the rest are deferred to a later cycle rather
             // than attempted in this one.
             expect(adapter.uploadAttachmentToCloud).toHaveBeenCalledTimes(10);
+        });
+
+        it('does not spend the per-cycle budget on attachments already in the cloud', async () => {
+            // The command returns false without touching the network for a row that
+            // already has an uploaded_at. Charging those no-ops to the budget made this
+            // loop immortal: anyone with more than MAX_UPLOADS_PER_CYCLE attachments
+            // deferred the same remainder every cycle and re-triggered a sync 2 s later,
+            // forever - a sync every couple of seconds that transferred nothing.
+            const adapter = createAdapter({
+                loadStashesForSync: vi.fn().mockResolvedValue(stashWithAttachments(25)),
+                // The default: nothing left to upload.
+                uploadAttachmentToCloud: vi.fn().mockResolvedValue(false),
+            });
+
+            const service = new CloudSyncService(adapter);
+            await service.initialize(settingsWith(cloudConfig()));
+            await flushPromises();
+
+            // The whole library is walked in one cycle, cheaply, and nothing is deferred.
+            expect(adapter.uploadAttachmentToCloud).toHaveBeenCalledTimes(25);
+
+            // Nothing was deferred, so no follow-up sync is queued. Anything else means
+            // the 2 s re-trigger loop is back.
+            const loads = adapter.loadStashesForSync as unknown as {
+                mock: { calls: unknown[] };
+            };
+            const cycles = loads.mock.calls.length;
+            await vi.advanceTimersByTimeAsync(10_000);
+            await flushPromises();
+            expect(loads.mock.calls.length).toBe(cycles);
         });
 
         it('clears a stale attachment error once there is nothing left to upload', async () => {
@@ -885,6 +920,39 @@ describe('CloudSyncService', () => {
             await flushPromises();
 
             expect(seen).toContain('auth-error');
+        });
+
+        it('does not report success over the top of a rejected login', async () => {
+            // The API helpers swallow an auth failure and return null, so the sync ran
+            // to completion and finished with setStatus('success', 'Synced 0 stashes, 0
+            // contexts'). An expired token therefore looked like a healthy sync that
+            // happened to move nothing, while the panel flip-flopped between "session
+            // expired" and "active" every time a sync came around.
+            const expired = new Error('Authentication expired. Please log in again.');
+            const adapter = createAdapter({
+                syncStashesApi: vi.fn().mockRejectedValue(expired),
+                syncContextsApi: vi.fn().mockRejectedValue(expired),
+            });
+
+            const service = new CloudSyncService(adapter);
+            const seen: string[] = [];
+            service.addListener(status => seen.push(status));
+
+            const settings = settingsWith(cloudConfig());
+            await service.initialize(settings);
+            await flushPromises();
+
+            expect(seen).toContain('auth-error');
+            expect(seen).not.toContain('success');
+            // The status the user is left looking at, not a transient one.
+            expect(service.getStatus()).toBe('auth-error');
+
+            // Nothing was exchanged, so the sync cursor must not move - advancing it
+            // would skip whatever changed while the token was dead.
+            expect(settings.cloudConfig!.lastSyncAt).toBeUndefined();
+
+            // And no attachment work is attempted with a token the server refuses.
+            expect(adapter.uploadAttachmentToCloud).not.toHaveBeenCalled();
         });
     });
 

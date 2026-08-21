@@ -298,6 +298,16 @@ export class CloudSyncService {
      * status instead.
      */
     private lastAttachmentError: string | null = null;
+
+    /**
+     * Set when a sync's API calls were rejected for bad credentials.
+     *
+     * Those calls return null rather than throwing, so the sync used to run to
+     * completion and report success over the top of its own 'auth-error'. An expired
+     * token then looked like a healthy sync that pushed nothing, and the panel
+     * flip-flopped between "session expired" and "active" every couple of seconds.
+     */
+    private authRejected = false;
     /** Consecutive upload failures per attachment, used to grow the retry delay. */
     private attachmentFailures = new Map<string, number>();
     /** Earliest time (epoch ms) a failed upload may be retried. */
@@ -518,6 +528,7 @@ export class CloudSyncService {
         const config = this.settings!.cloudConfig!;
 
         this.isSyncing = true;
+        this.authRejected = false;
         this.setStatus('syncing');
 
         try {
@@ -642,6 +653,15 @@ export class CloudSyncService {
                 }
             }
 
+            // Stop here if the server would not have us. Nothing was exchanged, so
+            // 'auth-error' stands and the user gets a "log in again" prompt that stays
+            // put instead of blinking past behind a success. Bailing out before the
+            // upload phase also keeps a bad token from failing every attachment in turn
+            // and putting each one into a retry backoff it did not earn.
+            if (this.authRejected) {
+                return false;
+            }
+
             // Upload after merging so attachments pulled in this cycle are already
             // marked as present locally and are not immediately pushed back up.
             const uploadedAttachments = await this.uploadPendingAttachments(localStashes);
@@ -758,6 +778,8 @@ export class CloudSyncService {
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
             if (this.isAuthError(msg)) {
+                console.warn('[CloudSync] Stash sync rejected the credentials:', msg);
+                this.authRejected = true;
                 this.setStatus('auth-error', 'Authentication expired. Please log in again.');
                 return null;
             }
@@ -778,6 +800,8 @@ export class CloudSyncService {
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
             if (this.isAuthError(msg)) {
+                console.warn('[CloudSync] Context sync rejected the credentials:', msg);
+                this.authRejected = true;
                 this.setStatus('auth-error', 'Authentication expired. Please log in again.');
                 return null;
             }
@@ -1045,15 +1069,23 @@ export class CloudSyncService {
                 deferred++;
                 continue;
             }
-            attempted++;
-
             try {
+                // Only a real transfer counts against the per-cycle budget. The command
+                // returns false without touching the network when the row already has
+                // an uploaded_at, and charging those no-ops to the budget is what made
+                // this loop immortal: the cap was applied to the *whole* attachment
+                // library, so a user with more than MAX_UPLOADS_PER_CYCLE attachments
+                // deferred the same remainder every cycle, re-triggered a sync 2s
+                // later, and arrived back at the identical list in the identical order.
                 if (await this.adapter.uploadAttachmentToCloud(att.id)) {
                     uploaded = true;
+                    attempted++;
                 }
                 this.attachmentFailures.delete(att.id);
                 this.attachmentRetryAfter.delete(att.id);
             } catch (e) {
+                // A failed transfer cost the same bandwidth as a successful one.
+                attempted++;
                 const msg = e instanceof Error ? e.message : String(e);
                 console.warn(`[CloudSync] Attachment upload failed for ${att.id}:`, msg);
                 failures.push(msg);

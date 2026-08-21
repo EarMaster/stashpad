@@ -18,6 +18,7 @@
     import { Dialog } from "bits-ui";
     import { fade } from "svelte/transition";
     import { openUrl } from "@tauri-apps/plugin-opener";
+    import { websiteOriginFromEndpoint } from "$lib/utils/cloud-urls";
     import { onOpenUrl } from "@tauri-apps/plugin-deep-link";
     import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
     import { getOrCreateDeviceId } from "$lib/services/cloud-sync";
@@ -65,26 +66,17 @@
 
     /**
      * Derives the frontend account URL from the configured cloud API endpoint.
-     * The API lives at api.stashpad.org and the frontend at stashpad.org,
-     * so we strip the leading 'api.' subdomain to get the frontend URL.
-     * Falls back to the API endpoint's /account/home route if the URL does
+     * Falls back to the API endpoint's /account/home route if the endpoint does
      * not follow the expected pattern.
      */
     function getAccountUrl(): string {
         const endpoint = settings.cloudConfig?.endpoint;
         if (!endpoint) return "";
 
-        try {
-            const url = new URL(endpoint);
-            // Strip the 'api.' subdomain prefix if present (e.g. api.stashpad.org → stashpad.org)
-            if (url.hostname.startsWith('api.')) {
-                url.hostname = url.hostname.slice('api.'.length);
-            }
-            return `${url.origin}/account?action=link-desktop`;
-        } catch {
-            // Fallback: use the legacy /account/home redirect on the API
-            return `${endpoint}/account/home?action=link-desktop`;
-        }
+        const origin = websiteOriginFromEndpoint(endpoint);
+        return origin
+            ? `${origin}/account?action=link-desktop`
+            : `${endpoint}/account/home?action=link-desktop`;
     }
 
     /** Opens the authorization URL in the system browser. */
