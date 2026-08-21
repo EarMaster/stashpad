@@ -94,12 +94,27 @@
     width: 100%;
     height: 100%;
     overflow: hidden;
-    /* Prevent scrollbars triggering resize issues */
-    background: transparent !important;
+    /*
+     * Opaque by default, following the theme tokens. The window is undecorated and
+     * the webview surface is transparent, so anything the app root has not painted
+     * shows the raw native backdrop - which is how re-applying the window effects on
+     * a theme change left a dark band across part of the window.
+     */
+    background: var(--background);
     font-synthesis: none;
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+  }
+
+  /*
+   * Glass mode needs the native Mica/Acrylic backdrop to show through, so it is the
+   * one case where the page itself must not paint. App.svelte sets this class from
+   * the same isGlass value that makes <main> translucent.
+   */
+  html.glass,
+  html.glass body {
+    background: transparent;
   }
 
   #app {

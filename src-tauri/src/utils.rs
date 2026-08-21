@@ -118,11 +118,14 @@ pub fn apply_window_effects_to_window(window: &tauri::WebviewWindow, enabled: Op
         // Apply OS-specific vibrancy effects
         #[cfg(target_os = "windows")]
         {
-            // Determine if we should use dark or light colors based on theme
-            // "dark" -> dark colors, "light" -> light colors, "system" or None -> dark (default)
+            // Determine if we should use dark or light colors based on theme.
+            // "dark"/"light" are explicit; "system" (and an absent setting) has to be
+            // resolved against the OS, otherwise a light desktop gets a dark native
+            // backdrop showing through underneath a light UI.
             let is_dark = match _theme {
                 Some("light") => false,
-                _ => true, // dark, system, or unknown defaults to dark
+                Some("dark") => true,
+                _ => !matches!(window.theme(), Ok(tauri::Theme::Light)),
             };
             
             // Choose Acrylic background color based on theme

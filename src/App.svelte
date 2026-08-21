@@ -559,12 +559,12 @@
       const theme = settings.theme || "system";
       const root = document.documentElement;
 
+      // Both classes are set explicitly. Styles that only kick in under
+      // prefers-color-scheme: dark scope themselves to :not(.light), so without the
+      // light class a dark desktop keeps rendering them dark even on Theme = Light.
       const applyTheme = (isDark: boolean) => {
-         if (isDark) {
-            root.classList.add("dark");
-         } else {
-            root.classList.remove("dark");
-         }
+         root.classList.toggle("dark", isDark);
+         root.classList.toggle("light", !isDark);
       };
 
       if (theme === "system") {
@@ -582,6 +582,12 @@
       } else {
          applyTheme(theme === "dark");
       }
+   });
+
+   // Only glass mode may leave the page unpainted so the native backdrop shows
+   // through; see the html.glass rule in app.css.
+   $effect(() => {
+      document.documentElement.classList.toggle("glass", isGlass);
    });
 
    $effect(() => {

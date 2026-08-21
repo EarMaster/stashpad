@@ -345,8 +345,14 @@ pub async fn save_settings(app: tauri::AppHandle, state: State<'_, Arc<SettingsS
     }
     persist_settings_off_thread(settings.clone()).await;
 
-    // Reapply theme and window effects if changed
-    if settings.theme != old_theme {
+    // Reapply theme-dependent window effects if the theme changed.
+    //
+    // Only when effects are actually on: with them off the call would just clear
+    // Mica and Acrylic again, which is a no-op in substance but still tears down and
+    // rebuilds the DWM backdrop of an undecorated window mid-frame. Since the webview
+    // is transparent, that briefly exposed the raw backdrop as a dark band across the
+    // part of the window the DOM had not repainted yet.
+    if settings.theme != old_theme && settings.visual_effects_enabled.unwrap_or(true) {
         if let Some(window) = app.get_webview_window("main") {
             // Re-apply effects which depend on theme (e.g. Acrylic color)
             crate::utils::apply_window_effects_to_window(&window, settings.visual_effects_enabled, settings.theme.as_deref());
