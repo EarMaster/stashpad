@@ -29,6 +29,7 @@
     CloudOff,
     Check,
     Loader2,
+    ArrowDownToLine,
   } from "lucide-svelte";
   import logoIcon from "../../../assets/stashpad/Icon-Darkmode.svg";
   import logoIconLight from "../../../assets/stashpad/Icon.svg";
@@ -51,6 +52,9 @@
     autoDetectedWindowTitle = $bindable(),
     syncStatus = "idle",
     syncStatusMessage = "",
+    updateAvailable = false,
+    updateVersion,
+    onShowUpdateNotice,
   } = $props<{
     transferMode: string;
     onOpenSettings: () => void;
@@ -62,6 +66,10 @@
     autoDetectedWindowTitle?: string;
     syncStatus?: SyncStatus;
     syncStatusMessage?: string;
+    /** A newer version exists and the user has not chosen to sit it out */
+    updateAvailable?: boolean;
+    updateVersion?: string;
+    onShowUpdateNotice?: () => void;
   }>();
 
   /** Sync state is only worth a slot in the header once the user has cloud sync on. */
@@ -207,6 +215,23 @@
 
   <!-- Right Side: Window Controls -->
   <div class="relative z-10 flex items-center gap-1 shrink-0">
+    {#if updateAvailable}
+      <!-- Deliberately quiet: an update is worth noticing, not worth interrupting. The
+           details and every action live in the popover this opens. -->
+      <button
+        class="p-1.5 rounded-md transition-colors pointer-events-auto hover:bg-muted"
+        onclick={onShowUpdateNotice}
+        title={$_("header.updateAvailable", {
+          values: { version: updateVersion ?? "" },
+        })}
+        aria-label={$_("header.updateAvailable", {
+          values: { version: updateVersion ?? "" },
+        })}
+        use:tooltip
+      >
+        <ArrowDownToLine size={16} class="text-primary dark:text-[var(--amber)]" />
+      </button>
+    {/if}
     {#if showSyncStatus}
       <!-- Sync state, shown only once cloud sync is on. Opens Settings, which is where
            the details and the manual trigger live. -->

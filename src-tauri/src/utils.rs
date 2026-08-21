@@ -245,21 +245,104 @@ pub async fn get_device_name() -> String {
     DEVICE_NAME.get_or_init(resolve_device_name).clone()
 }
 
+/// Signals about the running executable that distinguish one install channel from another.
+///
+/// Split out from the filesystem and environment lookups so [`classify_installation`] can
+/// be tested without an actual install to point at.
+pub struct InstallSignals<'a> {
+    /// Lowercased path of the running executable.
+    pub exe_path: &'a str,
+    /// `Contents/_MASReceipt/receipt` exists inside the surrounding `.app` bundle.
+    pub mas_receipt: bool,
+    /// `AppxManifest.xml` sits next to the executable.
+    pub appx_manifest: bool,
+    /// The `APPIMAGE` environment variable is set.
+    pub appimage_env: bool,
+}
+
+/// Decide which install channel the signals describe.
+///
+/// Order matters. The App Store checks come first because a store copy also lives at a
+/// perfectly ordinary path - `/Applications/stashpad.app`, `C:\Program Files\WindowsApps\...`
+/// - and misreading one as standalone would offer it a self-update that replaces a signed,
+/// sandboxed bundle and gets the app killed on next launch.
+pub fn classify_installation(signals: &InstallSignals) -> &'static str {
+    let path = signals.exe_path;
+
+    // Mac App Store: the receipt inside the bundle is the only signal available without
+    // linking StoreKit.
+    if signals.mas_receipt {
+        return "macappstore";
+    }
+
+    // Microsoft Store installs live in WindowsApps *and* carry an Appx manifest. A bare
+    // WindowsApps hit without one is winget's execution-alias directory, which is a
+    // normal winget install and updates with a different command.
+    if path.contains("\\program files\\windowsapps\\") || path.contains("/program files/windowsapps/")
+    {
+        if signals.appx_manifest {
+            return "msstore";
+        }
+        return "winget";
+    }
+    if path.contains("windowsapps") {
+        return "winget";
+    }
+
+    if path.contains("scoop/apps") || path.contains("scoop\\apps") {
+        return "scoop";
+    }
+    if path.contains("homebrew/caskroom")
+        || path.contains("homebrew\\caskroom")
+        || path.contains("/opt/homebrew/")
+        || path.contains("/usr/local/caskroom/")
+    {
+        return "homebrew";
+    }
+
+    // An AppImage is a single file we own, so unlike the package managers above it can be
+    // replaced in place.
+    if signals.appimage_env {
+        return "appimage";
+    }
+
+    "standalone"
+}
+
+/// Cached because the updater store asks on every check rather than once per dialog, and
+/// none of these signals can change while the process is running.
+static INSTALL_SOURCE: OnceLock<String> = OnceLock::new();
+
+fn resolve_installation_source() -> String {
+    let Ok(exe_path) = std::env::current_exe() else {
+        return "standalone".to_string();
+    };
+    let path_str = exe_path.to_string_lossy().to_lowercase();
+
+    // `…/stashpad.app/Contents/MacOS/stashpad` - two levels up is `Contents`.
+    let mas_receipt = exe_path
+        .parent()
+        .and_then(|p| p.parent())
+        .map(|contents| contents.join("_MASReceipt").join("receipt").exists())
+        .unwrap_or(false);
+
+    let appx_manifest = exe_path
+        .parent()
+        .map(|dir| dir.join("AppxManifest.xml").exists())
+        .unwrap_or(false);
+
+    classify_installation(&InstallSignals {
+        exe_path: &path_str,
+        mas_receipt,
+        appx_manifest,
+        appimage_env: std::env::var_os("APPIMAGE").is_some(),
+    })
+    .to_string()
+}
+
 #[tauri::command]
 pub fn get_installation_source() -> String {
-    if let Ok(exe_path) = std::env::current_exe() {
-        let path_str = exe_path.to_string_lossy().to_lowercase();
-        if path_str.contains("scoop/apps") || path_str.contains("scoop\\apps") {
-            return "scoop".to_string();
-        }
-        if path_str.contains("homebrew/caskroom") || path_str.contains("homebrew\\caskroom") {
-            return "homebrew".to_string();
-        }
-        if path_str.contains("windowsapps") {
-            return "windowsapps".to_string();
-        }
-    }
-    "standalone".to_string()
+    INSTALL_SOURCE.get_or_init(resolve_installation_source).clone()
 }
 
 /// Put text on the system clipboard.
@@ -646,4 +729,75 @@ pub fn log_frontend_error(message: String) {
     let trimmed: String = message.chars().take(MAX_CHARS).collect();
     let elided = message.chars().nth(MAX_CHARS).is_some();
     log::error!("[frontend] {}{}", trimmed, if elided { " […]" } else { "" });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{classify_installation, InstallSignals};
+
+    /// Only the path varies in most cases; the flags default to "no special signal".
+    fn signals(exe_path: &str) -> InstallSignals<'_> {
+        InstallSignals {
+            exe_path,
+            mas_receipt: false,
+            appx_manifest: false,
+            appimage_env: false,
+        }
+    }
+
+    #[test]
+    fn plain_install_is_standalone() {
+        assert_eq!(
+            classify_installation(&signals("/applications/stashpad.app/contents/macos/stashpad")),
+            "standalone"
+        );
+        assert_eq!(
+            classify_installation(&signals(r"c:\program files\stashpad\stashpad.exe")),
+            "standalone"
+        );
+    }
+
+    #[test]
+    fn mas_receipt_wins_over_the_path() {
+        // A store copy sits at an ordinary path, so the receipt is the only thing that
+        // distinguishes it - and getting this wrong offers a sandboxed bundle a self-update.
+        let mut s = signals("/applications/stashpad.app/contents/macos/stashpad");
+        s.mas_receipt = true;
+        assert_eq!(classify_installation(&s), "macappstore");
+    }
+
+    #[test]
+    fn windowsapps_needs_a_manifest_to_be_the_store() {
+        let path = r"c:\program files\windowsapps\stashpad_1.6.3_x64__abc\stashpad.exe";
+        assert_eq!(classify_installation(&signals(path)), "winget");
+
+        let mut s = signals(path);
+        s.appx_manifest = true;
+        assert_eq!(classify_installation(&s), "msstore");
+    }
+
+    #[test]
+    fn package_managers_are_recognised() {
+        assert_eq!(
+            classify_installation(&signals(r"c:\users\nico\scoop\apps\stashpad\current\stashpad.exe")),
+            "scoop"
+        );
+        assert_eq!(
+            classify_installation(&signals(
+                "/usr/local/caskroom/stashpad/1.6.3/stashpad.app/contents/macos/stashpad"
+            )),
+            "homebrew"
+        );
+        assert_eq!(
+            classify_installation(&signals("/opt/homebrew/bin/stashpad")),
+            "homebrew"
+        );
+    }
+
+    #[test]
+    fn appimage_env_marks_a_self_updatable_build() {
+        let mut s = signals("/tmp/.mount_stashpXYZ/usr/bin/stashpad");
+        s.appimage_env = true;
+        assert_eq!(classify_installation(&s), "appimage");
+    }
 }

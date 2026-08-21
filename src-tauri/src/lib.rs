@@ -243,6 +243,11 @@ pub fn run() {
             let settings = settings_state_for_setup.lock_settings();
             let visual_effects_enabled = settings.visual_effects_enabled;
             let theme = settings.theme.clone();
+            // The native menu is built here, before the webview reports a locale, so the
+            // one label we own is picked from the saved setting instead. It only changes
+            // on restart, which matches the rest of the menu.
+            #[cfg(target_os = "macos")]
+            let locale = settings.locale.clone();
             drop(settings); // Release lock
 
             if let Some(window) = app.get_webview_window("main") {
@@ -260,7 +265,11 @@ pub fn run() {
                 #[cfg(target_os = "macos")]
                 {
                     let _ = (|| -> Result<(), Box<dyn std::error::Error>> {
-                        let check_updates_item = MenuItemBuilder::new("Check for Updates…")
+                        let check_updates_label = match locale.as_deref() {
+                            Some("de") => "Nach Updates suchen…",
+                            _ => "Check for Updates…",
+                        };
+                        let check_updates_item = MenuItemBuilder::new(check_updates_label)
                             .id("check_for_updates")
                             .build(app)?;
                         let app_submenu = SubmenuBuilder::new(app, "stashpad")

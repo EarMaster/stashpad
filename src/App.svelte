@@ -39,8 +39,11 @@
    import { listen } from "@tauri-apps/api/event";
    import { check } from "@tauri-apps/plugin-updater";
    import { relaunch } from "@tauri-apps/plugin-process";
-   import { ask, message } from "@tauri-apps/plugin-dialog";
+   import { message } from "@tauri-apps/plugin-dialog";
    import { invoke } from "@tauri-apps/api/core";
+   import { updateChecker } from "$lib/stores/updater.svelte";
+   import { APP_VERSION } from "$lib/utils/version";
+   import UpdateNotice from "$lib/components/UpdateNotice.svelte";
 
    /**
     * Hand a caught render error to the reporter.
@@ -68,7 +71,8 @@
 
    let showExitConfirmation = $state(false);
    let isWin10 = $state(false);
-   let isCheckingForUpdates = $state(false);
+   let showUpdateNotice = $state(false);
+   let isCheckingForUpdates = $derived(updateChecker.status !== "idle");
 
    // Cloud sync status
    let syncStatus: SyncStatus = $state("idle");
@@ -86,65 +90,112 @@
    // The attachment download queue needs an adapter to fetch bytes with.
    attachmentSync.setAdapter(adapter);
 
-   async function checkForUpdates(showNoUpdateMessage = false) {
-      if (isCheckingForUpdates) return;
-      isCheckingForUpdates = true;
+   updateChecker.configure({
+      check: (options) => check(options),
+      installationSource: () => invoke<string>("get_installation_source"),
+      relaunch,
+      now: () => Date.now(),
+      // Mutate the shared settings object rather than replacing it: Header and Settings
+      // hold bindings into this one, and a fresh object would detach them.
+      persist: (patch) => {
+         Object.assign(settings, patch);
+         void adapter.saveSettings(settings);
+      },
+   });
+
+   /**
+    * Install the pending update, reporting a failure instead of swallowing it.
+    *
+    * Only reachable for a build we own; the store refuses anything managed by a store or
+    * a package manager.
+    */
+   async function installUpdate() {
       try {
-         const update = await check();
-         if (update?.available) {
-            const source = await invoke<string>("get_installation_source");
-            if (source === "standalone") {
-               const yes = await ask(
-                  $_("settings.updates.standalonePrompt", {
-                     values: {
-                        version: update.version,
-                        notes: update.body || "Bug fixes and improvements.",
-                     },
-                  }),
-                  { title: $_("settings.updates.updateAvailable"), kind: "info" },
-               );
-               if (yes) {
-                  await update.downloadAndInstall();
-                  await relaunch();
-               }
-            } else {
-               let pmName = "your package manager";
-               let cmd = "";
-               if (source === "homebrew") {
-                  pmName = "Homebrew";
-                  cmd = "brew upgrade stashpad";
-               } else if (source === "scoop") {
-                  pmName = "Scoop";
-                  cmd = "scoop update stashpad";
-               } else if (source === "windowsapps") {
-                  pmName = "Winget / Microsoft Store";
-                  cmd = "winget upgrade stashpad";
-               }
-               await message(
-                  $_("settings.updates.packageManagerNotice", {
-                     values: { version: update.version, pmName, cmd },
-                  }),
-                  { title: $_("settings.updates.updateAvailable"), kind: "info" },
-               );
-            }
-         } else if (showNoUpdateMessage) {
+         await updateChecker.install();
+      } catch (e) {
+         await message(
+            $_("settings.updates.installFailed", {
+               values: { error: e instanceof Error ? e.message : String(e) },
+            }),
+            { title: $_("settings.updates.updateAvailable"), kind: "error" },
+         );
+      }
+   }
+
+   /**
+    * Open the header popover, fetching the details first if all we have is a version.
+    *
+    * After a restart the indicator is driven by the version remembered in settings, with
+    * no release notes and no downloaded update behind it. Checking on demand fills those
+    * in, so the popover never has to render a half-known update.
+    */
+   async function openUpdateNotice() {
+      if (showUpdateNotice) {
+         showUpdateNotice = false;
+         return;
+      }
+      if (!updateChecker.available) {
+         await updateChecker.check();
+         if (updateChecker.lastResult === "error") {
+            await message(
+               $_("settings.updates.checkFailed", {
+                  values: { error: updateChecker.lastError ?? "" },
+               }),
+               { title: $_("settings.updates.checkFailedTitle"), kind: "error" },
+            );
+            return;
+         }
+      }
+      showUpdateNotice = updateChecker.available !== null;
+   }
+
+   /**
+    * A check the user asked for, from the Settings panel or the menu bar.
+    *
+    * Where the answer appears depends on what the user can already see, because a native
+    * dialog is a poor place for it: the release notes are markdown and a whole changelog,
+    * which an OS alert renders as raw `**` and `###`.
+    *
+    *  - Settings open: the Updates section reports all three outcomes inline. No dialog.
+    *  - Main view: an available update opens the header popover; the two outcomes with
+    *    nothing to show get a short dialog, so a menu-bar check is never silent.
+    *
+    * The automatic checks say nothing at all and let the header indicator carry the news.
+    */
+   async function handleExplicitCheck() {
+      const inSettings = view === "Settings";
+      await updateChecker.check({ interactive: true });
+      if (inSettings) return;
+
+      switch (updateChecker.lastResult) {
+         case "available":
+            showUpdateNotice = true;
+            return;
+         case "up-to-date":
             await message($_("settings.updates.noUpdateMessage"), {
                title: $_("settings.updates.noUpdateTitle"),
                kind: "info",
             });
-         }
-      } catch (e) {
-         console.error("Failed to check for updates:", e);
-      } finally {
-         isCheckingForUpdates = false;
+            return;
+         case "error":
+            // Previously this path only reached console.error, which is exactly why a
+            // broken update check was indistinguishable from a dead button.
+            await message(
+               $_("settings.updates.checkFailed", {
+                  values: { error: updateChecker.lastError ?? "" },
+               }),
+               { title: $_("settings.updates.checkFailedTitle"), kind: "error" },
+            );
+            return;
       }
    }
 
    onMount(() => {
       adapter.isWindows10().then((v) => (isWin10 = v));
-      checkForUpdates();
+      // The automatic schedule starts from applySettings instead, once the persisted
+      // last-check timestamp is actually available to read.
       const unlistenMenuUpdate = listen("menu:check-for-updates", () => {
-         checkForUpdates(true);
+         void handleExplicitCheck();
       });
       const unlisten = appWindow.onCloseRequested(async (event) => {
          if (editorDraft.trim() || editorFiles.length > 0) {
@@ -201,6 +252,7 @@
          unsubscribeSync();
          setLocalMutationListener(null);
          cloudSync.dispose();
+         updateChecker.dispose();
          window.removeEventListener(
             "stashpad:prompt-reloaded",
             handlePromptReloaded,
@@ -437,7 +489,18 @@
 
       // Initialize cloud sync with current settings
       cloudSync.initialize(settings);
+
+      // Only now is the persisted last-check timestamp readable. Starting the schedule
+      // from onMount instead would see it as null on every launch and re-check each time.
+      updateChecker.hydrate(settings, APP_VERSION);
+      if (!autoChecksStarted) {
+         autoChecksStarted = true;
+         updateChecker.startAutoChecks();
+      }
    }
+
+   /** `applySettings` runs on both the preloaded and the fallback path; only schedule once. */
+   let autoChecksStarted = false;
 
    async function loadContexts() {
       try {
@@ -600,7 +663,30 @@
             }}
             {syncStatus}
             {syncStatusMessage}
+            updateAvailable={updateChecker.showIndicator}
+            updateVersion={updateChecker.indicatorVersion ?? undefined}
+            onShowUpdateNotice={() => void openUpdateNotice()}
          />
+
+         {#if showUpdateNotice && updateChecker.showIndicator && updateChecker.available}
+            <UpdateNotice
+               update={updateChecker.available}
+               busy={updateChecker.status === "installing"}
+               onInstall={async () => {
+                  showUpdateNotice = false;
+                  await installUpdate();
+               }}
+               onSkip={() => {
+                  showUpdateNotice = false;
+                  updateChecker.skipVersion();
+               }}
+               onRemindLater={() => {
+                  showUpdateNotice = false;
+                  updateChecker.remindLater();
+               }}
+               onClose={() => (showUpdateNotice = false)}
+            />
+         {/if}
 
          <div class="flex-1 flex flex-col min-h-0">
             <div class="p-4 shrink-0">
@@ -647,10 +733,21 @@
                navigationSource = "Settings";
                view = "Contexts";
             }}
-            onCheckForUpdates={() => checkForUpdates(true)}
+            onCheckForUpdates={() => handleExplicitCheck()}
             onTriggerSync={() => cloudSync.sync()}
             onAuthChanged={() => cloudSync.onAuthenticated(settings)}
             {isCheckingForUpdates}
+            updateInfo={updateChecker.available}
+            updateVersion={updateChecker.indicatorVersion}
+            updateCheckResult={updateChecker.lastResult}
+            updateSittingOut={updateChecker.isSittingOut}
+            isInstallingUpdate={updateChecker.status === "installing"}
+            onShowUpdateAgain={() => updateChecker.showAgain()}
+            onAutoUpdateChecksChanged={(enabled) =>
+               updateChecker.setAutoChecks(enabled)}
+            onInstallUpdate={() => installUpdate()}
+            onSkipUpdate={() => updateChecker.skipVersion()}
+            onRemindUpdateLater={() => updateChecker.remindLater()}
          />
       {:else if view === "Contexts"}
          <ContextManager

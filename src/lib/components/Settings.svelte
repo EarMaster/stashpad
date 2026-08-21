@@ -54,6 +54,8 @@
   } from "lucide-svelte";
   import TagBadge from "./TagBadge.svelte";
   import SettingsButton from "./SettingsButton.svelte";
+  import UpdateDetails from "./UpdateDetails.svelte";
+  import type { UpdateInfo } from "$lib/stores/updater.svelte";
   import { tooltip } from "$lib/actions/tooltip";
   import { openUrl } from "@tauri-apps/plugin-opener";
 
@@ -69,6 +71,16 @@
     onTriggerSync,
     onAuthChanged,
     isCheckingForUpdates = false,
+    updateInfo,
+    updateVersion,
+    updateCheckResult = "none",
+    updateSittingOut = false,
+    isInstallingUpdate = false,
+    onShowUpdateAgain,
+    onAutoUpdateChecksChanged,
+    onInstallUpdate,
+    onSkipUpdate,
+    onRemindUpdateLater,
   } = $props<{
     settings: Settings;
     syncStatus: SyncStatus;
@@ -80,6 +92,19 @@
     /** Fired after login/logout so the sync service can start or stop immediately. */
     onAuthChanged?: () => void | Promise<void>;
     isCheckingForUpdates?: boolean;
+    /** A verified update from a check this session - has notes and is installable */
+    updateInfo?: UpdateInfo | null;
+    /** The newer version to name, whether verified this session or remembered from a previous one */
+    updateVersion?: string | null;
+    updateCheckResult?: "none" | "up-to-date" | "available" | "error";
+    /** An update exists but is hidden by "skip this version" or "remind me later" */
+    updateSittingOut?: boolean;
+    isInstallingUpdate?: boolean;
+    onShowUpdateAgain?: () => void;
+    onAutoUpdateChecksChanged?: (enabled: boolean) => void;
+    onInstallUpdate?: () => void;
+    onSkipUpdate?: () => void;
+    onRemindUpdateLater?: () => void;
   }>();
 
   const adapter = new DesktopStorageAdapter();
@@ -1459,6 +1484,129 @@
         {/if}
       </section>
 
+      <!-- Updates -->
+      <section class="space-y-4">
+        <h2
+          class="text-sm font-semibold uppercase tracking-wider text-muted-foreground"
+        >
+          {$_("settings.updates.sectionTitle")}
+        </h2>
+
+        <div class="rounded-lg border border-border bg-card divide-y divide-border/50">
+          <!-- Version and manual check -->
+          <div class="flex items-center justify-between p-3">
+            <div class="space-y-0.5">
+              <div class="text-sm font-medium">
+                {$_("settings.updates.currentVersion", {
+                  values: { version: APP_VERSION },
+                })}
+              </div>
+              <div class="text-xs text-muted-foreground">
+                {#if updateVersion}
+                  {$_("settings.updates.availableVersion", {
+                    values: { version: updateVersion },
+                  })}
+                {:else if settings.lastUpdateCheckAt}
+                  {$_("settings.updates.lastChecked", {
+                    values: {
+                      when: getRelativeTime(
+                        new Date(settings.lastUpdateCheckAt).toISOString(),
+                        $_,
+                      ),
+                    },
+                  })}
+                {:else}
+                  {$_("settings.updates.neverChecked")}
+                {/if}
+              </div>
+            </div>
+            <SettingsButton
+              variant="outside"
+              onclick={onCheckForUpdates}
+              disabled={isCheckingForUpdates}
+            >
+              {#snippet icon()}
+                {#if isCheckingForUpdates}
+                  <Loader2 size={14} class="animate-spin" />
+                {/if}
+              {/snippet}
+              {isCheckingForUpdates
+                ? $_("settings.updates.checking")
+                : $_("settings.updates.checkForUpdates")}
+            </SettingsButton>
+          </div>
+
+          <!-- Every outcome of a check reports here rather than in a native dialog: the
+               release notes are markdown and a whole changelog, which an OS alert renders
+               as raw `**` and `###`. This is also the only surface available while the
+               header - and its indicator - is off screen. -->
+          {#if updateSittingOut}
+            <!-- Without this, skipping a version or snoozing it would be irreversible. -->
+            <div
+              class="p-3 bg-muted/30 flex items-center justify-between gap-3"
+              transition:fade
+            >
+              <span class="text-xs text-muted-foreground">
+                {$_("settings.updates.sittingOut")}
+              </span>
+              <SettingsButton variant="outside" onclick={onShowUpdateAgain}>
+                {$_("settings.updates.showAgain")}
+              </SettingsButton>
+            </div>
+          {:else if updateInfo}
+            <div transition:fade>
+              <UpdateDetails
+                update={updateInfo}
+                busy={isInstallingUpdate}
+                onInstall={() => onInstallUpdate?.()}
+                onSkip={() => onSkipUpdate?.()}
+                onRemindLater={() => onRemindUpdateLater?.()}
+              />
+            </div>
+          {:else if updateCheckResult === "up-to-date"}
+            <div class="p-3 bg-muted/30" transition:fade>
+              <span class="text-xs text-muted-foreground">
+                {$_("settings.updates.noUpdateMessage")}
+              </span>
+            </div>
+          {:else if updateCheckResult === "error"}
+            <div class="p-3 bg-muted/30" transition:fade>
+              <span class="text-xs text-destructive">
+                {$_("settings.updates.checkFailedShort")}
+              </span>
+            </div>
+          {/if}
+
+          <!-- Automatic checks -->
+          <div class="flex items-center justify-between p-3">
+            <div class="space-y-0.5">
+              <div class="text-sm font-medium">
+                {$_("settings.updates.autoChecks.label")}
+              </div>
+              <div class="text-xs text-muted-foreground">
+                {$_("settings.updates.autoChecks.description")}
+              </div>
+            </div>
+            <label class="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                class="sr-only peer"
+                checked={settings.autoUpdateChecks ?? true}
+                onchange={(e) => {
+                  settings.autoUpdateChecks = e.currentTarget.checked;
+                  onAutoUpdateChecksChanged?.(e.currentTarget.checked);
+                  save();
+                }}
+              />
+              <div
+                class="w-11 h-6 bg-muted rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary peer-focus-visible:ring-2 peer-focus-visible:ring-primary peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-background"
+              ></div>
+            </label>
+          </div>
+
+        </div>
+      </section>
+
       <!-- About / Footer -->
       <div class="pt-8 pb-4 text-center">
         <div class="text-xs text-muted-foreground space-y-2">
@@ -1468,20 +1616,6 @@
           </p>
           <p>{$_("app.copyright")}</p>
           <p>{$_("app.license")}</p>
-          <div class="pt-3">
-            <button
-              class="inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium border border-border hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              onclick={onCheckForUpdates}
-              disabled={isCheckingForUpdates}
-            >
-              {#if isCheckingForUpdates}
-                <Loader2 size={12} class="animate-spin" />
-                {$_("settings.updates.checking")}
-              {:else}
-                {$_("settings.updates.checkForUpdates")}
-              {/if}
-            </button>
-          </div>
           <div class="pt-1 opacity-50 text-[10px]">
             {$_("app.madeWith")}
           </div>

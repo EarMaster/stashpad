@@ -137,6 +137,16 @@ export interface Settings {
     resizeImages?: boolean;
     /** Cloud configuration for synchronization */
     cloudConfig?: CloudConfig;
+    /** When the updater last completed a check, epoch milliseconds */
+    lastUpdateCheckAt?: number;
+    /** Newest version the updater has seen, used to restore the header notice on launch */
+    latestKnownUpdateVersion?: string;
+    /** Version the user chose to skip; the notice returns for anything newer */
+    dismissedUpdateVersion?: string;
+    /** "Remind me later": epoch milliseconds before which the notice stays hidden */
+    updateRemindAfter?: number;
+    /** Whether the periodic background update check runs at all */
+    autoUpdateChecks?: boolean;
 }
 
 export interface IStorageService {

@@ -37,7 +37,8 @@
     "manualContext": "Manual Context",
     "settings": "Settings",
     "checking": "Checking...",
-    "calculating": "Calculating..."
+    "calculating": "Calculating...",
+    "updateAvailable": "Update to {version} available"
   },
   "settings": {
     "title": "Settings",
@@ -175,10 +176,24 @@
       "checkForUpdates": "Check for Updates…",
       "checking": "Checking…",
       "updateAvailable": "Update Available",
-      "standalonePrompt": "Update to {version} is available!\n\nRelease notes:\n{notes}\n\nDo you want to install it now?",
-      "packageManagerNotice": "A new version of Stashpad ({version}) is available!\n\nSince you installed Stashpad using {pmName}, please run the following command to update:\n\n{cmd}",
       "noUpdateTitle": "No Update Available",
-      "noUpdateMessage": "You are already running the latest version of Stashpad."
+      "noUpdateMessage": "You are already running the latest version of Stashpad.",
+      "sectionTitle": "Updates",
+      "currentVersion": "Stashpad {version}",
+      "availableVersion": "Version {version} is available",
+      "lastChecked": "Last checked {when}",
+      "neverChecked": "Not checked yet",
+      "sittingOut": "An update is available but hidden.",
+      "showAgain": "Show again",
+      "checkFailedShort": "The last check failed.",
+      "checkFailedTitle": "Update Check Failed",
+      "checkFailed": "Could not check for updates.\n\n{error}",
+      "installFailed": "The update could not be installed.\n\n{error}",
+      "genericStore": "the app store",
+      "autoChecks": {
+        "label": "Check automatically",
+        "description": "Look for a new version shortly after launch and every 48 hours."
+      }
     },
     "cloudSync": {
       "usage": {
@@ -422,5 +437,16 @@
   "attachments": {
     "syncing": "Syncing {name} from cloud…",
     "downloadFailed": "Could not download {name} — click to retry"
+  },
+  "updateNotice": {
+    "title": "Update available",
+    "version": "Version {version}",
+    "notesHeading": "Release notes",
+    "installAndRestart": "Install and restart",
+    "howToUpdate": "Stashpad was installed with {pmName}. Update it there:",
+    "managedByStore": "Updates for this copy are handled by {storeName}.",
+    "remindLater": "Remind me in 7 days",
+    "skipVersion": "Skip {version}",
+    "updateExternally": "This copy of Stashpad is managed outside the app. Update it the way you installed it."
   }
 }

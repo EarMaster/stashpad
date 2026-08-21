@@ -149,6 +149,38 @@ pub struct Settings {
     /// Cloud sync configuration
     #[serde(default)]
     pub cloud_config: Option<CloudConfig>,
+    /// Scale of the UI: 1-5, default 3
+    #[serde(default)]
+    pub ui_scale: Option<u32>,
+    /// Playback volume for video attachments, 0.0-1.0
+    #[serde(default)]
+    pub video_volume: Option<f64>,
+    #[serde(default)]
+    pub video_muted: Option<bool>,
+    /// Downscale large images when they are attached
+    #[serde(default)]
+    pub resize_images: Option<bool>,
+    /// When the updater last completed a check, epoch milliseconds.
+    ///
+    /// Persisted so the 48h cadence survives a restart: without it every launch would
+    /// hit the update endpoint again.
+    #[serde(default)]
+    pub last_update_check_at: Option<u64>,
+    /// Newest version the updater has seen, so the header notice can be restored on
+    /// launch without waiting for a network round-trip.
+    #[serde(default)]
+    pub latest_known_update_version: Option<String>,
+    /// Version the user chose to skip. The notice stays hidden until something newer
+    /// than this appears.
+    #[serde(default)]
+    pub dismissed_update_version: Option<String>,
+    /// "Remind me later": epoch milliseconds before which the notice stays hidden even
+    /// for a version the user has not skipped outright.
+    #[serde(default)]
+    pub update_remind_after: Option<u64>,
+    /// Whether the periodic background update check runs at all.
+    #[serde(default = "default_auto_update_checks")]
+    pub auto_update_checks: bool,
 }
 
 /// Cloud sync configuration
@@ -224,6 +256,10 @@ pub fn default_strip_tags_on_copy() -> bool {
     true
 }
 
+pub fn default_auto_update_checks() -> bool {
+    true
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -243,6 +279,15 @@ impl Default for Settings {
             autostart: false,
             ai_config: None,
             cloud_config: None,
+            ui_scale: None,
+            video_volume: None,
+            video_muted: None,
+            resize_images: None,
+            last_update_check_at: None,
+            latest_known_update_version: None,
+            dismissed_update_version: None,
+            update_remind_after: None,
+            auto_update_checks: default_auto_update_checks(),
         }
     }
 }
