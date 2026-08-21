@@ -387,6 +387,12 @@
   "shortcutInput": {
     "ariaLabel": "Tastenkürzel-Eingabe. Drücken Sie Enter, um ein neues Tastenkürzel aufzuzeichnen."
   },
+  "errorBoundary": {
+    "title": "Etwas ist schiefgelaufen",
+    "description": "Dieser Teil der App reagiert nicht mehr. Ihre Stashes sind auf der Festplatte sicher. Details wurden in das App-Protokoll geschrieben.",
+    "tryAgain": "Erneut versuchen",
+    "reload": "Neu laden"
+  },
   "exitDialog": {
     "title": "Entwurf verwerfen?",
     "description": "Sie haben ungespeicherte Inhalte im Editor. Möchten Sie wirklich beenden?",

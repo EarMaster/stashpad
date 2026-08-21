@@ -598,8 +598,8 @@
                       <div class="h-1 w-full rounded-full bg-muted overflow-hidden">
                         <div
                           class="h-full rounded-full transition-all {cloudUsage.overQuota
-                            ? bg-red-500
-                            : bg-primary}"
+                            ? 'bg-red-500'
+                            : 'bg-primary'}"
                           style="width: {usagePercent}%"
                         ></div>
                       </div>

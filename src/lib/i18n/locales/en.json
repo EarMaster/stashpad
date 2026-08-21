@@ -400,6 +400,12 @@
   "shortcutInput": {
     "ariaLabel": "Keyboard shortcut input. Press Enter to record a new shortcut."
   },
+  "errorBoundary": {
+    "title": "Something went wrong",
+    "description": "This part of the app stopped responding. Your stashes are safe on disk. Details have been written to the app log.",
+    "tryAgain": "Try again",
+    "reload": "Reload"
+  },
   "exitDialog": {
     "title": "Discard Draft?",
     "description": "You have unsaved content in the editor. Are you sure you want to quit?",

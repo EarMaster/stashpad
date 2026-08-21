@@ -17,6 +17,10 @@ import "./app.css";
 import App from "./App.svelte";
 import { setupI18n, type SupportedLocale } from "$lib/i18n";
 import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
+import {
+  installGlobalErrorReporter,
+  setErrorForwarder,
+} from "$lib/utils/error-reporting";
 
 // Extend window interface for initial data passing
 declare global {
@@ -71,6 +75,13 @@ function hideSplash(): void {
  * Loads settings and i18n in parallel, then mounts the Svelte app.
  */
 async function initApp(): Promise<void> {
+  // Catch errors before anything else runs, so a failure during startup is logged
+  // rather than lost. Without this the app can die behind the splash screen with no
+  // trace at all in a release build.
+  const reportingAdapter = new DesktopStorageAdapter();
+  setErrorForwarder((message) => reportingAdapter.logFrontendError(message));
+  installGlobalErrorReporter();
+
   // Load initial data (settings includes locale preference)
   const { settings, locale } = await loadInitialData();
 

@@ -30,6 +30,8 @@
    import ContextManager from "$lib/components/ContextManager.svelte";
    import ContextSwitcher from "$lib/components/ContextSwitcher.svelte";
    import ConfirmationDialog from "$lib/components/ConfirmationDialog.svelte";
+   import ErrorFallback from "$lib/components/ErrorFallback.svelte";
+   import { reportError } from "$lib/utils/error-reporting";
    import { onMount } from "svelte";
    import { fly } from "svelte/transition";
    import { Sparkles } from "lucide-svelte";
@@ -39,6 +41,16 @@
    import { relaunch } from "@tauri-apps/plugin-process";
    import { ask, message } from "@tauri-apps/plugin-dialog";
    import { invoke } from "@tauri-apps/api/core";
+
+   /**
+    * Hand a caught render error to the reporter.
+    *
+    * `<svelte:boundary>` swallows the error once it has a `failed` snippet, so without
+    * this the panel would appear with nothing written to the log.
+    */
+   function reportRenderError(error: unknown): void {
+      reportError("render", error);
+   }
 
    let transferMode = $state("Drag");
    let refreshTrigger = $state(0);
@@ -525,153 +537,167 @@
       ? 'bg-background/60'
       : 'bg-background text-foreground'}"
 >
-   {#if contextSelectorOpen}
-      <ContextSwitcher
-         bind:this={contextSwitcher}
-         {contexts}
-         {currentContextId}
-         {stashCounts}
-         autoContextDetection={settings.autoContextDetection}
-         mode={movingStash ? "move" : "switch"}
-         title={movingStash ? "Move Stash to…" : "Switch Context"}
-         onSelect={(ctx, shift) => selectContext(ctx.id, shift)}
-         onCreate={async (name) => {
-            const newContext = {
-               id: crypto.randomUUID(),
-               name,
-               rules: [],
-               lastUsed: new Date().toISOString(),
-            };
-            await adapter.saveContext(newContext);
-            contexts = [...contexts, newContext];
-            selectContext(newContext.id);
-         }}
-         onAutoContextToggle={(enabled) => {
-            settings.autoContextDetection = enabled;
-            adapter.saveSettings(settings); // Immediate save
-         }}
-         onManageContexts={() => {
-            navigationSource = "Switcher";
-            view = "Contexts";
-         }}
-         onClose={() => {
-            contextSelectorOpen = false;
-            isCycling = false;
-            movingStash = null;
-         }}
-      />
-   {/if}
+   <!--
+      Any error thrown while rendering a view - or from an effect it owns - is caught
+      here. Without this, the error escapes Svelte's flush, the batch is never
+      committed, and the DOM silently stops updating: handlers still fire and state
+      still changes, but nothing repaints. That reads as a frozen window recoverable
+      only by a webview reload, which is how an unquoted class ternary in the
+      cloud-usage bar went unnoticed for two releases.
+   -->
+   <svelte:boundary onerror={reportRenderError}>
+      {#if contextSelectorOpen}
+         <ContextSwitcher
+            bind:this={contextSwitcher}
+            {contexts}
+            {currentContextId}
+            {stashCounts}
+            autoContextDetection={settings.autoContextDetection}
+            mode={movingStash ? "move" : "switch"}
+            title={movingStash ? "Move Stash to…" : "Switch Context"}
+            onSelect={(ctx, shift) => selectContext(ctx.id, shift)}
+            onCreate={async (name) => {
+               const newContext = {
+                  id: crypto.randomUUID(),
+                  name,
+                  rules: [],
+                  lastUsed: new Date().toISOString(),
+               };
+               await adapter.saveContext(newContext);
+               contexts = [...contexts, newContext];
+               selectContext(newContext.id);
+            }}
+            onAutoContextToggle={(enabled) => {
+               settings.autoContextDetection = enabled;
+               adapter.saveSettings(settings); // Immediate save
+            }}
+            onManageContexts={() => {
+               navigationSource = "Switcher";
+               view = "Contexts";
+            }}
+            onClose={() => {
+               contextSelectorOpen = false;
+               isCycling = false;
+               movingStash = null;
+            }}
+         />
+      {/if}
 
-   {#if view === "Main"}
-      <Header
-         bind:transferMode
-         onOpenSettings={() => {
-            contextSelectorOpen = false;
-            view = "Settings";
-         }}
-         {settings}
-         {contexts}
-         bind:currentContextId
-         bind:autoDetectedWindowTitle
-         onOpenContextSwitcher={() => {
-            contextSelectorOpen = true;
-            isCycling = false;
-         }}
-         {syncStatus}
-         {syncStatusMessage}
-      />
+      {#if view === "Main"}
+         <Header
+            bind:transferMode
+            onOpenSettings={() => {
+               contextSelectorOpen = false;
+               view = "Settings";
+            }}
+            {settings}
+            {contexts}
+            bind:currentContextId
+            bind:autoDetectedWindowTitle
+            onOpenContextSwitcher={() => {
+               contextSelectorOpen = true;
+               isCycling = false;
+            }}
+            {syncStatus}
+            {syncStatusMessage}
+         />
 
-      <div class="flex-1 flex flex-col min-h-0">
-         <div class="p-4 shrink-0">
-            <Editor
-               onStash={handleStash}
+         <div class="flex-1 flex flex-col min-h-0">
+            <div class="p-4 shrink-0">
+               <Editor
+                  onStash={handleStash}
+                  {currentContextId}
+                  bind:content={editorDraft}
+                  bind:files={editorFiles}
+                  availableTags={allTags}
+                  pasteAsAttachmentThreshold={settings.pasteAsAttachmentThreshold ??
+                     500}
+                  resizeImages={settings.resizeImages ?? true}
+               />
+            </div>
+
+            <Queue
+               {transferMode}
+               {refreshTrigger}
                {currentContextId}
-               bind:content={editorDraft}
-               bind:files={editorFiles}
-               availableTags={allTags}
-               pasteAsAttachmentThreshold={settings.pasteAsAttachmentThreshold ??
-                  500}
-               resizeImages={settings.resizeImages ?? true}
+               {contexts}
+               newStashId={newlyAddedStashId}
+               onStashHandled={() => (newlyAddedStashId = null)}
+               onMoveRequest={(stash) => {
+                  movingStash = stash;
+                  contextSelectorOpen = true;
+               }}
+               bind:allTags
+               stripTagsOnCopy={settings.stripTagsOnCopy ?? true}
+               aiConfig={settings.aiConfig}
+               {autoDetectedWindowTitle}
             />
          </div>
-
-         <Queue
-            {transferMode}
-            {refreshTrigger}
-            {currentContextId}
-            {contexts}
-            newStashId={newlyAddedStashId}
-            onStashHandled={() => (newlyAddedStashId = null)}
-            onMoveRequest={(stash) => {
-               movingStash = stash;
-               contextSelectorOpen = true;
-            }}
-            bind:allTags
-            stripTagsOnCopy={settings.stripTagsOnCopy ?? true}
-            aiConfig={settings.aiConfig}
-            {autoDetectedWindowTitle}
-         />
-      </div>
-   {:else if view === "Settings"}
-      <SettingsView
-         bind:settings
-         {syncStatus}
-         syncStatusMessage={syncStatusMessage}
-         onBack={() => {
-            view = "Main";
-            // No need to reload, we are bound. But safe to keep or remove.
-            // loadSettings();
-         }}
-         onOpenContexts={() => {
-            navigationSource = "Settings";
-            view = "Contexts";
-         }}
-         onCheckForUpdates={() => checkForUpdates(true)}
-         onTriggerSync={() => cloudSync.sync()}
-         onAuthChanged={() => cloudSync.onAuthenticated(settings)}
-         {isCheckingForUpdates}
-      />
-   {:else if view === "Contexts"}
-      <ContextManager
-         onBack={() => {
-            if (navigationSource === "Switcher") {
+      {:else if view === "Settings"}
+         <SettingsView
+            bind:settings
+            {syncStatus}
+            syncStatusMessage={syncStatusMessage}
+            onBack={() => {
                view = "Main";
-               contextSelectorOpen = true; // Re-open switcher
-            } else {
-               view = "Settings";
-            }
-            loadSettings();
-         }}
-         onSelect={async (id) => {
-            await loadContexts();
-            selectContext(id);
-            view = "Main";
-            contextSelectorOpen = false;
+               // No need to reload, we are bound. But safe to keep or remove.
+               // loadSettings();
+            }}
+            onOpenContexts={() => {
+               navigationSource = "Settings";
+               view = "Contexts";
+            }}
+            onCheckForUpdates={() => checkForUpdates(true)}
+            onTriggerSync={() => cloudSync.sync()}
+            onAuthChanged={() => cloudSync.onAuthenticated(settings)}
+            {isCheckingForUpdates}
+         />
+      {:else if view === "Contexts"}
+         <ContextManager
+            onBack={() => {
+               if (navigationSource === "Switcher") {
+                  view = "Main";
+                  contextSelectorOpen = true; // Re-open switcher
+               } else {
+                  view = "Settings";
+               }
+               loadSettings();
+            }}
+            onSelect={async (id) => {
+               await loadContexts();
+               selectContext(id);
+               view = "Main";
+               contextSelectorOpen = false;
+            }}
+         />
+      {/if}
+
+      <ConfirmationDialog
+         bind:open={showExitConfirmation}
+         title={$_("exitDialog.title")}
+         description={$_("exitDialog.description")}
+         confirmText={$_("exitDialog.discardAndExit")}
+         variant="destructive"
+         onConfirm={() => {
+            editorDraft = "";
+            editorFiles = [];
+            appWindow.close();
          }}
       />
-   {/if}
 
-   <ConfirmationDialog
-      bind:open={showExitConfirmation}
-      title={$_("exitDialog.title")}
-      description={$_("exitDialog.description")}
-      confirmText={$_("exitDialog.discardAndExit")}
-      variant="destructive"
-      onConfirm={() => {
-         editorDraft = "";
-         editorFiles = [];
-         appWindow.close();
-      }}
-   />
+      <!-- Prompt Reloaded Notification -->
+      {#if showPromptReloadedToast}
+         <div
+            class="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] px-4 py-2.5 rounded-full bg-primary text-primary-foreground shadow-lg border border-primary/20 flex items-center gap-2 text-sm font-medium"
+            transition:fly={{ y: 20, duration: 250 }}
+         >
+            <Sparkles size={16} />
+            {$_("settings.aiEnhancement.systemPrompt.reloaded")}
+         </div>
+      {/if}
 
-   <!-- Prompt Reloaded Notification -->
-   {#if showPromptReloadedToast}
-      <div
-         class="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] px-4 py-2.5 rounded-full bg-primary text-primary-foreground shadow-lg border border-primary/20 flex items-center gap-2 text-sm font-medium"
-         transition:fly={{ y: 20, duration: 250 }}
-      >
-         <Sparkles size={16} />
-         {$_("settings.aiEnhancement.systemPrompt.reloaded")}
-      </div>
-   {/if}
+      {#snippet failed(error, reset)}
+         <ErrorFallback {error} {reset} />
+      {/snippet}
+   </svelte:boundary>
 </main>

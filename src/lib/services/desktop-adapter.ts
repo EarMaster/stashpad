@@ -242,8 +242,14 @@ export class DesktopStorageAdapter implements IStorageService {
         return await invoke('get_autostart_enabled');
     }
 
-    async startCloudAuth(): Promise<CloudConfig> {
-        return await invoke('start_cloud_auth');
+    /**
+     * Forward a frontend error to the Rust logger.
+     *
+     * The webview console is discarded in a release build, so without this an
+     * uncaught render error leaves no trace anywhere on disk.
+     */
+    async logFrontendError(message: string): Promise<void> {
+        return await invoke('log_frontend_error', { message });
     }
 
     async exchangeLinkCodeApi(token: string, deviceId?: string): Promise<CloudConfig> {

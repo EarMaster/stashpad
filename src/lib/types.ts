@@ -196,7 +196,8 @@ export interface IStorageService {
     deleteContext(id: string): Promise<void>;
     setAutostart(enabled: boolean): Promise<void>;
     getAutostartEnabled(): Promise<boolean>;
-    startCloudAuth(): Promise<CloudConfig>;
+    /** Forward a frontend error to the backend logger. */
+    logFrontendError(message: string): Promise<void>;
     exchangeLinkCodeApi(token: string, deviceId?: string): Promise<CloudConfig>;
     /** Fetch account info from cloud and update local subscription status */
     fetchCloudAccount(): Promise<CloudConfig>;
