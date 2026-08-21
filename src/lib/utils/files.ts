@@ -1,6 +1,40 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Nico Wiedemann
 
+/** Broad category an attachment falls into, derived from its file extension. */
+export type AttachmentKind = "image" | "video" | "text" | "other";
+
+const IMAGE_EXTENSIONS = [
+    "png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico",
+];
+
+const VIDEO_EXTENSIONS = [
+    "mp4", "webm", "ogg", "ogv", "mov", "avi", "mkv", "m4v",
+];
+
+const TEXT_EXTENSIONS = [
+    "txt", "md", "markdown", "json", "xml", "html", "htm", "css", "js", "mjs",
+    "ts", "tsx", "jsx", "py", "rs", "go", "java", "c", "h", "cpp", "hpp", "cc",
+    "cs", "rb", "php", "sh", "bash", "zsh", "ps1", "yaml", "yml", "toml", "ini",
+    "cfg", "conf", "log", "sql", "svelte", "vue",
+];
+
+/**
+ * Classify an attachment by its file extension.
+ *
+ * Single source of truth for the icon shown next to an attachment and for the
+ * queue's attachment filter, so a filter chip can never disagree with the icon.
+ *
+ * @param fileNameOrPath A file name or a full path - only the extension is read
+ */
+export function getAttachmentKind(fileNameOrPath: string): AttachmentKind {
+    const ext = fileNameOrPath.toLowerCase().split(".").pop() || "";
+    if (IMAGE_EXTENSIONS.includes(ext)) return "image";
+    if (VIDEO_EXTENSIONS.includes(ext)) return "video";
+    if (TEXT_EXTENSIONS.includes(ext)) return "text";
+    return "other";
+}
+
 /**
  * Resizes an image file if it exceeds the maximum dimensions.
  * Maintains aspect ratio.

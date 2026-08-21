@@ -30,6 +30,7 @@
     import Tooltip from "./Tooltip.svelte";
     import { attachmentSync } from "$lib/stores/attachment-sync.svelte";
     import { formatBytes } from "$lib/utils/format";
+    import { getAttachmentKind } from "$lib/utils/files";
 
     let {
         filePath,
@@ -200,48 +201,9 @@
         return convertFileSrc(content);
     }
 
-    function getFileIcon(path: string): "image" | "video" | "text" | "other" {
-        const ext = path.toLowerCase().split(".").pop() || "";
-
-        const imageExts = [
-            "jpg",
-            "jpeg",
-            "png",
-            "gif",
-            "webp",
-            "svg",
-            "bmp",
-            "ico",
-        ];
-        const videoExts = ["mp4", "webm", "mov", "avi", "mkv", "m4v"];
-        const textExts = [
-            "txt",
-            "md",
-            "json",
-            "xml",
-            "html",
-            "css",
-            "js",
-            "ts",
-            "svelte",
-            "py",
-            "java",
-            "c",
-            "cpp",
-            "h",
-            "cs",
-            "rs",
-        ];
-
-        if (imageExts.includes(ext)) return "image";
-        if (videoExts.includes(ext)) return "video";
-        if (textExts.includes(ext)) return "text";
-        return "other";
-    }
-
     // Derive from the name, not the path: a pending attachment has no path yet, but its
     // filename is always known.
-    const fileType = $derived(getFileIcon(fileName || filePath));
+    const fileType = $derived(getAttachmentKind(fileName || filePath));
 </script>
 
 <!-- File Badge with Hover Trigger (Draggable) -->

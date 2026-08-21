@@ -54,7 +54,7 @@
   } from "$lib/utils/format";
   import { locale } from "$lib/i18n";
   import { tooltip } from "$lib/actions/tooltip";
-  import { resizeImage } from "$lib/utils/files";
+  import { resizeImage, getAttachmentKind } from "$lib/utils/files";
   import { readFile } from "@tauri-apps/plugin-fs";
 
   let {
@@ -170,6 +170,13 @@
   function handleBlurReset() {
     isShiftPressed = false;
   }
+
+  // Platform-aware modifier labels for the toolbar tooltips. macOS shows the glyphs
+  // (⌘⌥⇧), everything else spells the keys out - same convention as ContextSwitcher.
+  const isMacPlatform = navigator.platform.includes("Mac");
+  const modLabel = isMacPlatform ? "⌘" : "Ctrl+";
+  const altLabel = isMacPlatform ? "⌥" : "Alt+";
+  const shiftLabel = isMacPlatform ? "⇧" : "Shift+";
 
   const adapter = new DesktopStorageAdapter();
 
@@ -723,12 +730,60 @@
       }
     }
 
-    // On macOS, use Cmd+Enter (metaKey); on Windows/Linux, use Ctrl+Enter (ctrlKey)
-    const isMac = navigator.platform.includes("Mac");
-    const isSaveShortcut = isMac ? e.metaKey : e.ctrlKey;
-    if (e.key === "Enter" && isSaveShortcut) {
+    // On macOS the modifier is Cmd (metaKey); on Windows/Linux it is Ctrl (ctrlKey)
+    const mod = isMacPlatform ? e.metaKey : e.ctrlKey;
+
+    if (e.key === "Enter" && mod) {
       e.preventDefault();
       save(e);
+      return;
+    }
+
+    // Markdown formatting shortcuts. Each one calls exactly what the matching toolbar
+    // button calls, so selection handling stays identical.
+    //
+    // Letters are compared lowercased (Shift or Caps Lock yields "B") and require
+    // !altKey: AltGr on European layouts reports as ctrlKey+altKey, so without that
+    // guard AltGr+E would insert backticks instead of typing "€".
+    if (mod && !e.altKey && !e.shiftKey) {
+      switch (e.key.toLowerCase()) {
+        case "b":
+          e.preventDefault();
+          insertMarkdown("**", "**");
+          return;
+        case "i":
+          e.preventDefault();
+          insertMarkdown("_", "_");
+          return;
+        case "k":
+          e.preventDefault();
+          insertMarkdown("[", "](url)", "url");
+          return;
+        case "e":
+          e.preventDefault();
+          insertMarkdown("`", "`");
+          return;
+      }
+    }
+
+    // Digits are matched on e.code, not e.key: with Shift held the "7" key reports
+    // "&" on a US layout and "/" on a German one, but the code is always "Digit7".
+    if (mod && e.altKey && !e.shiftKey && e.code === "Digit3") {
+      e.preventDefault();
+      toggleLinePrefix("### ");
+      return;
+    }
+    if (mod && e.shiftKey && !e.altKey) {
+      if (e.code === "Digit8") {
+        e.preventDefault();
+        toggleLinePrefix("- ");
+        return;
+      }
+      if (e.code === "Digit7") {
+        e.preventDefault();
+        toggleLinePrefix("1. ");
+        return;
+      }
     }
 
     // Shift+Paste override: Cmd+Shift+V (macOS) / Ctrl+Shift+V (other)
@@ -736,8 +791,7 @@
     // and never fires a JavaScript paste event, so we handle it here explicitly.
     // Uses Tauri's read_clipboard_text to avoid navigator.clipboard.readText()
     // which triggers a macOS permission prompt / context menu.
-    const isPasteModifier = isMac ? e.metaKey : e.ctrlKey;
-    if (e.key === "v" && isPasteModifier && e.shiftKey) {
+    if (e.key.toLowerCase() === "v" && mod && e.shiftKey) {
       e.preventDefault();
       invoke<string>("read_clipboard_text")
         .then((text) => {
@@ -791,69 +845,6 @@
       // File was part of the original stash, track for deletion on save
       removedFilePaths = [...removedFilePaths, attachment.filePath];
     }
-  }
-
-  /**
-   * Determine file type icon based on extension.
-   */
-  function getFileIcon(fileName: string) {
-    const ext = fileName.split(".").pop()?.toLowerCase() || "";
-    const imageExts = [
-      "png",
-      "jpg",
-      "jpeg",
-      "gif",
-      "webp",
-      "svg",
-      "bmp",
-      "ico",
-    ];
-    const videoExts = ["mp4", "webm", "ogg", "ogv", "mov", "avi", "mkv"];
-    const textExts = [
-      "txt",
-      "md",
-      "markdown",
-      "json",
-      "xml",
-      "html",
-      "htm",
-      "css",
-      "js",
-      "mjs",
-      "ts",
-      "tsx",
-      "jsx",
-      "py",
-      "rs",
-      "go",
-      "java",
-      "c",
-      "h",
-      "cpp",
-      "hpp",
-      "cc",
-      "cs",
-      "rb",
-      "php",
-      "sh",
-      "bash",
-      "zsh",
-      "ps1",
-      "yaml",
-      "yml",
-      "toml",
-      "ini",
-      "cfg",
-      "conf",
-      "log",
-      "sql",
-      "svelte",
-      "vue",
-    ];
-    if (imageExts.includes(ext)) return "image";
-    if (videoExts.includes(ext)) return "video";
-    if (textExts.includes(ext)) return "text";
-    return "file";
   }
 
   /**
@@ -1133,7 +1124,7 @@
     <button
       class="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-all"
       onclick={() => insertMarkdown("**", "**")}
-      title={$_("editor.bold")}
+      title={`${$_("editor.bold")} (${modLabel}B)`}
       use:tooltip
       tabindex="-1"
     >
@@ -1142,7 +1133,7 @@
     <button
       class="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-all"
       onclick={() => insertMarkdown("_", "_")}
-      title={$_("editor.italic")}
+      title={`${$_("editor.italic")} (${modLabel}I)`}
       use:tooltip
       tabindex="-1"
     >
@@ -1151,7 +1142,7 @@
     <button
       class="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-all"
       onclick={() => toggleLinePrefix("### ")}
-      title={$_("editor.heading")}
+      title={`${$_("editor.heading")} (${modLabel}${altLabel}3)`}
       use:tooltip
       tabindex="-1"
     >
@@ -1161,7 +1152,7 @@
     <button
       class="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-all"
       onclick={() => toggleLinePrefix("- ")}
-      title={$_("editor.list")}
+      title={`${$_("editor.list")} (${modLabel}${shiftLabel}8)`}
       use:tooltip
       tabindex="-1"
     >
@@ -1170,7 +1161,7 @@
     <button
       class="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-all"
       onclick={() => toggleLinePrefix("1. ")}
-      title={$_("editor.orderedList")}
+      title={`${$_("editor.orderedList")} (${modLabel}${shiftLabel}7)`}
       use:tooltip
       tabindex="-1"
     >
@@ -1179,7 +1170,7 @@
     <button
       class="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-all"
       onclick={() => insertMarkdown("`", "`")}
-      title={$_("editor.code")}
+      title={`${$_("editor.code")} (${modLabel}E)`}
       use:tooltip
       tabindex="-1"
     >
@@ -1188,7 +1179,7 @@
     <button
       class="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-all"
       onclick={() => insertMarkdown("[", "](url)", "url")}
-      title={$_("editor.link")}
+      title={`${$_("editor.link")} (${modLabel}K)`}
       use:tooltip
       tabindex="-1"
     >
@@ -1285,11 +1276,11 @@
             tabindex="0"
           >
             <!-- File type icon -->
-            {#if getFileIcon(file.fileName) === "image"}
+            {#if getAttachmentKind(file.fileName) === "image"}
               <Image size={10} class="shrink-0 text-muted-foreground" />
-            {:else if getFileIcon(file.fileName) === "video"}
+            {:else if getAttachmentKind(file.fileName) === "video"}
               <Video size={10} class="shrink-0 text-muted-foreground" />
-            {:else if getFileIcon(file.fileName) === "text"}
+            {:else if getAttachmentKind(file.fileName) === "text"}
               <FileText size={10} class="shrink-0 text-muted-foreground" />
             {:else}
               <FileIcon size={10} class="shrink-0 text-muted-foreground" />
