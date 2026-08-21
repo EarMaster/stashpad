@@ -227,11 +227,18 @@
       : 0,
   );
 
-  onMount(async () => {
+  /**
+   * Fetch cloud storage usage for the signed-in account.
+   *
+   * Called on mount and again after a login: it used to run only on mount, so signing
+   * in from an open panel left the usage block missing until the panel was reopened.
+   */
+  async function loadCloudUsage() {
     // Only subscribers have cloud storage to report; everyone else is local-only and
     // bounded by their own disk, so there is nothing to show.
     const config = settings.cloudConfig;
     if (!config?.enabled || !config.userId || config.subscriptionTier === "free") {
+      cloudUsage = null;
       return;
     }
     try {
@@ -240,7 +247,9 @@
       // Usage is informational; failing to fetch it must not disturb the panel.
       console.warn("[Settings] Could not fetch cloud usage:", e);
     }
-  });
+  }
+
+  onMount(loadCloudUsage);
 
   onMount(async () => {
     isWin10 = await adapter.isWindows10();
@@ -382,7 +391,14 @@
   async function refreshSubscription() {
     try {
       const config = await adapter.fetchCloudAccount();
-      settings.cloudConfig = config;
+      // Carry the sync cursor across. The account endpoint has never heard of
+      // lastSyncAt, so assigning its response wholesale erased it - and a device with
+      // no cursor re-pushes its entire dataset on the next sync. CloudSyncService's
+      // own refreshEntitlement() already guards this the same way.
+      settings.cloudConfig = {
+        ...config,
+        lastSyncAt: settings.cloudConfig?.lastSyncAt,
+      };
       save();
     } catch (e) {
       console.error("Failed to fetch subscription", e);
@@ -435,8 +451,11 @@
     showAuthModal = false;
     save();
     await refreshSubscription();
-    // Start syncing now instead of waiting for the next app start.
+    // Start syncing now instead of waiting for the next app start. This also clears
+    // the 'auth-error' the panel is still showing, by running a sync that succeeds.
     await onAuthChanged?.();
+    // The account this panel is describing has changed, so its usage figures have too.
+    await loadCloudUsage();
   }
 </script>
 

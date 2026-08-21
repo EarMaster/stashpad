@@ -956,6 +956,76 @@ describe('CloudSyncService', () => {
         });
     });
 
+    describe('onAuthenticated', () => {
+        it('syncs immediately after re-authenticating an already-entitled account', async () => {
+            // An expired session leaves cloudConfig enabled and entitled, so nothing
+            // about shouldSync() changes across the re-login and updateSettings'
+            // transition check fires neither branch. Sync therefore did not restart and
+            // the stale 'auth-error' stood until the 15-minute fallback, with the panel
+            // still offering "log in again" to someone who had just done exactly that.
+            const expired = new Error('Authentication expired. Please log in again.');
+            const adapter = createAdapter({
+                syncStashesApi: vi.fn().mockRejectedValue(expired),
+                syncContextsApi: vi.fn().mockRejectedValue(expired),
+            });
+
+            const service = new CloudSyncService(adapter);
+            const settings = settingsWith(cloudConfig());
+            await service.initialize(settings);
+            await flushPromises();
+            expect(service.getStatus()).toBe('auth-error');
+
+            // The new token works.
+            (adapter.syncStashesApi as unknown as { mockResolvedValue: (v: unknown) => void })
+                .mockResolvedValue({ synced: [], serverTime: '2026-08-18T12:00:00Z' });
+            (adapter.syncContextsApi as unknown as { mockResolvedValue: (v: unknown) => void })
+                .mockResolvedValue({ synced: [], serverTime: '2026-08-18T12:00:00Z' });
+
+            await service.onAuthenticated(settings);
+            await flushPromises();
+
+            // Cleared without waiting for the fallback interval.
+            expect(service.getStatus()).toBe('success');
+        });
+
+        it('reconnects the socket, which still holds the refused credentials', async () => {
+            const adapter = createAdapter();
+            const service = new CloudSyncService(adapter);
+            const settings = settingsWith(cloudConfig());
+
+            await service.initialize(settings);
+            await flushPromises();
+            const before = (adapter.connectWebSocket as unknown as { mock: { calls: unknown[] } })
+                .mock.calls.length;
+
+            await service.onAuthenticated(settings);
+            await flushPromises();
+
+            expect(adapter.disconnectWebSocket).toHaveBeenCalled();
+            expect(
+                (adapter.connectWebSocket as unknown as { mock: { calls: unknown[] } })
+                    .mock.calls.length,
+            ).toBeGreaterThan(before);
+        });
+
+        it('does not start syncing for an account without the entitlement', async () => {
+            const adapter = createAdapter({
+                fetchCloudAccount: vi
+                    .fn()
+                    .mockResolvedValue(cloudConfig({ subscriptionTier: 'free' })),
+            });
+            const service = new CloudSyncService(adapter);
+
+            await service.onAuthenticated(
+                settingsWith(cloudConfig({ subscriptionTier: 'free' })),
+            );
+            await flushPromises();
+
+            expect(service.getStatus()).toBe('error');
+            expect(adapter.syncStashesApi).not.toHaveBeenCalled();
+        });
+    });
+
     describe('triggerSync', () => {
         it('coalesces a burst of local mutations into a single sync', async () => {
             const adapter = createAdapter();

@@ -421,12 +421,27 @@ export class CloudSyncService {
         this.settings = settings;
         await this.refreshEntitlement();
         this.updateSettings(this.settings);
+
         if (!this.shouldSync()) {
             this.setStatus(
                 'error',
                 'This account is not entitled to cloud sync. Check your subscription.'
             );
+            return;
         }
+
+        // A new token is an event, not a state transition, so this cannot be left to
+        // updateSettings. Re-authenticating after a session expired means the account
+        // was already enabled and entitled - that is exactly what an expired session
+        // looks like - so updateSettings sees no change and starts nothing. The stale
+        // 'auth-error' then stood until the 15-minute fallback came round, leaving the
+        // settings panel still offering "log in again" to someone who just had.
+        //
+        // Restarting rather than only starting also replaces the WebSocket, which is
+        // still holding the credentials the server has stopped accepting.
+        this.stopPeriodicSync();
+        this.startPeriodicSync();
+        await this.sync();
     }
 
     /**
