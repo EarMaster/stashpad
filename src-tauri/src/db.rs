@@ -1139,6 +1139,78 @@ mod tests {
         assert_eq!(default.name, "Default", "Default context name should be protected");
     }
     
+
+    /// The attachment queries are joined against the stash set now, rather than reading
+    /// the whole table. `claim_pending_stashes` reuses that join with a
+    /// `WHERE pending_sync = 2` fragment, so this also guards against the column name
+    /// becoming ambiguous if `pending_sync` is ever added to `attachments`.
+    #[test]
+    fn a_sync_payload_carries_only_its_own_attachments() {
+        let mut db = create_test_db();
+
+        let with_file = StashItem {
+            id: "s-with".to_string(),
+            context_id: Some("default".to_string()),
+            content: "has an attachment".to_string(),
+            enhanced_content: None,
+            files: vec![],
+            attachments: vec![Attachment {
+                id: "att-1".to_string(),
+                stash_id: "s-with".to_string(),
+                file_path: "/cache/default/s-with/shot.png".to_string(),
+                file_name: "shot.png".to_string(),
+                file_size: 10,
+                mime_type: Some("image/png".to_string()),
+                syntax: None,
+                created_at: chrono::Utc::now().to_rfc3339(),
+            }],
+            created_at: chrono::Utc::now().to_rfc3339(),
+            completed: false,
+            completed_at: None,
+            updated_at: None,
+            deleted: false,
+        };
+
+        let without_file = StashItem {
+            id: "s-without".to_string(),
+            content: "no attachment".to_string(),
+            attachments: vec![],
+            ..with_file.clone()
+        };
+
+        db.save_stash(&with_file, None, WriteOrigin::LocalEdit)
+            .expect("Failed to save stash with attachment");
+        db.save_stash(&without_file, None, WriteOrigin::LocalEdit)
+            .expect("Failed to save stash without attachment");
+
+        // The queue view assigns the attachment to its own stash and nobody else's.
+        let stashes = db.get_stashes().expect("Failed to get stashes");
+        let with = stashes.iter().find(|s| s.id == "s-with").expect("missing s-with");
+        let without = stashes
+            .iter()
+            .find(|s| s.id == "s-without")
+            .expect("missing s-without");
+        assert_eq!(with.attachments.len(), 1);
+        assert_eq!(with.attachments[0].id, "att-1");
+        assert!(without.attachments.is_empty());
+
+        // The incremental push path runs the same join with a filter fragment. It must
+        // execute (no ambiguous column) and still carry the attachment.
+        let pending = db
+            .claim_pending_stashes()
+            .expect("claim_pending_stashes failed");
+        let claimed = pending
+            .iter()
+            .find(|s| s.id == "s-with")
+            .expect("s-with should be pending");
+        assert_eq!(claimed.attachments.len(), 1);
+
+        // And the full sync payload agrees.
+        let all = db.get_stashes_for_sync().expect("get_stashes_for_sync failed");
+        let synced = all.iter().find(|s| s.id == "s-with").expect("missing s-with");
+        assert_eq!(synced.attachments.len(), 1);
+    }
+
     #[test]
     fn test_save_and_get_stash() {
         let mut db = create_test_db();
