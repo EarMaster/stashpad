@@ -202,6 +202,11 @@
         "overQuota": "You are over your storage allowance. Nothing is blocked, but please remove attachments you no longer need."
       },
       "title": "Cloud Sync",
+      "beta": {
+        "title": "Cloud sync is in beta",
+        "description": "Cloud sync is still in closed beta and will be available soon. Join the waitlist to get early access.",
+        "waitlist": "Join the waitlist"
+      },
       "enable": {
         "label": "Enable Cloud Sync",
         "description": "Synchronize your stashes and contexts across devices"
@@ -348,7 +353,15 @@
     "sortOldest": "Date: Oldest first",
     "sortNewest": "Date: Newest first",
     "stashAdded": "Stash added",
-    "filterByTags": "Filter by tags"
+    "filterStashes": "Filter stashes",
+    "attachmentFilter": {
+      "any": "Any attachment",
+      "none": "No attachments",
+      "image": "Images",
+      "video": "Videos",
+      "text": "Text & code",
+      "other": "Other files"
+    }
   },
   "stashCard": {
     "emptyStash": "-- empty --",

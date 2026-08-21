@@ -46,8 +46,19 @@
       Filter,
       ChevronDown,
       ChevronRight,
+      Paperclip,
+      Ban,
+      Image,
+      Video,
+      FileText,
+      File as FileIcon,
    } from "lucide-svelte";
    import { tooltip } from "$lib/actions/tooltip";
+   import {
+      countAttachmentFilters,
+      matchesFilters,
+      type AttachmentFilter,
+   } from "$lib/utils/stash-filters";
 
    let {
       transferMode,
@@ -120,6 +131,44 @@
    let showFilterMenu = $state(false);
    let tagCounts = $state<Map<string, number>>(new Map());
 
+   // Attachment Filtering
+   let selectedAttachmentFilters = $state<AttachmentFilter[]>([]);
+
+   /** Icon for each attachment filter chip, in render order. */
+   const attachmentFilterMeta: {
+      filter: AttachmentFilter;
+      icon: typeof Paperclip;
+   }[] = [
+      { filter: "any", icon: Paperclip },
+      { filter: "none", icon: Ban },
+      { filter: "image", icon: Image },
+      { filter: "video", icon: Video },
+      { filter: "text", icon: FileText },
+      { filter: "other", icon: FileIcon },
+   ];
+
+   // Counts per attachment filter across BOTH active and completed stashes, so the
+   // chips have the same scope as availableTags. Filters nobody matches are absent.
+   let attachmentFilterCounts = $derived.by(() =>
+      countAttachmentFilters([...activeStashes, ...completedStashes]),
+   );
+
+   // "No attachments" alone is not worth a filter menu - only offer the chips once
+   // something actually carries a file.
+   let availableAttachmentFilters = $derived(
+      attachmentFilterCounts.has("any")
+         ? attachmentFilterMeta.filter((m) =>
+              attachmentFilterCounts.has(m.filter),
+           )
+         : [],
+   );
+
+   function toggleAttachmentFilter(filter: AttachmentFilter) {
+      selectedAttachmentFilters = selectedAttachmentFilters.includes(filter)
+         ? selectedAttachmentFilters.filter((f) => f !== filter)
+         : [...selectedAttachmentFilters, filter];
+   }
+
    // Extract unique tags from BOTH active and completed stashes (for filter options)
    let availableTags = $derived.by(() => {
       const tags = new Set<string>();
@@ -136,30 +185,29 @@
       return Array.from(tags).sort();
    });
 
+   // OR within each filter group, AND between the groups - see matchesFilters().
+   let hasActiveFilters = $derived(
+      selectedTags.length > 0 || selectedAttachmentFilters.length > 0,
+   );
+
+   let showFilterButton = $derived(
+      availableTags.length > 0 || availableAttachmentFilters.length > 0,
+   );
+
    // Filtered Active Stashes
    let filteredStashes = $derived.by(() => {
-      if (selectedTags.length === 0) return activeStashes;
-
-      // Using OR logic: Show stashes that contain ANY of the selected tags (using whole word matching)
-      return activeStashes.filter((stash) => {
-         return selectedTags.some((tag) => {
-            const regex = new RegExp(`${tag}(?![\\w-])`, "g");
-            return regex.test(stash.content);
-         });
-      });
+      if (!hasActiveFilters) return activeStashes;
+      return activeStashes.filter((stash) =>
+         matchesFilters(stash, selectedTags, selectedAttachmentFilters),
+      );
    });
 
    // Filtered Completed Stashes
    let filteredCompletedStashes = $derived.by(() => {
-      if (selectedTags.length === 0) return completedStashes;
-
-      // Using OR logic: Show stashes that contain ANY of the selected tags (using whole word matching)
-      return completedStashes.filter((stash) => {
-         return selectedTags.some((tag) => {
-            const regex = new RegExp(`${tag}(?![\\w-])`, "g");
-            return regex.test(stash.content);
-         });
-      });
+      if (!hasActiveFilters) return completedStashes;
+      return completedStashes.filter((stash) =>
+         matchesFilters(stash, selectedTags, selectedAttachmentFilters),
+      );
    });
 
    $effect(() => {
@@ -175,6 +223,17 @@
          );
          if (validTags.length !== selectedTags.length) {
             selectedTags = validTags;
+         }
+      }
+
+      // Same for attachment filters: drop any that no longer match a stash, so
+      // deleting the last image cannot leave the queue stuck on an empty result.
+      if (selectedAttachmentFilters.length > 0) {
+         const validFilters = selectedAttachmentFilters.filter((f) =>
+            attachmentFilterCounts.has(f),
+         );
+         if (validFilters.length !== selectedAttachmentFilters.length) {
+            selectedAttachmentFilters = validFilters;
          }
       }
    });
@@ -677,17 +736,17 @@
                      </button>
                   {/if}
 
-                  {#if availableTags.length > 0}
+                  {#if showFilterButton}
                      <button
                         class="p-1 rounded-md hover:bg-muted text-muted-foreground hover:text-primary transition-colors {showFilterMenu ||
-                        selectedTags.length > 0
+                        hasActiveFilters
                            ? 'text-primary bg-primary/10'
                            : ''}"
                         onclick={() => (showFilterMenu = !showFilterMenu)}
-                        title={$_("queue.filterByTags")}
+                        title={$_("queue.filterStashes")}
                         use:tooltip
                      >
-                        {#if selectedTags.length > 0}
+                        {#if hasActiveFilters}
                            <svg
                               xmlns="http://www.w3.org/2000/svg"
                               width="14"
@@ -784,11 +843,35 @@
                </div>
             </div>
 
-            {#if showFilterMenu && availableTags.length > 0}
+            {#if showFilterMenu && showFilterButton}
                <div
-                  class="flex flex-wrap gap-1.5 mt-2 pb-2 justify-end"
+                  class="flex flex-wrap gap-1.5 mt-2 pb-2 justify-end items-center"
                   transition:fade={{ duration: 150 }}
                >
+                  {#each availableAttachmentFilters as { filter, icon: FilterIcon } (filter)}
+                     <button
+                        type="button"
+                        class="inline-flex items-center gap-0.5 rounded-full border px-1.5 py-0.5 text-[10px] transition-all hover:opacity-80 {selectedAttachmentFilters.includes(
+                           filter,
+                        )
+                           ? 'border-primary/40 bg-primary/15 text-primary'
+                           : 'border-border bg-transparent text-muted-foreground'}"
+                        onclick={() => toggleAttachmentFilter(filter)}
+                     >
+                        <FilterIcon size={10} />
+                        <span class="font-medium"
+                           >{$_(`queue.attachmentFilter.${filter}`)}</span
+                        >
+                        <span class="text-[9px] opacity-60"
+                           >{attachmentFilterCounts.get(filter)}</span
+                        >
+                     </button>
+                  {/each}
+
+                  {#if availableAttachmentFilters.length > 0 && availableTags.length > 0}
+                     <div class="h-3.5 w-px bg-border" aria-hidden="true"></div>
+                  {/if}
+
                   {#each availableTags as tag}
                      <TagBadge
                         {tag}
@@ -814,7 +897,7 @@
             use:dragHandleZone={{
                items: filteredStashes,
                flipDurationMs,
-               dragDisabled: selectedTags.length > 0,
+               dragDisabled: hasActiveFilters,
             }}
             onconsider={handleDndConsider}
             onfinalize={handleDndFinalize}
@@ -837,7 +920,7 @@
                      <StashCard
                         {item}
                         mode={effectiveMode}
-                        showReorderHandle={selectedTags.length === 0}
+                        showReorderHandle={!hasActiveFilters}
                         {stripTagsOnCopy}
                         isFirst={index === 0}
                         isLast={index ===
@@ -874,7 +957,7 @@
                   class="flex flex-col items-center justify-center py-12 text-muted-foreground/30 border border-dashed border-border/50 rounded-lg"
                >
                   <span class="text-sm">
-                     {selectedTags.length > 0
+                     {hasActiveFilters
                         ? $_("queue.noActiveStashesFound")
                         : $_("queue.noActiveStashes")}
                   </span>
@@ -884,7 +967,7 @@
       </section>
 
       <!-- Completed Section -->
-      {#if filteredCompletedStashes.length > 0 || (completedStashes.length > 0 && selectedTags.length === 0)}
+      {#if filteredCompletedStashes.length > 0 || (completedStashes.length > 0 && !hasActiveFilters)}
          <section class="space-y-4">
             <div
                class="flex items-center justify-between sticky top-0 py-3 z-10 -mx-4 px-4 mb-2 pointer-events-none"
@@ -906,7 +989,7 @@
                   <h2
                      class="text-[10px] font-bold text-muted-foreground/60 uppercase tracking-wider group-hover:text-muted-foreground/80 transition-colors"
                   >
-                     {$_("queue.completed")} ({selectedTags.length > 0
+                     {$_("queue.completed")} ({hasActiveFilters
                         ? filteredCompletedStashes.length
                         : completedStashes.length})
                   </h2>

@@ -197,6 +197,11 @@
         "overQuota": "Dein Speicherkontingent ist überschritten. Es wird nichts blockiert, bitte lösche aber nicht mehr benötigte Anhänge."
       },
       "title": "Cloud-Synchronisierung",
+      "beta": {
+        "title": "Cloud-Sync ist in der Beta",
+        "description": "Cloud-Sync befindet sich noch in einer geschlossenen Beta und wird bald verfügbar sein. Trage dich in die Warteliste ein, um früh dabei zu sein.",
+        "waitlist": "Auf die Warteliste"
+      },
       "enable": {
         "label": "Cloud-Sync aktivieren",
         "description": "Synchronisieren Sie Ihre Stashes und Kontexte geräteübergreifend"
@@ -332,7 +337,15 @@
     "deleteAllCompleted": "Alle erledigten Stashes löschen",
     "noActiveStashes": "Keine aktiven Stashes",
     "noActiveStashesFound": "Keine aktiven Stashes mit diesen Filtern gefunden.",
-    "filterByTags": "Nach Tags filtern",
+    "filterStashes": "Stashes filtern",
+    "attachmentFilter": {
+      "any": "Beliebiger Anhang",
+      "none": "Keine Anhänge",
+      "image": "Bilder",
+      "video": "Videos",
+      "text": "Text & Code",
+      "other": "Andere Dateien"
+    },
     "queueEmpty": "Warteschlange ist leer",
     "backToTop": "Nach oben",
     "sortOldest": "Sortieren: Älteste zuerst",
