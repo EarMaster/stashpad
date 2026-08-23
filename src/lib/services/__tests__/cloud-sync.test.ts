@@ -25,6 +25,11 @@ vi.mock('@tauri-apps/api/event', () => ({
 function createAdapter(overrides: Partial<IStorageService> = {}) {
     const base = {
         getDeviceName: vi.fn().mockResolvedValue('test-device'),
+        // Stands in for the backend's device_id file: hands back whatever the webview
+        // offers for migration, and mints one otherwise.
+        getDeviceId: vi
+            .fn()
+            .mockImplementation(async (migrateFrom?: string) => migrateFrom ?? 'test-device-id'),
         fetchCloudAccount: vi.fn().mockResolvedValue(cloudConfig()),
         saveSettings: vi.fn().mockResolvedValue(undefined),
         loadStashesForSync: vi.fn().mockResolvedValue([]),
@@ -79,7 +84,11 @@ function settingsWith(config: CloudConfig): Settings {
  * second sync and making call-count assertions meaningless.
  */
 async function flushPromises(): Promise<void> {
-    for (let i = 0; i < 5; i++) {
+    // The count only has to exceed the longest await chain a sync goes through, and that
+    // chain grows whenever one is added - resolving the device id from the backend cost
+    // the original budget of 5 its margin. Generous rather than exact: draining spare
+    // microtasks changes nothing, running out mid-chain fails the assertion for no reason.
+    for (let i = 0; i < 25; i++) {
         await Promise.resolve();
     }
 }

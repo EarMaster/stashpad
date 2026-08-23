@@ -15,7 +15,6 @@
 
 <script lang="ts">
     import { _ } from "$lib/i18n";
-    import { Dialog } from "bits-ui";
     import { fade } from "svelte/transition";
     import { openUrl } from "@tauri-apps/plugin-opener";
     import { websiteOriginFromEndpoint } from "$lib/utils/cloud-urls";
@@ -64,6 +63,17 @@
     /** Whether a code exchange request is in flight */
     let linkCodeLoading = $state(false);
 
+    /** The modal panel, focused on open so Escape and Tab start from inside it. */
+    let panel = $state<HTMLDivElement | null>(null);
+
+    /** Escape dismisses the modal, matching every other dialog in the app. */
+    function handleKeydown(event: KeyboardEvent): void {
+        if (open && event.key === "Escape") {
+            event.preventDefault();
+            onCancel();
+        }
+    }
+
     /**
      * Derives the frontend account URL from the configured cloud API endpoint.
      * Falls back to the API endpoint's /account/home route if the endpoint does
@@ -79,7 +89,13 @@
             : `${endpoint}/account/home?action=link-desktop`;
     }
 
-    /** Opens the authorization URL in the system browser. */
+    /**
+     * Opens the authorization URL in the system browser.
+     *
+     * Note that this hands the foreground to another application, so from here until
+     * the user comes back the Stashpad window may not be painting frames at all. The
+     * markup below does not depend on any that never arrive.
+     */
     function openBrowser(): void {
         openUrl(getAccountUrl()).catch((err) => {
             console.error("[CloudAuthModal] Failed to open browser:", err);
@@ -114,9 +130,10 @@
         linkCodeError = null;
 
         try {
-            const data = await new DesktopStorageAdapter().exchangeLinkCodeApi(
+            const adapter = new DesktopStorageAdapter();
+            const data = await adapter.exchangeLinkCodeApi(
                 linkCode.trim(),
-                getOrCreateDeviceId(),
+                await getOrCreateDeviceId(adapter),
             );
 
             // Persist the new status in settings state
@@ -146,9 +163,13 @@
         if (!open) return;
 
         let unlisten: (() => void) | undefined;
+        // Registration is async, so the modal can be dismissed before it finishes. Without
+        // this the teardown would find `unlisten` still undefined and the listener would
+        // outlive the modal, stacking one more handler on every open.
+        let cancelled = false;
 
         const setupListener = async () => {
-            unlisten = await onOpenUrl((urls) => {
+            const stop = await onOpenUrl((urls) => {
                 for (const url of urls) {
                     if (url.startsWith("stashpad://auth/callback")) {
                         try {
@@ -167,11 +188,18 @@
                     }
                 }
             });
+
+            if (cancelled) {
+                stop();
+            } else {
+                unlisten = stop;
+            }
         };
 
         setupListener();
 
         return () => {
+            cancelled = true;
             if (unlisten) unlisten();
         };
     });
@@ -187,38 +215,61 @@
             openBrowser();
         }
     });
+
+    // Move focus into the panel once it exists, so Escape and Tab act on the modal
+    // rather than on whatever was focused in the settings page behind it.
+    $effect(() => {
+        panel?.focus();
+    });
 </script>
 
-<!--
-  Uses bits-ui Dialog.Portal to teleport the modal to document.body,
-  ensuring it escapes any parent overflow/transform constraints.
--->
-<Dialog.Root
-    bind:open
-    onOpenChange={(v) => {
-        if (!v) onCancel();
-    }}
->
-    <Dialog.Portal>
-        <!-- Backdrop -->
-        <Dialog.Overlay
-            class="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm animate-in fade-in-0 duration-150"
-        />
+<svelte:window onkeydown={handleKeydown} />
 
-        <!-- Modal panel -->
-        <Dialog.Content
-            class="fixed left-[50%] top-[50%] z-[100] w-full max-w-sm translate-x-[-50%] translate-y-[-50%] outline-none px-4 animate-in zoom-in-95 fade-in-0 duration-200"
+<!--
+  A plain `{#if}` overlay rather than the bits-ui Dialog the other modals use.
+  See the note on `openBrowser` above: this is the one modal that sends the window
+  to the background the moment it appears, and bits-ui only unmounts a dialog from
+  inside a `requestAnimationFrame` that waits on the panel's animations to settle.
+  A window that is not painting frames never gets there, so the closed dialog stayed
+  in the DOM with `pointer-events: none` still on `<body>` and an invisible backdrop
+  over everything - the app looked fine and ignored every click until a reload.
+  `{#if}` tears the panel down synchronously, whether or not a frame is ever drawn.
+
+  For the same reason this modal appears without the fade the others use: an entry
+  animation that starts at `opacity: 0` and then waits on frames would leave the panel
+  invisible for as long as the window is not painting.
+
+  `position: fixed` is enough to escape the settings pane; no ancestor establishes a
+  containing block for it (no transform, filter, or perspective on the way up).
+-->
+{#if open}
+    <!-- Backdrop -->
+    <div
+        class="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm"
+        role="presentation"
+        onclick={onCancel}
+    ></div>
+
+    <!-- Modal panel -->
+    <div
+        bind:this={panel}
+        class="fixed left-[50%] top-[50%] z-[100] w-full max-w-sm translate-x-[-50%] translate-y-[-50%] outline-none px-4"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="cloud-auth-title"
+        tabindex="-1"
+    >
+        <div
+            class="bg-popover text-popover-foreground border border-border shadow-xl rounded-xl overflow-hidden"
         >
-            <div
-                class="bg-popover text-popover-foreground border border-border shadow-xl rounded-xl overflow-hidden"
-            >
                 <!-- Header -->
                 <div class="flex items-center justify-between px-5 pt-5 pb-3">
-                    <Dialog.Title
+                    <h2
+                        id="cloud-auth-title"
                         class="text-base font-semibold tracking-tight block"
                     >
                         {$_("settings.cloudSync.auth.modalTitle")}
-                    </Dialog.Title>
+                    </h2>
                 </div>
 
                 <div class="px-5 pb-5 space-y-4">
@@ -356,7 +407,6 @@
                         </div>
                     {/if}
                 </div>
-            </div>
-        </Dialog.Content>
-    </Dialog.Portal>
-</Dialog.Root>
+        </div>
+    </div>
+{/if}

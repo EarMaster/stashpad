@@ -313,6 +313,58 @@ pub async fn get_device_name() -> String {
     DEVICE_NAME.get_or_init(resolve_device_name).clone()
 }
 
+/// Where this installation's sync identity lives.
+fn device_id_path() -> PathBuf {
+    get_app_dir().join("device_id")
+}
+
+/// A device id is a UUID we wrote ourselves; anything else in the file is not one.
+fn looks_like_device_id(value: &str) -> bool {
+    let value = value.trim();
+    !value.is_empty() && value.len() <= 64 && value.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+}
+
+/// The stable identifier the server knows this installation by.
+///
+/// Kept in the app directory rather than the webview's `localStorage`, which is where it
+/// used to live. `localStorage` is keyed by origin and lives in the WebView2 profile, so
+/// it is lost whenever that profile is reset - and a dev build (served from
+/// `http://localhost:1420`) never shared it with an installed one in the first place.
+/// Every loss minted a fresh id, and since the server keys "Connected Installations" on
+/// it, the same machine piled up as a new entry each time with no way to tell them apart.
+///
+/// `migrate_from` carries whatever the webview still has in `localStorage`, so an
+/// installation that predates this file keeps the identity it already has on the server
+/// instead of registering itself once more.
+#[tauri::command]
+pub async fn get_device_id(migrate_from: Option<String>) -> Result<String, String> {
+    run_blocking(move || {
+        let path = device_id_path();
+
+        if let Ok(existing) = fs::read_to_string(&path) {
+            if looks_like_device_id(&existing) {
+                return Ok(existing.trim().to_string());
+            }
+        }
+
+        let id = migrate_from
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| looks_like_device_id(value))
+            .map(str::to_owned)
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create app dir: {}", e))?;
+        }
+        fs::write(&path, &id).map_err(|e| format!("Failed to store device id: {}", e))?;
+
+        Ok(id)
+    })
+    .await
+}
+
 /// Signals about the running executable that distinguish one install channel from another.
 ///
 /// Split out from the filesystem and environment lookups so [`classify_installation`] can

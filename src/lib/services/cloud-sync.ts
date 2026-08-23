@@ -242,8 +242,14 @@ function toSeconds(ms: number): number {
 }
 
 /**
- * CloudSyncService manages automatic data synchronization
+ * Where the device id used to live, and still does on installs that predate the move.
+ *
+ * Read once so an existing installation can hand its id to the backend, then left in
+ * place: it costs nothing, and clearing it would hand a fresh identity to anyone who
+ * rolls back to a build that still reads from here.
  */
+const LEGACY_DEVICE_ID_KEY = 'stashpad_device_id';
+
 /**
  * Get or create the identifier this installation is known by on the server.
  *
@@ -251,17 +257,38 @@ function toSeconds(ms: number): number {
  * so the server can tie the token it issues to this installation, which is what lets
  * the account page revoke this one instance without touching the others. Linking and
  * syncing must therefore agree on the value, so both read it from here.
+ *
+ * The backend owns it. It used to be a `crypto.randomUUID()` in `localStorage`, which is
+ * keyed by origin and lives in the WebView2 profile - so a reset of that profile, or
+ * simply running the dev server instead of the installed build, produced a brand new id.
+ * The server keys "Connected Installations" on it and never retires a row, so the same
+ * machine accumulated an entry per lost id, every one of them labelled with the same
+ * hostname and impossible to tell apart.
+ *
+ * Deliberately not memoised at module level: the file behind it is the single source of
+ * truth, so every caller gets the same answer anyway, and a cache here would only outlive
+ * the thing it was caching.
  */
-export function getOrCreateDeviceId(): string {
-    const key = 'stashpad_device_id';
-    let deviceId = localStorage.getItem(key);
-    if (!deviceId) {
-        deviceId = crypto.randomUUID();
-        localStorage.setItem(key, deviceId);
+export async function getOrCreateDeviceId(adapter: IStorageService): Promise<string> {
+    const legacy = localStorage.getItem(LEGACY_DEVICE_ID_KEY) ?? undefined;
+
+    try {
+        return await adapter.getDeviceId(legacy);
+    } catch (e) {
+        // Sync must not stop because a file could not be read. Falling back to the old
+        // behaviour is no worse than what this installation had before.
+        console.error('[CloudSync] Failed to read the stored device id:', e);
+        if (legacy) return legacy;
+
+        const generated = crypto.randomUUID();
+        localStorage.setItem(LEGACY_DEVICE_ID_KEY, generated);
+        return generated;
     }
-    return deviceId;
 }
 
+/**
+ * CloudSyncService manages automatic data synchronization
+ */
 export class CloudSyncService {
     private adapter: IStorageService;
     private settings: Settings | null = null;
@@ -269,7 +296,7 @@ export class CloudSyncService {
     private debounceTimer: ReturnType<typeof setTimeout> | null = null;
     private listeners: Set<SyncListener> = new Set();
     private status: SyncStatus = 'idle';
-    private deviceId: string;
+    private deviceId = '';
     private deviceName: string | null = null;
     private isSyncing = false;
     private wsUnlisten: UnlistenFn | null = null;
@@ -315,7 +342,10 @@ export class CloudSyncService {
 
     constructor(adapter: IStorageService) {
         this.adapter = adapter;
-        this.deviceId = this.getOrCreateDeviceId();
+        // Started here rather than awaited: the id now comes from the backend, and the
+        // constructor has to stay synchronous. Every path that puts the id on the wire
+        // goes through `ensureDeviceId` first.
+        void this.ensureDeviceId();
     }
 
     /** The identifier this installation is known by on the server. */
@@ -324,10 +354,13 @@ export class CloudSyncService {
     }
 
     /**
-     * Get or create a persistent device ID for sync tracking
+     * Resolve the persistent device id, once, before anything sends it.
      */
-    private getOrCreateDeviceId(): string {
-        return getOrCreateDeviceId();
+    private async ensureDeviceId(): Promise<string> {
+        if (!this.deviceId) {
+            this.deviceId = await getOrCreateDeviceId(this.adapter);
+        }
+        return this.deviceId;
     }
 
     /**
@@ -335,6 +368,7 @@ export class CloudSyncService {
      */
     async initialize(settings: Settings): Promise<void> {
         this.settings = settings;
+        await this.ensureDeviceId();
         if (!this.deviceName) {
             try {
                 this.deviceName = await this.adapter.getDeviceName();
@@ -547,6 +581,11 @@ export class CloudSyncService {
         this.setStatus('syncing');
 
         try {
+            // A sync can be triggered by a local mutation before `initialize` has run, and
+            // the payloads below carry the id: resolve it first or the server would log
+            // this installation under an empty one.
+            await this.ensureDeviceId();
+
             // Load local data
             const [localStashes, localContexts] = await Promise.all([
                 this.adapter.loadStashesForSync(),

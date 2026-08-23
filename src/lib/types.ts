@@ -197,6 +197,14 @@ export interface IStorageService {
     discardImport(token: string): Promise<void>;
     isWindows10(): Promise<boolean>;
     getDeviceName(): Promise<string>;
+    /**
+     * The stable identifier this installation is known by on the server.
+     *
+     * `migrateFrom` offers up whatever the webview still holds from before the id was
+     * kept on disk, so an existing installation keeps the identity the server already
+     * has for it instead of registering itself a second time.
+     */
+    getDeviceId(migrateFrom?: string): Promise<string>;
 
     // Context management
     getContexts(): Promise<Context[]>;

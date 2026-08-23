@@ -426,6 +426,7 @@ pub fn run() {
             utils::read_clipboard_text,
             utils::start_drag,
             utils::get_device_name,
+            utils::get_device_id,
             settings::get_settings,
             settings::save_settings,
             settings::cloud_logout,

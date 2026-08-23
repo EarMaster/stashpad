@@ -342,6 +342,10 @@ export class DesktopStorageAdapter implements IStorageService {
         return await invoke('get_device_name');
     }
 
+    async getDeviceId(migrateFrom?: string): Promise<string> {
+        return await invoke('get_device_id', { migrateFrom });
+    }
+
     async loadStashesForSync(): Promise<StashItem[]> {
         return await invoke('load_stashes_for_sync');
     }

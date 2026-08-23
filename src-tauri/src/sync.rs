@@ -78,6 +78,46 @@ fn transfer_client() -> Result<reqwest::Client, String> {
         .map_err(|e| format!("Failed to build HTTP client: {}", e))
 }
 
+/// Header the server uses to hand back a replacement session token.
+const REFRESHED_TOKEN_HEADER: &str = "x-stashpad-token";
+
+/// Adopt a replacement session token when the server sends one.
+///
+/// A desktop session is only as long-lived as the JWT behind it, and there is no login
+/// form to fall back on when that runs out - an expired token means sync stops and the
+/// whole link-code dance starts over. So the server rolls the token forward on ordinary
+/// authenticated traffic once it is past half its life, and the client's only job is to
+/// notice and store what came back. The token it replaces stays valid until its own
+/// expiry, so dropping one of these on the floor costs nothing but another few weeks.
+///
+/// Must be called before the body is consumed, and never fails the call it rides on.
+async fn absorb_refreshed_token(settings_state: &Arc<SettingsState>, response: &reqwest::Response) {
+    let Some(new_token) = response
+        .headers()
+        .get(REFRESHED_TOKEN_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned)
+    else {
+        return;
+    };
+
+    // Same shape as everywhere else in this file: mutate under the lock, then drop it
+    // before the credential store and the settings file are touched.
+    let snapshot = {
+        let mut settings = settings_state.lock_settings();
+        let Some(ref mut config) = settings.cloud_config else {
+            return;
+        };
+        if config.access_token.as_deref() == Some(new_token.as_str()) {
+            return;
+        }
+        config.access_token = Some(new_token);
+        settings.clone()
+    };
+
+    persist_settings_off_thread(snapshot).await;
+}
+
 /// Fetch account info from cloud service and update local subscription status
 #[tauri::command]
 pub async fn fetch_cloud_account(
@@ -105,6 +145,8 @@ pub async fn fetch_cloud_account(
     if !response.status().is_success() {
         return Err(format!("Failed to fetch account: {}", response.status()));
     }
+
+    absorb_refreshed_token(&settings_state, &response).await;
 
     let account: serde_json::Value = response.json().await
         .map_err(|e| format!("Failed to parse account: {}", e))?;
@@ -253,6 +295,8 @@ pub async fn sync_stashes_api(
         let snippet = error_snippet(&body);
         return Err(format!("Stash sync failed ({}): {}", status, snippet));
     }
+
+    absorb_refreshed_token(&settings_state, &response).await;
 
     response.json().await.map_err(|e| format!("Failed to parse sync response: {}", e))
 }
@@ -605,6 +649,8 @@ pub async fn sync_contexts_api(
         return Err(format!("Context sync failed ({}): {}", status, snippet));
     }
 
+    absorb_refreshed_token(&settings_state, &response).await;
+
     response.json().await.map_err(|e| format!("Failed to parse sync response: {}", e))
 }
 
@@ -796,6 +842,8 @@ pub async fn fetch_cloud_usage(
     if !response.status().is_success() {
         return Err(format!("Failed to fetch usage: {}", response.status()));
     }
+
+    absorb_refreshed_token(&settings_state, &response).await;
 
     response
         .json()
