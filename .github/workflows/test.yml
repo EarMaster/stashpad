@@ -8,6 +8,25 @@ on:
   workflow_dispatch:
 
 jobs:
+  # Green between releases, since package.json and the newest CHANGELOG.md heading agree.
+  # It goes red in the window between a version bump and a written changelog - which is
+  # the window in which a release with empty notes gets tagged.
+  changelog:
+    name: Changelog
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # No `npm ci`: the script reads two files and has no dependencies.
+      - name: Check CHANGELOG.md has a section for the current version
+        run: node scripts/check-changelog.mjs
+
   frontend-tests:
     name: Frontend Tests
     runs-on: ${{ matrix.os }}

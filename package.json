@@ -24,6 +24,7 @@
   "type": "module",
   "scripts": {
     "sync-version": "node scripts/sync-version.mjs",
+    "check:changelog": "node scripts/check-changelog.mjs",
     "predev": "npm run sync-version",
     "dev": "tauri dev",
     "vite:dev": "vite",
