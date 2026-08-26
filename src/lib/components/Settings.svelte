@@ -146,6 +146,56 @@
     }, SAVE_DEBOUNCE_MS);
   }
 
+  /**
+   * Paste-as-attachment threshold, in bytes.
+   *
+   * A byte count is stored, but a bare five-digit number is hard to read, so the
+   * field shows a formatted size ("4.9 KB") at rest and swaps to the exact byte
+   * figure the moment it is focused for editing. That means a text input - a
+   * number input cannot render "4.9 KB" - so the range is enforced here rather
+   * than by min/max attributes.
+   */
+  const PASTE_THRESHOLD_DEFAULT = 500;
+  /** Keep in step with MAX_PASTE_AS_ATTACHMENT_THRESHOLD in src-tauri/src/settings.rs. */
+  const PASTE_THRESHOLD_MAX = 100000;
+
+  let pasteThresholdFocused = $state(false);
+  /** Raw text held while the field is focused, so a half-typed value is not reformatted. */
+  let pasteThresholdDraft = $state("");
+
+  let pasteThresholdBytes = $derived(
+    settings.pasteAsAttachmentThreshold ?? PASTE_THRESHOLD_DEFAULT,
+  );
+  let pasteThresholdDisplay = $derived(
+    pasteThresholdFocused
+      ? pasteThresholdDraft
+      : formatBytes(pasteThresholdBytes, $locale || "en"),
+  );
+
+  function onPasteThresholdFocus(e: FocusEvent & { currentTarget: HTMLInputElement }) {
+    pasteThresholdDraft = String(pasteThresholdBytes);
+    pasteThresholdFocused = true;
+    // Select on the next tick - the value only becomes the raw number once the
+    // derived display has re-rendered.
+    const input = e.currentTarget;
+    queueMicrotask(() => input.select());
+  }
+
+  function onPasteThresholdInput(e: Event & { currentTarget: HTMLInputElement }) {
+    const text = e.currentTarget.value;
+    pasteThresholdDraft = text;
+    const val = parseInt(text, 10);
+    // An empty or half-typed field leaves the stored value alone; blur restores it.
+    if (isNaN(val) || val < 0) return;
+    settings.pasteAsAttachmentThreshold = Math.min(val, PASTE_THRESHOLD_MAX);
+    saveSoon();
+  }
+
+  function onPasteThresholdBlur() {
+    pasteThresholdFocused = false;
+    pasteThresholdDraft = "";
+  }
+
   // Leaving the panel mid-burst must not discard the last keystroke.
   onDestroy(() => {
     if (saveTimer) {
@@ -966,20 +1016,23 @@
           </div>
           <div class="flex items-center gap-3">
             <input
-              type="number"
-              min="0"
-              max="100000"
-              class="w-20 rounded-md border border-border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors"
-              value={settings.pasteAsAttachmentThreshold ?? 500}
-              oninput={(e) => {
-                const val = parseInt(e.currentTarget.value);
-                if (!isNaN(val) && val >= 0) {
-                  settings.pasteAsAttachmentThreshold = val;
-                  saveSoon();
-                }
-              }}
+              type="text"
+              inputmode="numeric"
+              class="w-24 rounded-md border border-border bg-background px-3 py-1.5 text-sm tabular-nums outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors"
+              value={pasteThresholdDisplay}
+              onfocus={onPasteThresholdFocus}
+              oninput={onPasteThresholdInput}
+              onblur={onPasteThresholdBlur}
             />
-            <span class="text-xs text-muted-foreground"
+            <!--
+              The formatted value carries its own unit, so this only labels the raw byte
+              figure shown while editing. It stays mounted and merely fades, or the row
+              would reflow every time the field is focused.
+            -->
+            <span
+              class="text-xs text-muted-foreground transition-opacity"
+              class:opacity-0={!pasteThresholdFocused}
+              aria-hidden={!pasteThresholdFocused}
               >{$_("settings.general.pasteAsAttachment.unit")}</span
             >
           </div>

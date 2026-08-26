@@ -60,6 +60,12 @@ pub fn load_settings_from_disk() -> Settings {
     Settings::default()
 }
 
+/// Largest accepted paste-as-attachment threshold, in bytes.
+///
+/// Must stay in step with the `max` the Settings panel clamps to - see the
+/// "Paste as Attachment" input in `src/lib/components/Settings.svelte`.
+pub const MAX_PASTE_AS_ATTACHMENT_THRESHOLD: u32 = 100_000;
+
 /// Validates settings and falls back to defaults for any invalid values.
 /// This ensures robustness against manual edits or corruption of settings.json.
 pub fn validate_settings(mut settings: Settings) -> Settings {
@@ -104,13 +110,15 @@ pub fn validate_settings(mut settings: Settings) -> Settings {
         settings.clear_completed_days = defaults.clear_completed_days;
     }
     
-    // Validate paste_as_attachment_threshold: 0 is valid (ask user), but cap at reasonable max
-    if settings.paste_as_attachment_threshold > 1000 {
+    // Validate paste_as_attachment_threshold: 0 is valid (ask user), so only cap the top
+    // end. Clamp rather than reset - the user asked for "as large as possible", and
+    // dropping them back to the default silently discards that intent.
+    if settings.paste_as_attachment_threshold > MAX_PASTE_AS_ATTACHMENT_THRESHOLD {
         println!(
-            "Warning: paste_as_attachment_threshold {} is too high, defaulting to {}",
-            settings.paste_as_attachment_threshold, defaults.paste_as_attachment_threshold
+            "Warning: paste_as_attachment_threshold {} is too high, clamping to {}",
+            settings.paste_as_attachment_threshold, MAX_PASTE_AS_ATTACHMENT_THRESHOLD
         );
-        settings.paste_as_attachment_threshold = defaults.paste_as_attachment_threshold;
+        settings.paste_as_attachment_threshold = MAX_PASTE_AS_ATTACHMENT_THRESHOLD;
     }
     
     // Discard update timestamps that sit implausibly far in the future. A clock that
@@ -437,4 +445,46 @@ pub async fn cloud_logout(state: State<'_, Arc<SettingsState>>) -> Result<(), St
 
     persist_settings_off_thread(cleared).await;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn with_threshold(bytes: u32) -> Settings {
+        Settings {
+            paste_as_attachment_threshold: bytes,
+            ..Settings::default()
+        }
+    }
+
+    /// 0 is not "unset", it means "ask me what to do on every paste".
+    #[test]
+    fn paste_threshold_zero_is_preserved() {
+        let settings = validate_settings(with_threshold(0));
+        assert_eq!(settings.paste_as_attachment_threshold, 0);
+    }
+
+    /// The threshold counts bytes, not lines. A byte-scale value used to trip a stale
+    /// line-count cap on load and get replaced with the default, which is why the
+    /// setting appeared not to save at all.
+    #[test]
+    fn paste_threshold_byte_scale_value_survives() {
+        let settings = validate_settings(with_threshold(5_000));
+        assert_eq!(settings.paste_as_attachment_threshold, 5_000);
+    }
+
+    #[test]
+    fn paste_threshold_above_max_is_clamped_not_reset() {
+        let settings = validate_settings(with_threshold(250_000));
+        assert_eq!(
+            settings.paste_as_attachment_threshold,
+            MAX_PASTE_AS_ATTACHMENT_THRESHOLD
+        );
+    }
+
+    #[test]
+    fn paste_threshold_defaults_to_500_bytes() {
+        assert_eq!(Settings::default().paste_as_attachment_threshold, 500);
+    }
 }
