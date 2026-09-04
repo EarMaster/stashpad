@@ -11,6 +11,8 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+## [1.6.9] - 2026-09-04
+
 ### Fixed
 - **Two attachments with the same name are both kept now.** Adding a second `image.png` to a stash
   quietly replaced the first one's file: both entries stayed in the list but pointed at the same
