@@ -69,3 +69,12 @@ macos-apple-intelligence = ["fm-rs"]
 
 [dev-dependencies]
 tempfile = "3"
+
+# Dependencies are compiled without debug info; this crate keeps its own.
+#
+# A debug build of this tree reached 37 GB, and 4.8 GB of that was `.pdb` files for
+# crates nobody steps into - the whole Tauri, reqwest and sqlx stack carrying full
+# symbols so a backtrace could name a frame inside them. Backtraces still name every
+# frame in `stashpad` itself, which is the part worth debugging.
+[profile.dev.package."*"]
+debug = false
