@@ -41,18 +41,29 @@ else
   PREV_TAG="$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)"
 fi
 
-# CRLF: core.autocrlf=true is the default on Windows and on the windows-latest runner, and
-# there is no .gitattributes pinning *.md to LF. Without this every extracted line ends in
-# \r, which travels into $GITHUB_ENV, the release body and latest.json.
+# CRLF is stripped inside awk rather than by a `tr` at the head of the pipeline. The
+# reason is not style: the extracting awk `exit`s at the next section heading, so with
+# `tr` upstream it stops reading while `tr` is still writing, `tr` takes SIGPIPE, and
+# `set -o pipefail` turns that into a failure of the whole command substitution. That
+# only bites once the file outgrows the pipe buffer - 64 KB on Linux, 16 KB on macOS -
+# so v1.6.9 composed fine on Windows and Linux and failed on both macOS targets, the
+# script reporting a missing section for a section that was there. Reading the file
+# directly leaves nothing upstream to signal.
+#
+# The strip itself is needed because core.autocrlf=true is the default on Windows and on
+# the windows-latest runner, and there is no .gitattributes pinning *.md to LF. Without
+# it every extracted line ends in \r, which travels into $GITHUB_ENV, the release body
+# and latest.json.
 NOTES="$(
-  tr -d '\r' < "$CHANGELOG" | awk -v ver="$VERSION" '
+  awk -v ver="$VERSION" '
     # A literal prefix test rather than a regex: interpolating a version into one would
     # make every "." match any character, so "1.6.8" would also match "## [1x6y8]".
     BEGIN { head = "## [" ver "]" }
+    { gsub(/\r/, "") }
     index($0, head) == 1 { found = 1; next }
     found && /^## \[/  { exit }
     found              { print }
-  ' | awk '
+  ' "$CHANGELOG" | awk '
     # Blank lines are buffered rather than printed: leading ones are dropped (nothing has
     # started yet), trailing ones never get flushed, and internal ones survive exactly as
     # written. The notes are rendered as markdown both on the releases page and by
