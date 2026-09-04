@@ -1,10 +1,17 @@
 name: Tests
 
+# Also called by release.yml as a reusable workflow, which is what makes this suite the gate
+# in front of a release rather than a report that happens alongside one. There is exactly one
+# copy of these jobs; a release run shows them in its own graph.
 on:
+  # `push: main` is deliberately absent: a merge to main reaches this suite through
+  # release.yml's `workflow_call`, and having both triggers would run the whole 3-OS matrix
+  # twice per merge. Pushes to develop are direct and would otherwise reach a PR untested.
   push:
-    branches: [main, develop]
+    branches: [develop]
   pull_request:
     branches: [main, develop]
+  workflow_call:
   workflow_dispatch:
 
 jobs:
@@ -82,7 +89,9 @@ jobs:
           sudo rm -rf /usr/local/lib/android
           sudo rm -rf /opt/ghc
           sudo rm -rf "/usr/local/share/boost"
-          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          if [ -n "${AGENT_TOOLSDIRECTORY:-}" ]; then
+            sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          fi
 
       - name: Install dependencies (Ubuntu only)
         if: matrix.os == 'ubuntu-latest'
@@ -90,11 +99,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev pkg-config libasound2-dev
 
+      # dtolnay/rust-toolchain, matching release.yml. actions-rs/toolchain was archived in 2023
+      # and pins a deprecated Node runtime - tolerable in an advisory job, a latent hard failure
+      # now that this suite gates every release.
       - name: Setup Rust
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
-          override: true
           components: rustfmt, clippy
 
       - name: Cache Rust dependencies
@@ -106,12 +116,24 @@ jobs:
         working-directory: src-tauri
         run: cargo test --verbose
 
-      - name: Run Clippy
+      # Both lint steps below are ADVISORY and named so, because this suite now decides whether
+      # a merge to main ships a binary and "Tests passed" must not be read as "lint passed".
+      #
+      # Neither is currently clean: `cargo clippy -- -D warnings` reports 11 findings in the lib
+      # and 14 in lib tests across 10 lint families (len_zero, single_match, manual_flatten,
+      # ptr_arg, result_large_err and friends - all cosmetic, no correctness issues), and
+      # `cargo fmt --check` reports 231 diffs, meaning the tree has never been rustfmt'd.
+      #
+      # Gating them is the right end state and it is cheap - one `cargo fmt` commit plus a pass
+      # over ten lint families - but it is a tree-wide reformat that would bury `git blame`, so
+      # it belongs in its own commit rather than riding along with a CI change. When that lands,
+      # drop the `continue-on-error` and the "(advisory)" from both names.
+      - name: Run Clippy (advisory, non-gating)
         working-directory: src-tauri
         run: cargo clippy -- -D warnings
         continue-on-error: true
 
-      - name: Check formatting
+      - name: Check formatting (advisory, non-gating)
         working-directory: src-tauri
         run: cargo fmt --check
         continue-on-error: true
@@ -124,10 +146,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # 22, matching every other job and the toolchain the release actually builds on. This was
+      # 20, which is a poor thing for a release gate to be compiling against.
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: "npm"
 
       - name: Install dependencies
