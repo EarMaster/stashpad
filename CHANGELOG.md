@@ -24,6 +24,18 @@ popover, not for the person who wrote the commit.
   and corrected, so an install sitting on "Attachments could not be uploaded" clears itself on the
   next sync with nothing for you to do. When an upload does keep failing, the panel names the file
   and says when it will be tried again, instead of quoting the server's reply
+- **The editor's Code button makes a real code block out of several lines.** It wrapped whatever
+  you had selected in single backticks, which across line breaks is one inline span rather than a
+  block - and a blank line inside it ended the span and left the backticks showing. A selection
+  spanning lines now gets a fenced ``` block, with the fence lengthened if the code contains one
+  of its own; a selection within one line still gets inline backticks. The same applies to Ctrl+E
+- **The other toolbar buttons stop producing markdown that does not render.** Selecting a line
+  usually takes its line break with it, and Bold, Italic, Code and Link put their closing marker
+  after that break, where it showed up as stray characters instead of formatting. Emphasis also
+  cannot cross a blank line, so bolding a selection covering two paragraphs formatted neither -
+  each paragraph is now marked up on its own. Numbered lists count 1, 2, 3 rather than repeating
+  "1.", and can be switched back off afterwards, which a list that had been renumbered could not
+  be. Bullets and headings skip blank lines instead of leaving an empty item behind
 
 ## [1.6.8] - 2026-08-26
 

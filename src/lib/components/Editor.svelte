@@ -36,6 +36,12 @@
     Minimize2,
   } from "lucide-svelte";
   import { getCaretCoordinates } from "$lib/utils/caret";
+  import {
+    applyWrap,
+    applyCode,
+    applyLinePrefix,
+    type FormatResult,
+  } from "$lib/utils/markdown-format";
   import FilePreviewModal from "./FilePreviewModal.svelte";
   import ConfirmationDialog from "./ConfirmationDialog.svelte";
   import Tooltip from "./Tooltip.svelte";
@@ -764,7 +770,7 @@
           return;
         case "e":
           e.preventDefault();
-          insertMarkdown("`", "`");
+          insertCode();
           return;
       }
     }
@@ -983,49 +989,31 @@
     });
   });
 
-  function toggleLinePrefix(prefix: string) {
-    if (!textareaRef) return;
-    const start = textareaRef.selectionStart;
-    const end = textareaRef.selectionEnd;
-    const text = content;
-
-    let lineStart = text.lastIndexOf('\n', start - 1) + 1;
-    let lineEnd = text.indexOf('\n', end);
-    if (lineEnd === -1) lineEnd = text.length;
-    
-    if (end > start && text[end - 1] === '\n') {
-      lineEnd = end - 1;
-    }
-
-    const selectedLinesText = text.substring(lineStart, lineEnd);
-    const lines = selectedLinesText.split('\n');
-
-    const allHavePrefix = lines.every((line) => line.startsWith(prefix));
-
-    const newLines = lines.map((line) => {
-      if (allHavePrefix) {
-        return line.substring(prefix.length);
-      } else {
-        const cleanLine = line.replace(/^(?:[-*+]\s|\d+\.\s|#{1,6}\s)/, '');
-        return prefix + cleanLine;
-      }
-    });
-
-    const replacement = newLines.join('\n');
-    content = text.substring(0, lineStart) + replacement + text.substring(lineEnd);
-
+  /**
+   * Put a formatting result back into the editor and restore the selection it asks for.
+   *
+   * The selection is set on the next tick because the textarea has not re-rendered with
+   * the new content yet, and setting a range past the end of the old value clamps it.
+   */
+  function applyFormat(result: FormatResult) {
+    content = result.content;
     setTimeout(() => {
       if (!textareaRef) return;
       textareaRef.focus();
-      
-      if (start === end) {
-        const diff = replacement.length - selectedLinesText.length;
-        const newPos = Math.max(0, start + diff);
-        textareaRef.setSelectionRange(newPos, newPos);
-      } else {
-        textareaRef.setSelectionRange(lineStart, lineStart + replacement.length);
-      }
+      textareaRef.setSelectionRange(result.selectionStart, result.selectionEnd);
     }, 0);
+  }
+
+  function toggleLinePrefix(prefix: string) {
+    if (!textareaRef) return;
+    applyFormat(
+      applyLinePrefix(
+        content,
+        textareaRef.selectionStart,
+        textareaRef.selectionEnd,
+        prefix,
+      ),
+    );
   }
 
   function insertMarkdown(
@@ -1034,35 +1022,28 @@
     suffixToSelect?: string,
   ) {
     if (!textareaRef) return;
-    const start = textareaRef.selectionStart;
-    const end = textareaRef.selectionEnd;
-    const text = content;
-    const selection = text.substring(start, end);
+    applyFormat(
+      applyWrap(
+        content,
+        textareaRef.selectionStart,
+        textareaRef.selectionEnd,
+        prefix,
+        suffix,
+        suffixToSelect,
+      ),
+    );
+  }
 
-    const replacement = prefix + selection + suffix;
-    content = text.substring(0, start) + replacement + text.substring(end);
-
-    setTimeout(() => {
-      if (!textareaRef) return;
-      textareaRef.focus();
-      if (start === end) {
-        const newPos = start + prefix.length;
-        textareaRef.setSelectionRange(newPos, newPos);
-      } else if (suffixToSelect && suffix.includes(suffixToSelect)) {
-        const indexInSuffix = suffix.indexOf(suffixToSelect);
-        const selectStart =
-          start + prefix.length + selection.length + indexInSuffix;
-        textareaRef.setSelectionRange(
-          selectStart,
-          selectStart + suffixToSelect.length,
-        );
-      } else {
-        textareaRef.setSelectionRange(
-          start + prefix.length,
-          start + prefix.length + selection.length,
-        );
-      }
-    }, 0);
+  /**
+   * Code is its own action rather than a pair of backticks handed to insertMarkdown: a
+   * selection spanning lines has to become a fenced block, and single backticks around
+   * one were an inline span running across the breaks.
+   */
+  function insertCode() {
+    if (!textareaRef) return;
+    applyFormat(
+      applyCode(content, textareaRef.selectionStart, textareaRef.selectionEnd),
+    );
   }
 
   async function handleAddFile() {
@@ -1179,7 +1160,7 @@
     </button>
     <button
       class="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-all"
-      onclick={() => insertMarkdown("`", "`")}
+      onclick={() => insertCode()}
       title={`${$_("editor.code")} (${modLabel}E)`}
       use:tooltip
       tabindex="-1"
