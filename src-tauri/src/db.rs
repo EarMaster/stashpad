@@ -44,6 +44,41 @@ impl WriteOrigin {
     }
 }
 
+/// Upsert for a stash row, shared by the single- and multi-row writers so their column
+/// lists cannot drift apart.
+///
+/// Never `INSERT OR REPLACE`: REPLACE deletes the existing row first, and attachments
+/// reference stashes `ON DELETE CASCADE`, so replacing a stash silently destroys every
+/// attachment hanging off it. `ON CONFLICT` updates the row in place and leaves the
+/// children alone.
+///
+/// `position_updated_at` doubles as "this write placed the row": a zero means the caller
+/// did not decide the ordering, so an existing row keeps the ordering state it already
+/// has. Anything else queues the placement on the position channel.
+const STASH_UPSERT_SQL: &str = r#"
+    INSERT INTO stashes
+        (id, context_id, content, enhanced_content, files, created_at, completed,
+         completed_at, position, updated_at, deleted, pending_sync,
+         position_updated_at, pending_position)
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+    ON CONFLICT(id) DO UPDATE SET
+        context_id=excluded.context_id,
+        content=excluded.content,
+        enhanced_content=excluded.enhanced_content,
+        files=excluded.files,
+        created_at=excluded.created_at,
+        completed=excluded.completed,
+        completed_at=excluded.completed_at,
+        position=excluded.position,
+        updated_at=excluded.updated_at,
+        deleted=excluded.deleted,
+        pending_sync=excluded.pending_sync,
+        position_updated_at=CASE WHEN excluded.position_updated_at > 0
+            THEN excluded.position_updated_at ELSE stashes.position_updated_at END,
+        pending_position=CASE WHEN excluded.position_updated_at > 0
+            THEN 1 ELSE stashes.pending_position END
+"#;
+
 pub struct DbManager {
     pub conn: Connection,
 }
@@ -948,29 +983,21 @@ impl DbManager {
         for stash in stashes {
             let files_json = serde_json::to_string(&stash.files).unwrap_or_default();
             
-            let existing_pos: Option<f64> = tx.query_row(
-                "SELECT position FROM stashes WHERE id = ?1",
-                params![stash.id],
-                |row| row.get(0)
-            ).optional()?;
+            let existing_pos = read_position(&tx, &stash.id)?;
             
-            let final_pos = if let Some(p) = existing_pos {
-                p
-            } else {
-                let max_pos: Option<f64> = tx.query_row(
-                    "SELECT MAX(position) FROM stashes WHERE deleted = 0",
-                    [],
-                    |row| row.get(0)
-                ).optional()?;
-                max_pos.unwrap_or(0.0) + 1.0
+            let final_pos = match existing_pos {
+                Some(p) => p,
+                None => next_position_at_end(&tx)?,
             };
 
+            // A row this device just created owns an ordering no other device has seen.
+            // Queue it on the position channel or the record syncs while its place in the
+            // queue does not, which is why a stash added at the top of one device's list
+            // turned up at the bottom of every other one.
+            let position_stamp = placement_stamp(origin, existing_pos, final_pos);
+
             tx.execute(
-                // Upsert, never INSERT OR REPLACE: REPLACE deletes the existing row first, and
-                // attachments reference stashes ON DELETE CASCADE, so replacing a stash
-                // silently destroys every attachment hanging off it. ON CONFLICT updates
-                // the row in place and leaves the children alone.
-                "INSERT INTO stashes (id, context_id, content, enhanced_content, files, created_at, completed, completed_at, position, updated_at, deleted, pending_sync) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12) ON CONFLICT(id) DO UPDATE SET context_id=excluded.context_id, content=excluded.content, enhanced_content=excluded.enhanced_content, files=excluded.files, created_at=excluded.created_at, completed=excluded.completed, completed_at=excluded.completed_at, position=excluded.position, updated_at=excluded.updated_at, deleted=excluded.deleted, pending_sync=excluded.pending_sync",
+                STASH_UPSERT_SQL,
                 params![
                     stash.id,
                     stash.context_id,
@@ -985,7 +1012,9 @@ impl DbManager {
                     // now for a local one.
                     origin.stamp(stash.updated_at),
                     if stash.deleted { 1 } else { 0 },
-                    pending
+                    pending,
+                    position_stamp,
+                    if position_stamp > 0 { 1 } else { 0 }
                 ],
             )?;
 
@@ -1020,37 +1049,23 @@ impl DbManager {
     ) -> Result<()> {
         let files_json = serde_json::to_string(&stash.files).unwrap_or_default();
         
-        // If position is NOT provided, we need to check if it's an update or insert
-        
-        let final_pos = if let Some(p) = position {
-            p
-        } else {
-            // Check existing
-            let existing_pos: Option<f64> = self.conn.query_row(
-                "SELECT position FROM stashes WHERE id = ?1",
-                params![stash.id],
-                |row| row.get(0)
-            ).optional()?;
-            
-            if let Some(p) = existing_pos {
-                p
-            } else {
-                // New item, append to end
-                let max_pos: Option<f64> = self.conn.query_row(
-                    "SELECT MAX(position) FROM stashes WHERE deleted = 0",
-                    [],
-                    |row| row.get(0)
-                ).optional()?;
-                max_pos.unwrap_or(0.0) + 1.0
-            }
+        // An explicit `position` is a deliberate placement - a new stash going to the top
+        // or the bottom, or a completed one moving there. Without one the row keeps the
+        // ordering it already has, and a brand new row lands at the end.
+        let existing_pos = read_position(&self.conn, &stash.id)?;
+
+        let final_pos = match (position, existing_pos) {
+            (Some(p), _) => p,
+            (None, Some(p)) => p,
+            (None, None) => next_position_at_end(&self.conn)?,
         };
 
+        // Placing a row locally has to travel, and on its own channel: order carried on
+        // the record would let a move overwrite text edited on another device.
+        let position_stamp = placement_stamp(origin, existing_pos, final_pos);
+
         self.conn.execute(
-            // Upsert, never INSERT OR REPLACE: REPLACE deletes the existing row first, and
-                // attachments reference stashes ON DELETE CASCADE, so replacing a stash
-                // silently destroys every attachment hanging off it. ON CONFLICT updates
-                // the row in place and leaves the children alone.
-                "INSERT INTO stashes (id, context_id, content, enhanced_content, files, created_at, completed, completed_at, position, updated_at, deleted, pending_sync) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12) ON CONFLICT(id) DO UPDATE SET context_id=excluded.context_id, content=excluded.content, enhanced_content=excluded.enhanced_content, files=excluded.files, created_at=excluded.created_at, completed=excluded.completed, completed_at=excluded.completed_at, position=excluded.position, updated_at=excluded.updated_at, deleted=excluded.deleted, pending_sync=excluded.pending_sync",
+            STASH_UPSERT_SQL,
             params![
                 stash.id,
                 stash.context_id,
@@ -1065,7 +1080,9 @@ impl DbManager {
                 if stash.deleted { 1 } else { 0 },
                 // A local edit still needs pushing; data that just came from the server
                 // is already in sync by definition.
-                if origin == WriteOrigin::LocalEdit { 1 } else { 0 }
+                if origin == WriteOrigin::LocalEdit { 1 } else { 0 },
+                position_stamp,
+                if position_stamp > 0 { 1 } else { 0 }
             ],
         )?;
 
@@ -1140,6 +1157,48 @@ impl DbManager {
             )?;
         }
         Ok(())
+    }
+}
+
+/// The ordering currently stored for a stash, or `None` when the row is new.
+///
+/// Read as an `Option` on purpose: the column is nullable, and rows written before
+/// ordering existed carry a NULL there.
+fn read_position(conn: &Connection, id: &str) -> Result<Option<f64>> {
+    Ok(conn
+        .query_row(
+            "SELECT position FROM stashes WHERE id = ?1",
+            params![id],
+            |row| row.get::<_, Option<f64>>(0),
+        )
+        .optional()?
+        .flatten())
+}
+
+/// The ordering that puts a new row after everything still in the queue.
+fn next_position_at_end(conn: &Connection) -> Result<f64> {
+    // MAX() over no matching rows yields one NULL row rather than no rows, so the column
+    // has to be read as an Option - reading it as an f64 made creating a stash fail
+    // outright once every existing one had been deleted.
+    let max_pos: Option<f64> = conn.query_row(
+        "SELECT MAX(position) FROM stashes WHERE deleted = 0",
+        [],
+        |row| row.get(0),
+    )?;
+    Ok(max_pos.unwrap_or(0.0) + 1.0)
+}
+
+/// The `position_updated_at` to write for a stash landing at `final_pos`.
+///
+/// Zero means "this write did not decide the ordering", which leaves both the stored
+/// position state and its pending flag alone. Data arriving from the server never claims
+/// a placement: its ordering travels on the position channel, and echoing it back would
+/// have this device overwrite the sender's own arrangement.
+fn placement_stamp(origin: WriteOrigin, existing_pos: Option<f64>, final_pos: f64) -> u64 {
+    if origin == WriteOrigin::LocalEdit && existing_pos != Some(final_pos) {
+        now_ts()
+    } else {
+        0
     }
 }
 
@@ -1647,6 +1706,151 @@ mod tests {
         );
         assert_eq!(after.2, 1.0, "the new position must be stored");
         assert_eq!(after.3, 1, "the ordering must be queued on its own channel");
+    }
+
+    #[test]
+    fn a_new_stash_pushes_the_place_it_was_put() {
+        // The regression guard for the bug that made ordering look like it never synced at
+        // all: a stash created at the top of one device's queue was pushed as a record but
+        // its position never was, so every other device appended it to the bottom.
+        let mut db = create_test_db();
+
+        db.save_stash(
+            &stash_with_updated_at("s-anchor", "already here", Some(1_000)),
+            Some(0.0),
+            WriteOrigin::SyncImport,
+        )
+        .expect("save should succeed");
+
+        // What "New stash position: top" resolves to: one step above the current minimum.
+        db.save_stash(
+            &stash_with_updated_at("s-top", "newest", None),
+            Some(-1.0),
+            WriteOrigin::LocalEdit,
+        )
+        .expect("save should succeed");
+
+        let claimed = db.claim_pending_positions().expect("claim should succeed");
+
+        assert_eq!(
+            claimed.len(),
+            1,
+            "only the stash this device placed should be queued"
+        );
+        assert_eq!(claimed[0].id, "s-top");
+        assert_eq!(claimed[0].position, -1.0, "the top placement must be the one pushed");
+        assert!(
+            claimed[0].position_updated_at > 0,
+            "the placement needs a clock or the server's last-write-wins check drops it"
+        );
+    }
+
+    #[test]
+    fn a_new_stash_appended_to_the_end_also_pushes_its_place() {
+        // "New stash position: bottom" passes no explicit position; the row still lands
+        // somewhere the other devices cannot work out for themselves.
+        let mut db = create_test_db();
+
+        db.save_stash(
+            &stash_with_updated_at("s-new", "content", None),
+            None,
+            WriteOrigin::LocalEdit,
+        )
+        .expect("save should succeed");
+
+        let claimed = db.claim_pending_positions().expect("claim should succeed");
+        assert_eq!(claimed.len(), 1);
+        assert_eq!(claimed[0].id, "s-new");
+    }
+
+    #[test]
+    fn editing_a_stash_does_not_requeue_its_place() {
+        // Only a move belongs on the position channel. Re-pushing an unchanged ordering on
+        // every edit would let a stale arrangement beat a reorder made elsewhere.
+        let mut db = create_test_db();
+
+        db.save_stash(
+            &stash_with_updated_at("s-edit", "first draft", None),
+            None,
+            WriteOrigin::LocalEdit,
+        )
+        .expect("save should succeed");
+        db.claim_pending_positions().expect("claim should succeed");
+        db.mark_positions_synced(&["s-edit".to_string()])
+            .expect("acknowledge should succeed");
+
+        db.save_stash(
+            &stash_with_updated_at("s-edit", "second draft", None),
+            None,
+            WriteOrigin::LocalEdit,
+        )
+        .expect("save should succeed");
+
+        let claimed = db.claim_pending_positions().expect("claim should succeed");
+        assert!(
+            claimed.is_empty(),
+            "an edit that left the row where it was must not queue an ordering"
+        );
+    }
+
+    #[test]
+    fn a_stash_from_the_server_never_claims_a_place() {
+        // The sending device owns the ordering. Appending an incoming stash locally is a
+        // fallback until its real position arrives - pushing that fallback back up would
+        // overwrite the arrangement the sender actually made.
+        let mut db = create_test_db();
+
+        db.import_stashes(&vec![stash_with_updated_at("s-remote", "from elsewhere", Some(1_000))])
+            .expect("import should succeed");
+
+        let claimed = db.claim_pending_positions().expect("claim should succeed");
+        assert!(claimed.is_empty(), "an imported stash must not push an ordering");
+
+        // And the placeholder ordering must not block the real one from being applied.
+        let applied = db
+            .import_positions(&[StashPosition {
+                id: "s-remote".to_string(),
+                position: -5.0,
+                position_updated_at: 1_500,
+            }])
+            .expect("import should succeed");
+
+        assert_eq!(applied, 1);
+        let position: f64 = db
+            .conn
+            .query_row(
+                "SELECT position FROM stashes WHERE id = 's-remote'",
+                [],
+                |r| r.get(0),
+            )
+            .expect("row should exist");
+        assert_eq!(position, -5.0, "the sender's placement must win over the local append");
+    }
+
+    #[test]
+    fn a_first_stash_can_be_created_with_the_queue_empty() {
+        // MAX(position) over no rows is a NULL, not an empty result. Reading it as an f64
+        // made the very first stash after emptying the queue fail to save at all.
+        let mut db = create_test_db();
+
+        db.conn
+            .execute("DELETE FROM stashes", [])
+            .expect("clearing should succeed");
+
+        db.save_stash(
+            &stash_with_updated_at("s-first", "content", None),
+            None,
+            WriteOrigin::LocalEdit,
+        )
+        .expect("saving the first stash should succeed");
+
+        let position: f64 = db
+            .conn
+            .query_row("SELECT position FROM stashes WHERE id = 's-first'", [], |r| {
+                r.get(0)
+            })
+            .expect("row should exist");
+        assert_eq!(position, 1.0);
     }
 
     #[test]

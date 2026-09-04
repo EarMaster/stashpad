@@ -24,6 +24,13 @@ popover, not for the person who wrote the commit.
   and corrected, so an install sitting on "Attachments could not be uploaded" clears itself on the
   next sync with nothing for you to do. When an upload does keep failing, the panel names the file
   and says when it will be tried again, instead of quoting the server's reply
+- **A stash added at the top of the queue now arrives at the top on your other devices.** Order
+  and content sync on separate channels, so that moving a stash cannot overwrite text edited
+  elsewhere - but a newly created stash only ever announced its content. Its place in the queue
+  was never sent at all, and every other device fell back to appending it to the bottom, whichever
+  end you had stashed it at. Creating a stash, and completing one, which sends it to the other end,
+  now carry the position with them. Stashes that already exist keep the order each device has for
+  them until you move one
 - **The editor's Code button makes a real code block out of several lines.** It wrapped whatever
   you had selected in single backticks, which across line breaks is one inline span rather than a
   block - and a blank line inside it ended the span and left the backticks showing. A selection
