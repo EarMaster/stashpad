@@ -231,6 +231,8 @@
         "syncing": "Synchronisiere…",
         "syncSuccess": "Synchronisierung erfolgreich",
         "syncError": "Synchronisierung fehlgeschlagen",
+        "attachmentUploadFailed": "{fileName} konnte nicht hochgeladen werden — neuer Versuch in {minutes} Min.",
+        "attachmentUploadFailedMany": "{fileName} und {count} weitere konnten nicht hochgeladen werden — neuer Versuch in {minutes} Min.",
         "sessionExpired": "Sitzung abgelaufen",
         "loginAgain": "Erneut Anmelden"
       }

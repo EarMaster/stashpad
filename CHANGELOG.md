@@ -11,6 +11,20 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+### Fixed
+- **Two attachments with the same name are both kept now.** Adding a second `image.png` to a stash
+  quietly replaced the first one's file: both entries stayed in the list but pointed at the same
+  file on disk, so one of them showed the wrong size and opened the wrong picture, and removing
+  either took out both. Files that share a name get a `(1)` suffix on disk while the list goes on
+  showing the name you gave them
+- **Cloud sync stops getting stuck on an attachment it can never upload.** The same collision was
+  what wedged it: the surviving file no longer matched the size recorded for it, the server
+  refused the upload on that basis, and every retry failed the same way, with the panel red and
+  no way out short of deleting the attachment. The size is now read from the file at upload time
+  and corrected, so an install sitting on "Attachments could not be uploaded" clears itself on the
+  next sync with nothing for you to do. When an upload does keep failing, the panel names the file
+  and says when it will be tried again, instead of quoting the server's reply
+
 ## [1.6.8] - 2026-08-26
 
 ### Fixed

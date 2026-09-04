@@ -12,7 +12,7 @@
 // See the GNU Affero General Public License for more details.
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::sync::{Arc, Mutex};
 use tauri::State;
@@ -98,6 +98,102 @@ pub fn ensure_storage_ready() {
     if !prompt_path.exists() {
         let _ = fs::write(prompt_path, DEFAULT_SYSTEM_PROMPT);
     }
+}
+
+/// Longest single on-disk name `reserve_unique_path` will produce, in characters.
+///
+/// Windows caps one path component at 255 UTF-16 units and the parent path eats into
+/// MAX_PATH on top of that, so 200 leaves room for the cache folder nesting and for a
+/// ` (999)` suffix.
+const MAX_FILE_NAME_CHARS: usize = 200;
+
+/// How many numbered names are tried before falling back to a random suffix.
+const MAX_UNIQUE_ATTEMPTS: u32 = 999;
+
+/// Take at most `max` characters, never splitting a multi-byte one.
+fn truncate_chars(value: &str, max: usize) -> String {
+    value.chars().take(max).collect()
+}
+
+/// Split a file name into the part a numeric suffix goes after, and the extension.
+///
+/// `file_stem`/`extension` rather than a manual `rfind('.')`, so a dotfile like
+/// `.gitignore` counts as all stem and becomes `.gitignore (1)` rather than
+/// `. (1)gitignore`.
+fn split_file_name(name: &str) -> (String, String) {
+    let path = Path::new(name);
+    let stem = path
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let ext = path
+        .extension()
+        .map(|e| format!(".{}", truncate_chars(&e.to_string_lossy(), 32)))
+        .unwrap_or_default();
+    (stem, ext)
+}
+
+/// Reserve a free path for `desired_name` inside `dir` and create the file that holds it.
+///
+/// Returns a path that was free a moment ago and now carries an empty file this call owns.
+/// Callers write straight over it - `fs::write`, `fs::copy` and `fs::rename` all replace
+/// the destination - and that empty file is what stops a second caller picking the same
+/// name in between.
+///
+/// A `while path.exists()` loop cannot do that: two screenshots pasted at once both see
+/// the name free and both write to it, which is exactly the collision this exists to
+/// prevent. `create_new` is `O_EXCL` on Unix and `CREATE_NEW` on Windows - one atomic
+/// test-and-create in the kernel.
+///
+/// Only the *path* is made unique. The attachment keeps the `file_name` the user gave it,
+/// because that is what the UI renders.
+pub fn reserve_unique_path(dir: &Path, desired_name: &str) -> std::io::Result<PathBuf> {
+    use std::fs::OpenOptions;
+    use std::io::ErrorKind;
+
+    fs::create_dir_all(dir)?;
+
+    // Final component only, so a name carrying a directory prefix cannot escape `dir`.
+    let base = Path::new(desired_name)
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .filter(|n| !n.trim().is_empty())
+        .unwrap_or_else(|| "unknown_file".to_string());
+
+    let (stem, ext) = split_file_name(&base);
+
+    // The stem is what gets shortened. The extension decides how the file previews and
+    // what `mime_guess` makes of it, so it is kept whole. Without the cap an over-long
+    // name fails with a "file name too long" error, which is not `AlreadyExists` and would
+    // leave the loop below as a hard error rather than a retry.
+    let build = |suffix: &str| -> PathBuf {
+        let room = MAX_FILE_NAME_CHARS
+            .saturating_sub(suffix.chars().count() + ext.chars().count())
+            .max(1);
+        dir.join(format!("{}{}{}", truncate_chars(&stem, room), suffix, ext))
+    };
+
+    for attempt in 0..=MAX_UNIQUE_ATTEMPTS {
+        let suffix = if attempt == 0 {
+            String::new()
+        } else {
+            format!(" ({})", attempt)
+        };
+        let path = build(&suffix);
+        match OpenOptions::new().write(true).create_new(true).open(&path) {
+            // The handle is dropped straight away; the empty file is the reservation.
+            Ok(_) => return Ok(path),
+            Err(e) if e.kind() == ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e),
+        }
+    }
+
+    // A thousand files of one name in a single stash does not happen, but the loop still
+    // has to end with a usable path rather than an error.
+    let random = truncate_chars(&uuid::Uuid::new_v4().simple().to_string(), 8);
+    let path = build(&format!(" ({})", random));
+    OpenOptions::new().write(true).create_new(true).open(&path)?;
+    Ok(path)
 }
 
 /// Whether the UI is dark right now, resolving "system" against the OS rather than
@@ -849,6 +945,112 @@ pub fn log_frontend_error(message: String) {
     let trimmed: String = message.chars().take(MAX_CHARS).collect();
     let elided = message.chars().nth(MAX_CHARS).is_some();
     log::error!("[frontend] {}{}", trimmed, if elided { " […]" } else { "" });
+}
+
+#[cfg(test)]
+mod reserve_unique_path_tests {
+    use super::reserve_unique_path;
+    use std::fs;
+
+    /// The component the caller actually gets, for asserting on names rather than paths.
+    fn name_of(path: &std::path::Path) -> String {
+        path.file_name().unwrap().to_string_lossy().into_owned()
+    }
+
+    #[test]
+    fn a_free_name_is_used_as_is() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = reserve_unique_path(dir.path(), "image.png").unwrap();
+        assert_eq!(name_of(&path), "image.png");
+        assert!(path.exists(), "the reservation is a real file, not just a name");
+    }
+
+    #[test]
+    fn a_taken_name_gets_a_numeric_suffix() {
+        let dir = tempfile::tempdir().unwrap();
+        let first = reserve_unique_path(dir.path(), "image.png").unwrap();
+        fs::write(&first, b"first").unwrap();
+
+        let second = reserve_unique_path(dir.path(), "image.png").unwrap();
+        assert_eq!(name_of(&second), "image (1).png");
+
+        // The whole point: the first file's bytes are still there.
+        assert_eq!(fs::read(&first).unwrap(), b"first");
+    }
+
+    #[test]
+    fn repeated_collisions_keep_counting() {
+        let dir = tempfile::tempdir().unwrap();
+        let names: Vec<String> = (0..5)
+            .map(|_| name_of(&reserve_unique_path(dir.path(), "image.png").unwrap()))
+            .collect();
+
+        assert_eq!(
+            names,
+            vec![
+                "image.png",
+                "image (1).png",
+                "image (2).png",
+                "image (3).png",
+                "image (4).png"
+            ]
+        );
+        for name in &names {
+            assert!(dir.path().join(name).exists());
+        }
+    }
+
+    #[test]
+    fn a_name_without_an_extension_keeps_the_suffix_last() {
+        let dir = tempfile::tempdir().unwrap();
+        reserve_unique_path(dir.path(), "README").unwrap();
+        let second = reserve_unique_path(dir.path(), "README").unwrap();
+        assert_eq!(name_of(&second), "README (1)");
+    }
+
+    #[test]
+    fn a_dotfile_is_all_stem() {
+        let dir = tempfile::tempdir().unwrap();
+        reserve_unique_path(dir.path(), ".gitignore").unwrap();
+        let second = reserve_unique_path(dir.path(), ".gitignore").unwrap();
+
+        // Treating the leading dot as an extension separator would give ". (1)gitignore",
+        // which is both unrecognisable and a different file type.
+        assert_eq!(name_of(&second), ".gitignore (1)");
+    }
+
+    #[test]
+    fn a_very_long_name_stays_within_the_filesystem_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        let long = format!("{}.png", "a".repeat(400));
+
+        let first = reserve_unique_path(dir.path(), &long).unwrap();
+        let first_name = name_of(&first);
+        assert!(first_name.chars().count() <= 200, "got {} chars", first_name.chars().count());
+        assert!(first_name.ends_with(".png"), "the extension decides the mime type");
+
+        // The truncated name now collides with itself, which is the case that would fail
+        // with a "file name too long" error rather than retrying.
+        let second = reserve_unique_path(dir.path(), &long).unwrap();
+        assert_ne!(first, second);
+        assert!(name_of(&second).chars().count() <= 200);
+        assert!(name_of(&second).ends_with(".png"));
+    }
+
+    #[test]
+    fn a_name_carrying_a_directory_cannot_escape_the_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = reserve_unique_path(dir.path(), "../escaped.png").unwrap();
+        assert_eq!(path.parent().unwrap(), dir.path());
+        assert_eq!(name_of(&path), "escaped.png");
+    }
+
+    #[test]
+    fn an_empty_name_falls_back_rather_than_failing() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = reserve_unique_path(dir.path(), "   ").unwrap();
+        assert_eq!(name_of(&path), "unknown_file");
+    }
 }
 
 #[cfg(test)]

@@ -179,6 +179,12 @@ export interface IStorageService {
      * @returns The saved attachment metadata
      */
     saveAssetFromPath(path: string, contextId?: string, stashId?: string, syntax?: string): Promise<Attachment>;
+    /**
+     * Delete an attachment: its row, and its file once no other row references it.
+     * @param id - The attachment id; empty for one never written to the database
+     * @param path - Absolute path to the file, which must lie inside the cache directory
+     */
+    deleteAsset(id: string, path: string): Promise<void>;
     readFileForPreview(path: string): Promise<FilePreviewData>;
     getSettings(): Promise<Settings>;
     saveSettings(settings: Settings): Promise<void>;

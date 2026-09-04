@@ -486,20 +486,27 @@ async fn write_asset(
         .to_string_lossy()
         .into_owned();
 
-    let file_path = target_dir.join(&safe_name);
-
     // Directory creation and the write itself are blocking, and an attachment is a whole
     // file, so they go to the blocking pool rather than parking an async worker.
     let write_dir = target_dir.clone();
-    let write_path = file_path.clone();
-    let file_size = tauri::async_runtime::spawn_blocking(move || -> Result<i64, String> {
-        if !write_dir.exists() {
-            fs::create_dir_all(&write_dir)
-                .map_err(|e| format!("Failed to create directory: {}", e))?;
-        }
-        fs::write(&write_path, data).map_err(|e| format!("Failed to write file: {}", e))?;
-        Ok(fs::metadata(&write_path).map(|m| m.len()).unwrap_or(0) as i64)
-    })
+    let desired_name = safe_name.clone();
+    let (file_path, file_size) = tauri::async_runtime::spawn_blocking(
+        move || -> Result<(std::path::PathBuf, i64), String> {
+            // Reserve the name before writing. This used to be `target_dir.join(name)`,
+            // so two attachments called `image.png` on one stash resolved to the same
+            // path: the second write replaced the first file's bytes while both rows went
+            // on pointing at it, one of them declaring a size the file no longer had.
+            let path = crate::utils::reserve_unique_path(&write_dir, &desired_name)
+                .map_err(|e| format!("Failed to create file: {}", e))?;
+            if let Err(e) = fs::write(&path, data) {
+                // Do not leave the reservation behind as a zero-byte file.
+                let _ = fs::remove_file(&path);
+                return Err(format!("Failed to write file: {}", e));
+            }
+            let size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0) as i64;
+            Ok((path, size))
+        },
+    )
     .await
     .map_err(|e| format!("Asset write task failed: {}", e))??;
 
@@ -591,131 +598,187 @@ pub async fn save_asset_from_path(
 
     // Build the target directory based on provided IDs
     let mut target_dir = get_app_dir().join("cache");
-    
+
     if let Some(ctx_id) = &context_id {
         // Sanitize context ID to prevent path traversal
-        let safe_ctx = ctx_id.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|', '.'], "_");
-        target_dir = target_dir.join(&safe_ctx);
-        
+        target_dir = target_dir.join(safe_component(ctx_id));
+
         if let Some(s_id) = &stash_id {
-            // Sanitize stash ID to prevent path traversal
+            // Sanitize stash ID to prevent path traversal. Deliberately not
+            // `safe_component`, which also replaces '.': this has always matched
+            // `write_asset`, and widening it would move the cache folder of any dotted id
+            // and orphan the files already sitting under the old one.
             let safe_stash = s_id.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_");
             target_dir = target_dir.join(&safe_stash);
         }
-    }
-    
-    // Create the directory structure if it doesn't exist
-    if !target_dir.exists() {
-        fs::create_dir_all(&target_dir)
-            .map_err(|e| format!("Failed to create directory: {}", e))?;
     }
 
     let file_name = source_path
         .file_name()
         .unwrap_or_else(|| std::ffi::OsStr::new("unknown_file"))
-        .to_string_lossy();
-    
-    let dest_path = target_dir.join(file_name.as_ref());
+        .to_string_lossy()
+        .into_owned();
 
-    match fs::copy(source_path, &dest_path) {
-        Ok(_) => {
-            let path_str = dest_path.to_string_lossy().into_owned();
-            
-            // If we have a stash_id, save metadata to DB
-            if let Some(s_id) = &stash_id {
-                let file_size = fs::metadata(&dest_path).map(|m| m.len()).unwrap_or(0) as i64;
-                // Simple mime guess or default
-                let mime_type = mime_guess::from_path(&dest_path).first().map(|m| m.to_string());
-                use uuid::Uuid;
-                let att_id = Uuid::new_v4().to_string();
-                let created_at = chrono::Utc::now().to_rfc3339();
-
-                let db = state.lock_db();
-                let res = db.conn.execute(
-                     "INSERT INTO attachments (id, stash_id, file_path, file_name, file_size, mime_type, syntax, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                     params![
-                         att_id,
-                         s_id,
-                         path_str,
-                         file_name.as_ref(), // Original name (sanitized)
-                         file_size,
-                         mime_type,
-                         syntax,
-                         created_at
-                     ]
-                );
-                
-                if let Err(e) = res {
-                     println!("Failed to save attachment metadata (likely due to missing stash parent): {}", e);
-                     // Suppress error so frontend receives the Attachment object.
-                     // The attachment will be saved to DB when save_stash is called.
-                }
-
-                Ok(Attachment {
-                    id: att_id,
-                    stash_id: s_id.clone(),
-                    file_path: path_str,
-                    file_name: file_name.into(),
-                    file_size,
-                    mime_type,
-                    syntax,
-                    created_at,
-                })
-            } else {
-                 // Context-only fallback
-                 Ok(Attachment {
-                    id: "".into(),
-                    stash_id: "".into(),
-                    file_path: path_str,
-                    file_name: file_name.into(),
-                    file_size: 0,
-                    mime_type: None,
-                    syntax: None,
-                    created_at: "".into(),
-                })
+    // The copy is a whole file, so it belongs on the blocking pool rather than parking an
+    // async worker - same reasoning as `write_asset`.
+    let source = source_path.to_path_buf();
+    let desired_name = file_name.clone();
+    let copy_dir = target_dir.clone();
+    let (dest_path, file_size) = tauri::async_runtime::spawn_blocking(
+        move || -> Result<(std::path::PathBuf, i64), String> {
+            // `fs::copy` truncates whatever is at the destination and has no
+            // exclusive-create mode, so the destination has to be a name we already hold.
+            // Reserving it both picks a free name and keeps it: testing `exists()` and
+            // then copying leaves a window for a second import to choose the same one,
+            // which is how two drops of one screenshot came to share a single file.
+            let dest = crate::utils::reserve_unique_path(&copy_dir, &desired_name)
+                .map_err(|e| format!("Failed to create file: {}", e))?;
+            if let Err(e) = fs::copy(&source, &dest) {
+                let _ = fs::remove_file(&dest);
+                return Err(format!("Failed to copy file: {}", e));
             }
+            let size = fs::metadata(&dest).map(|m| m.len()).unwrap_or(0) as i64;
+            Ok((dest, size))
         },
-        Err(e) => Err(format!("Failed to copy file: {}", e)),
+    )
+    .await
+    .map_err(|e| format!("Asset import task failed: {}", e))??;
+
+    let path_str = dest_path.to_string_lossy().into_owned();
+
+    // If we have a stash_id, save metadata to DB
+    let Some(s_id) = &stash_id else {
+        // Context-only fallback
+        return Ok(Attachment {
+            id: "".into(),
+            stash_id: "".into(),
+            file_path: path_str,
+            file_name,
+            file_size: 0,
+            mime_type: None,
+            syntax: None,
+            created_at: "".into(),
+        });
+    };
+
+    // Simple mime guess or default
+    let mime_type = mime_guess::from_path(&dest_path).first().map(|m| m.to_string());
+    use uuid::Uuid;
+    let att_id = Uuid::new_v4().to_string();
+    let created_at = chrono::Utc::now().to_rfc3339();
+
+    {
+        let db = state.lock_db();
+        let res = db.conn.execute(
+             "INSERT INTO attachments (id, stash_id, file_path, file_name, file_size, mime_type, syntax, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+             params![
+                 att_id,
+                 s_id,
+                 path_str,
+                 file_name, // The name the user sees; only the path carries a suffix.
+                 file_size,
+                 mime_type,
+                 syntax,
+                 created_at
+             ]
+        );
+
+        if let Err(e) = res {
+             println!("Failed to save attachment metadata (likely due to missing stash parent): {}", e);
+             // Suppress error so frontend receives the Attachment object.
+             // The attachment will be saved to DB when save_stash is called.
+        }
     }
+
+    Ok(Attachment {
+        id: att_id,
+        stash_id: s_id.clone(),
+        file_path: path_str,
+        file_name,
+        file_size,
+        mime_type,
+        syntax,
+        created_at,
+    })
 }
 
-/// Deletes an asset file from the cache directory.
-/// 
+/// Deletes an asset file from the cache directory, and the row that referenced it.
+///
 /// Only deletes files that are within the cache directory structure
 /// to prevent deletion of files outside the app's control.
+///
+/// Keyed by attachment id, with the path along only so the containment check below has
+/// something to test. It used to delete `WHERE file_path = ?1`, which was fine while a
+/// path belonged to exactly one row - but two attachments of one name shared a path, so
+/// removing either took out both rows and the single file underneath them. New saves
+/// reserve a unique path, and this keeps the older shared ones honest.
 #[tauri::command]
-pub async fn delete_asset(state: State<'_, Arc<DbState>>, path: String) -> Result<(), String> {
+pub async fn delete_asset(
+    state: State<'_, Arc<DbState>>,
+    id: Option<String>,
+    path: String,
+) -> Result<(), String> {
     println!("Deleting asset: {}", path);
-    
+
     let file_path = std::path::Path::new(&path);
-    
+
     // Security check: ensure the file is within our cache directory
     let cache_dir = get_app_dir().join("cache");
     if !file_path.starts_with(&cache_dir) {
         return Err("Cannot delete files outside cache directory".into());
     }
-    
-    // Check if file exists
-    if !file_path.exists() {
-        // File doesn't exist, try to clean up DB just in case
-    } else {
-        // Delete the file
+
+    let path_str = file_path.to_string_lossy().into_owned();
+
+    // Scoped so the global database mutex is released before the unlink below: holding it
+    // across filesystem work is what made a bulk delete block every other command.
+    let still_referenced: i64 = {
+        let db = state.lock_db();
+
+        // Drop the row first, so the "is anyone else still using this file" count below
+        // sees the state after this deletion rather than before it.
+        match id.as_deref() {
+            Some(att_id) if !att_id.is_empty() => {
+                let _ = db
+                    .conn
+                    .execute("DELETE FROM attachments WHERE id = ?1", params![att_id]);
+            }
+            // An attachment the frontend is holding but never managed to insert -
+            // `write_asset` swallows the insert error for a stash that does not exist yet -
+            // has no row to find by id. Falling back to the path keeps the file cleanup
+            // working, which is the part that matters for a row that was never written.
+            _ => {
+                let _ = db.conn.execute(
+                    "DELETE FROM attachments WHERE file_path = ?1",
+                    params![path_str],
+                );
+            }
+        }
+
+        // Only unlink once nothing points at the file any more. Legacy rows still share
+        // paths, and deleting one of them must not take the other's bytes with it.
+        db.conn
+            .query_row(
+                "SELECT COUNT(*) FROM attachments WHERE file_path = ?1",
+                params![path_str],
+                |row| row.get(0),
+            )
+            .unwrap_or(0)
+    };
+
+    if still_referenced > 0 {
+        println!(
+            "Kept {} - {} other attachment(s) still reference it",
+            path, still_referenced
+        );
+        return Ok(());
+    }
+
+    if file_path.exists() {
         fs::remove_file(file_path)
             .map_err(|e| format!("Failed to delete file: {}", e))?;
     }
 
-    // Delete from DB based on file path
-    // Ideally we would delete by ID, but frontend currently passes path.
-    // In future we should pass ID.
-    // Normalized path string for DB query
-    let path_str = file_path.to_string_lossy();
-    
-    let db = state.lock_db();
-    // We use a simplified query here. Note that paths might have different separators on Windows so we might need care.
-    // But since we store exact path string on save, exact match should work if string is consistent.
-    // For robustness, we could also ignore failures here if record not found.
-    let _ = db.conn.execute("DELETE FROM attachments WHERE file_path = ?1", params![path_str]);
-    
     println!("Successfully deleted asset: {}", path);
     Ok(())
 }

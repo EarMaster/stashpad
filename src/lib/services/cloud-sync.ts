@@ -82,8 +82,21 @@ export type SyncStatus = 'idle' | 'syncing' | 'success' | 'error' | 'offline' | 
 export type SyncListener = (
     status: SyncStatus,
     message?: string,
-    appliedRemoteChanges?: boolean
+    appliedRemoteChanges?: boolean,
+    detail?: SyncStatusDetail
 ) => void;
+
+/**
+ * A translatable explanation of a status, for the cases where the raw `message` is a
+ * technical string no user should have to read.
+ *
+ * The service does not import svelte-i18n and should not start assembling user-facing
+ * prose: it names a key and supplies the values, and the component translates it.
+ */
+export interface SyncStatusDetail {
+    key: string;
+    values?: Record<string, string | number>;
+}
 
 /** Attachment metadata exchanged with the cloud API */
 interface SyncAttachmentInput {
@@ -325,6 +338,7 @@ export class CloudSyncService {
      * status instead.
      */
     private lastAttachmentError: string | null = null;
+    private lastAttachmentDetail: SyncStatusDetail | null = null;
 
     /**
      * Set when a sync's API calls were rejected for bad credentials.
@@ -739,7 +753,12 @@ export class CloudSyncService {
                 this.setStatus(
                     'error',
                     `Attachments could not be uploaded: ${this.lastAttachmentError}`,
-                    appliedRemoteChanges
+                    appliedRemoteChanges,
+                    // The raw message stays as the fallback and in the log; what the panel
+                    // shows is which file is stuck and when it will be tried again. A 400
+                    // body quoting two byte counts told the user nothing, and a red panel
+                    // with no sign of progress read as "it has given up".
+                    this.lastAttachmentDetail ?? undefined
                 );
             } else {
                 this.setStatus(
@@ -1013,10 +1032,13 @@ export class CloudSyncService {
     private setStatus(
         status: SyncStatus,
         message?: string,
-        appliedRemoteChanges = false
+        appliedRemoteChanges = false,
+        detail?: SyncStatusDetail
     ): void {
         this.status = status;
-        this.listeners.forEach(listener => listener(status, message, appliedRemoteChanges));
+        this.listeners.forEach(listener =>
+            listener(status, message, appliedRemoteChanges, detail)
+        );
     }
 
     /**
@@ -1100,11 +1122,12 @@ export class CloudSyncService {
         // still set pinned the sync status to 'error' forever once the last failing
         // attachment was deleted, with nothing left to retry and clear it.
         this.lastAttachmentError = null;
+        this.lastAttachmentDetail = null;
 
         if (attachments.length === 0) return false;
 
         let uploaded = false;
-        const failures: string[] = [];
+        const failures: { fileName: string; message: string; retryAt: number }[] = [];
         const now = Date.now();
         const deadline = now + ATTACHMENT_PHASE_BUDGET_MS;
         let attempted = 0;
@@ -1142,18 +1165,17 @@ export class CloudSyncService {
                 attempted++;
                 const msg = e instanceof Error ? e.message : String(e);
                 console.warn(`[CloudSync] Attachment upload failed for ${att.id}:`, msg);
-                failures.push(msg);
 
                 const attempts = (this.attachmentFailures.get(att.id) ?? 0) + 1;
                 this.attachmentFailures.set(att.id, attempts);
-                this.attachmentRetryAfter.set(
-                    att.id,
+                const retryAt =
                     Date.now() +
-                        Math.min(
-                            UPLOAD_RETRY_BASE_MS * 2 ** (attempts - 1),
-                            UPLOAD_RETRY_MAX_MS
-                        )
-                );
+                    Math.min(
+                        UPLOAD_RETRY_BASE_MS * 2 ** (attempts - 1),
+                        UPLOAD_RETRY_MAX_MS
+                    );
+                this.attachmentRetryAfter.set(att.id, retryAt);
+                failures.push({ fileName: att.fileName, message: msg, retryAt });
             }
         }
 
@@ -1169,9 +1191,29 @@ export class CloudSyncService {
         // A swallowed console.warn was the only sign of this failing, so uploads could
         // break indefinitely while the app still reported a healthy sync. Surface it.
         if (failures.length > 0) {
-            this.lastAttachmentError = failures[0];
+            const [first] = failures;
+            this.lastAttachmentError = first.message;
+
+            // Rounded up and floored at one minute: "in 0 min" reads as though nothing is
+            // scheduled, which is the impression this is here to correct.
+            const minutes = Math.max(
+                1,
+                Math.ceil((first.retryAt - Date.now()) / 60_000)
+            );
+            this.lastAttachmentDetail = {
+                key:
+                    failures.length > 1
+                        ? 'settings.cloudSync.auth.attachmentUploadFailedMany'
+                        : 'settings.cloudSync.auth.attachmentUploadFailed',
+                values: {
+                    fileName: first.fileName,
+                    count: failures.length - 1,
+                    minutes,
+                },
+            };
+
             console.error(
-                `[CloudSync] ${failures.length} attachment upload(s) failed. First error: ${failures[0]}`
+                `[CloudSync] ${failures.length} attachment upload(s) failed. First error: ${first.message}`
             );
         }
 

@@ -96,6 +96,8 @@ async function flushPromises(): Promise<void> {
 /** Debounce window used by `triggerSync`. */
 const DEBOUNCE_MS = 2000;
 const REMOTE_FLOOR_MS = 5000;
+/** First step of the per-attachment upload backoff. */
+const UPLOAD_RETRY_BASE_MS = 60_000;
 
 describe('CloudSyncService', () => {
     beforeEach(() => {
@@ -658,6 +660,61 @@ describe('CloudSyncService', () => {
             await service.sync();
             await flushPromises();
 
+            expect(service.getStatus()).toBe('success');
+        });
+
+        it('retries a rejected attachment after the backoff and clears the error', async () => {
+            // The failure this guards against is deterministic: a row whose recorded size
+            // no longer matches its file was rejected identically on every attempt, and
+            // the fix is a correction the *next* attempt applies. That only helps if there
+            // is a next attempt, and if success actually clears the red panel.
+            const stashWith = (atts: unknown[]) => [
+                {
+                    id: 's1',
+                    content: 'file',
+                    createdAt: '2026-08-18T10:00:00Z',
+                    updatedAt: 1755512000,
+                    attachments: atts,
+                },
+            ];
+            const attachment = {
+                id: 'a1',
+                fileName: 'image.png',
+                fileSize: 171375,
+                filePath: '/cache/ctx/s1/image.png',
+            };
+
+            const upload = vi
+                .fn()
+                .mockRejectedValue(
+                    new Error(
+                        'Cloud rejected upload confirmation for a1: 400 Bad Request - ' +
+                            '{"error":"Upload is incomplete: stored 441450 of 171375 bytes."}'
+                    )
+                );
+            const adapter = createAdapter({
+                loadStashesForSync: vi.fn().mockResolvedValue(stashWith([attachment])),
+                uploadAttachmentToCloud: upload,
+            });
+
+            const service = new CloudSyncService(adapter);
+            await service.initialize(settingsWith(cloudConfig()));
+            await flushPromises();
+
+            expect(upload).toHaveBeenCalledTimes(1);
+            expect(service.getStatus()).toBe('error');
+
+            // Advancing the clock is what makes this meaningful: without it the retryAfter
+            // guard skips the attachment entirely and the assertions below would pass for
+            // the wrong reason, since the error is cleared at the top of every upload pass
+            // whether or not anything was attempted.
+            await vi.advanceTimersByTimeAsync(UPLOAD_RETRY_BASE_MS + 1000);
+
+            upload.mockResolvedValue(true);
+            await service.sync();
+            await flushPromises();
+
+            expect(upload.mock.calls.length).toBeGreaterThan(1);
             expect(service.getStatus()).toBe('success');
         });
 

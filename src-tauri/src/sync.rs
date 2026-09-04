@@ -320,7 +320,7 @@ pub async fn upload_attachment_to_cloud(
         (config.endpoint.clone(), token)
     };
 
-    let (attachment, already_uploaded) = {
+    let (mut attachment, already_uploaded) = {
         let db = state.lock_db();
         let mut stmt = db.conn.prepare("SELECT id, stash_id, file_path, file_name, file_size, mime_type, syntax, created_at, uploaded_at FROM attachments WHERE id = ?")
             .map_err(|e| e.to_string())?;
@@ -373,6 +373,47 @@ pub async fn upload_attachment_to_cloud(
             )
             .map_err(|e| e.to_string())?;
         return Ok(false);
+    }
+
+    // The row and the file can disagree about how big the file is. Two attachments with
+    // the same name used to be written to the same path, so the loser's row went on
+    // recording the size of bytes that had since been overwritten - and the cloud confirms
+    // an upload by comparing what storage actually holds against the size declared at
+    // presign time. A row in that state was rejected with a 400 on every retry, for the
+    // life of the row, with nothing to break the cycle. Trust the file, and write the
+    // correction back so nothing downstream keeps arguing for the stale figure.
+    //
+    // Deliberately a second stat rather than reusing the `exists()` check above: folding
+    // them together would send a permissions error into the branch that blanks
+    // `file_path`, throwing away a local file that is perfectly fine.
+    let disk_size = fs::metadata(&attachment.file_path)
+        .map(|m| m.len() as i64)
+        .map_err(|e| {
+            let msg = format!(
+                "Failed to read the size of attachment file {}: {}",
+                attachment.file_path, e
+            );
+            log::error!("[Attachment] {}", msg);
+            msg
+        })?;
+
+    if disk_size != attachment.file_size {
+        log::warn!(
+            "[Attachment] {} is {} bytes on disk but the database recorded {}; using the file",
+            attachment.id,
+            disk_size,
+            attachment.file_size
+        );
+        {
+            let db = state.lock_db();
+            db.conn
+                .execute(
+                    "UPDATE attachments SET file_size = ?2 WHERE id = ?1",
+                    params![attachment.id, disk_size],
+                )
+                .map_err(|e| e.to_string())?;
+        }
+        attachment.file_size = disk_size;
     }
 
     let client = transfer_client()?;
@@ -578,8 +619,6 @@ pub async fn download_attachment_from_cloud(
     dir = dir.join(&stash_id);
     fs::create_dir_all(&dir).map_err(|e| format!("Failed to create cache dir: {}", e))?;
 
-    let target = dir.join(&file_name);
-
     // Write to a temporary file and rename into place. A direct write that is
     // interrupted - crash, power loss, full disk - leaves a truncated file at the real
     // path, and every later check only tests whether the path exists, so the corruption
@@ -587,16 +626,32 @@ pub async fn download_attachment_from_cloud(
     // Off the async worker: this writes the whole file to disk.
     let temp = dir.join(format!(".{}.part", attachment_id));
     let write_temp = temp.clone();
-    let write_target = target.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        fs::write(&write_temp, &bytes)
-            .map_err(|e| format!("Failed to write attachment: {}", e))?;
-        if let Err(e) = fs::rename(&write_temp, &write_target) {
-            let _ = fs::remove_file(&write_temp);
-            return Err(format!("Failed to finalise attachment: {}", e));
-        }
-        Ok(())
-    })
+    let write_dir = dir.clone();
+    let desired_name = file_name.clone();
+    let target = tauri::async_runtime::spawn_blocking(
+        move || -> Result<std::path::PathBuf, String> {
+            fs::write(&write_temp, &bytes)
+                .map_err(|e| format!("Failed to write attachment: {}", e))?;
+
+            // Reserved only now that the bytes are on disk. The reservation is an empty
+            // file, and one sitting at the final name for the length of a download would
+            // look like a finished attachment to every `exists()` check in the codebase.
+            // Downloading straight onto `dir.join(&file_name)` was the other way two
+            // attachments of one name came to share a single file.
+            let target = crate::utils::reserve_unique_path(&write_dir, &desired_name)
+                .map_err(|e| {
+                    let _ = fs::remove_file(&write_temp);
+                    format!("Failed to reserve attachment path: {}", e)
+                })?;
+
+            if let Err(e) = fs::rename(&write_temp, &target) {
+                let _ = fs::remove_file(&write_temp);
+                let _ = fs::remove_file(&target);
+                return Err(format!("Failed to finalise attachment: {}", e));
+            }
+            Ok(target)
+        },
+    )
     .await
     .map_err(|e| format!("Attachment write task failed: {}", e))??;
 

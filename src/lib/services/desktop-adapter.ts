@@ -167,11 +167,17 @@ export class DesktopStorageAdapter implements IStorageService {
     }
 
     /**
-     * Delete an asset file from the cache directory.
+     * Delete an attachment: its row, and its file once nothing else references it.
+     *
+     * The id is what identifies the row - deleting by path used to take out every row
+     * sharing that path, and two attachments of one name shared one. The path comes along
+     * because the backend checks it lies inside the cache directory before unlinking.
+     *
+     * @param id - The attachment id; empty for one that was never written to the database
      * @param path - Absolute path to the file to delete
      */
-    async deleteAsset(path: string): Promise<void> {
-        await invoke('delete_asset', { path });
+    async deleteAsset(id: string, path: string): Promise<void> {
+        await invoke('delete_asset', { id, path });
         notifyMutation();
     }
 

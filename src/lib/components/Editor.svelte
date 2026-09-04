@@ -144,8 +144,11 @@
 
   // Track files added/removed during edit session for deferred file operations
   // Added files should be deleted on cancel, removed files should be deleted on save
-  let addedFilePaths = $state<string[]>([]);
-  let removedFilePaths = $state<string[]>([]);
+  // Tracked by id, not by path. Two attachments of one name used to share a path, so an
+  // `indexOf(filePath)` lookup found whichever came first - which meant removing the
+  // second one un-tracked the first, and the survivor's file was then deleted on save.
+  let addedAssets = $state<{ id: string; filePath: string }[]>([]);
+  let removedAssets = $state<{ id: string; filePath: string }[]>([]);
 
   // Clear confirmation dialog state
   let clearConfirmDialogOpen = $state(false);
@@ -258,7 +261,7 @@
                   stashId,
                 );
                 files = [...files, attachment];
-                addedFilePaths = [...addedFilePaths, attachment.filePath];
+                addedAssets = [...addedAssets, { id: attachment.id, filePath: attachment.filePath }];
               } else {
                 // Resized, save the new blob
                 // Need to convert Blob to File
@@ -273,7 +276,7 @@
                   stashId,
                 );
                 files = [...files, attachment];
-                addedFilePaths = [...addedFilePaths, attachment.filePath];
+                addedAssets = [...addedAssets, { id: attachment.id, filePath: attachment.filePath }];
               }
             } catch (resizeErr) {
               console.warn(
@@ -286,7 +289,7 @@
                 stashId,
               );
               files = [...files, attachment];
-              addedFilePaths = [...addedFilePaths, attachment.filePath];
+              addedAssets = [...addedAssets, { id: attachment.id, filePath: attachment.filePath }];
             }
           } else {
             const attachment = await adapter.saveAssetFromPath(
@@ -296,7 +299,7 @@
             );
             files = [...files, attachment];
             // Track added file for cleanup on cancel
-            addedFilePaths = [...addedFilePaths, attachment.filePath];
+            addedAssets = [...addedAssets, { id: attachment.id, filePath: attachment.filePath }];
           }
         } catch (err) {
           console.error("Failed to save dropped asset", err);
@@ -481,7 +484,7 @@
           );
           files = [...files, attachment];
           // Track added file for cleanup on cancel
-          addedFilePaths = [...addedFilePaths, attachment.filePath];
+          addedAssets = [...addedAssets, { id: attachment.id, filePath: attachment.filePath }];
         } catch (err) {
           console.error("Failed to save pasted file:", err);
         }
@@ -547,7 +550,7 @@
       );
       files = [...files, attachment];
       // Track added file for cleanup on cancel
-      addedFilePaths = [...addedFilePaths, attachment.filePath];
+      addedAssets = [...addedAssets, { id: attachment.id, filePath: attachment.filePath }];
     } catch (err) {
       console.error("Failed to save text as attachment:", err);
     }
@@ -597,9 +600,9 @@
     isSaving = true;
     try {
       // Delete files that were removed during the edit session
-      for (const filePath of removedFilePaths) {
+      for (const asset of removedAssets) {
         try {
-          await adapter.deleteAsset(filePath);
+          await adapter.deleteAsset(asset.id, asset.filePath);
         } catch (err) {
           console.error("Failed to delete removed asset:", err);
         }
@@ -635,8 +638,8 @@
       }
 
       // Clear tracking arrays after successful save
-      addedFilePaths = [];
-      removedFilePaths = [];
+      addedAssets = [];
+      removedAssets = [];
     } catch (e) {
       console.error(e);
     } finally {
@@ -649,17 +652,17 @@
    */
   async function handleCancel() {
     // Delete files that were added during this edit session
-    for (const filePath of addedFilePaths) {
+    for (const asset of addedAssets) {
       try {
-        await adapter.deleteAsset(filePath);
+        await adapter.deleteAsset(asset.id, asset.filePath);
       } catch (err) {
         console.error("Failed to delete added asset on cancel:", err);
       }
     }
 
     // Clear tracking arrays
-    addedFilePaths = [];
-    removedFilePaths = [];
+    addedAssets = [];
+    removedAssets = [];
 
     // Call the original onCancel callback
     onCancel?.();
@@ -686,9 +689,9 @@
    */
   async function doClear() {
     // Delete all files that were added during this session
-    for (const filePath of addedFilePaths) {
+    for (const asset of addedAssets) {
       try {
-        await adapter.deleteAsset(filePath);
+        await adapter.deleteAsset(asset.id, asset.filePath);
       } catch (err) {
         console.error("Failed to delete asset on clear:", err);
       }
@@ -697,8 +700,8 @@
     // Clear the editor and collapse
     content = "";
     files = [];
-    addedFilePaths = [];
-    removedFilePaths = [];
+    addedAssets = [];
+    removedAssets = [];
     clearConfirmDialogOpen = false;
     isExpanded = false;
   }
@@ -836,14 +839,21 @@
     const attachment = files[index];
     files = files.filter((_, i) => i !== index);
 
-    // Check if this file was added during this edit session
-    const addedIndex = addedFilePaths.indexOf(attachment.filePath);
+    // Check if this file was added during this edit session. Matched on the attachment
+    // id: with two same-named attachments the path is not unique, and matching on it
+    // un-tracked the wrong one - so the file the user meant to keep was deleted instead.
+    const addedIndex = addedAssets.findIndex((a) =>
+      a.id && attachment.id ? a.id === attachment.id : a.filePath === attachment.filePath
+    );
     if (addedIndex !== -1) {
       // File was added during this session, just remove from tracking
-      addedFilePaths = addedFilePaths.filter((_, i) => i !== addedIndex);
+      addedAssets = addedAssets.filter((_, i) => i !== addedIndex);
     } else {
       // File was part of the original stash, track for deletion on save
-      removedFilePaths = [...removedFilePaths, attachment.filePath];
+      removedAssets = [
+        ...removedAssets,
+        { id: attachment.id, filePath: attachment.filePath },
+      ];
     }
   }
 
@@ -1073,7 +1083,7 @@
             );
             files = [...files, attachment];
             // Track added file for cleanup on cancel
-            addedFilePaths = [...addedFilePaths, attachment.filePath];
+            addedAssets = [...addedAssets, { id: attachment.id, filePath: attachment.filePath }];
           } catch (err) {
             console.error("Failed to save asset from path", err);
           }

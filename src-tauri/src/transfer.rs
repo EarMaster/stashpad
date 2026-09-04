@@ -783,8 +783,19 @@ pub async fn commit_import(
                             continue;
                         };
 
-                        let dest = target_dir.join(name);
+                        // Reserved rather than joined: two attachments of one name in
+                        // the same stash used to land on the same path, so the second
+                        // copy replaced the first one's bytes and both rows pointed at
+                        // the survivor.
+                        let dest = match crate::utils::reserve_unique_path(&target_dir, name) {
+                            Ok(dest) => dest,
+                            Err(e) => {
+                                log::warn!("[Import] could not place {}: {}", name, e);
+                                continue;
+                            }
+                        };
                         if let Err(e) = fs::copy(source, &dest) {
+                            let _ = fs::remove_file(&dest);
                             log::warn!("[Import] could not place {}: {}", name, e);
                             continue;
                         }

@@ -16,7 +16,7 @@
 <script lang="ts">
   import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
   import type { AppContext, Settings, Context } from "$lib/types";
-  import type { SyncStatus } from "$lib/services/cloud-sync";
+  import type { SyncStatus, SyncStatusDetail } from "$lib/services/cloud-sync";
   import { _ } from "$lib/i18n";
   import { createSyncDisplay } from "$lib/utils/sync-display.svelte";
   import { onMount } from "svelte";
@@ -52,6 +52,7 @@
     autoDetectedWindowTitle = $bindable(),
     syncStatus = "idle",
     syncStatusMessage = "",
+    syncStatusDetail = null,
     updateAvailable = false,
     updateVersion,
     onShowUpdateNotice,
@@ -66,6 +67,7 @@
     autoDetectedWindowTitle?: string;
     syncStatus?: SyncStatus;
     syncStatusMessage?: string;
+    syncStatusDetail?: SyncStatusDetail | null;
     /** A newer version exists and the user has not chosen to sit it out */
     updateAvailable?: boolean;
     updateVersion?: string;
@@ -88,6 +90,15 @@
       case "success":
         return $_("settings.cloudSync.auth.syncSuccess");
       case "error":
+        // A translated explanation when the service supplied one - naming the file and
+        // the next attempt - and the raw message only as a fallback for the error paths
+        // that have nothing better to say.
+        if (syncStatusDetail) {
+          return `${$_("settings.cloudSync.auth.syncError")} (${$_(
+            syncStatusDetail.key,
+            { values: syncStatusDetail.values },
+          )})`;
+        }
         return syncStatusMessage
           ? `${$_("settings.cloudSync.auth.syncError")} (${syncStatusMessage})`
           : $_("settings.cloudSync.auth.syncError");

@@ -15,7 +15,7 @@
 
 <script lang="ts">
   import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
-  import type { SyncStatus } from "$lib/services/cloud-sync";
+  import type { SyncStatus, SyncStatusDetail } from "$lib/services/cloud-sync";
   import type { Settings, AIConfig, CloudUsage } from "$lib/types";
   import {
     _,
@@ -68,6 +68,7 @@
     settings = $bindable(),
     syncStatus,
     syncStatusMessage,
+    syncStatusDetail = null,
     onBack,
     onOpenContexts,
     onCheckForUpdates,
@@ -88,6 +89,7 @@
     settings: Settings;
     syncStatus: SyncStatus;
     syncStatusMessage?: string;
+    syncStatusDetail?: SyncStatusDetail | null;
     onBack: () => void;
     onOpenContexts: () => void;
     onCheckForUpdates: () => void;
@@ -685,7 +687,16 @@
                       <AlertCircle size={12} class="shrink-0 mt-0.5" />
                       <span>
                         {$_("settings.cloudSync.auth.syncError")}
-                        {#if syncStatusMessage}
+                        {#if syncStatusDetail}
+                          <!-- Which file is stuck and when it will be tried again,
+                               rather than the status body the server sent back. -->
+                          <span
+                            class="opacity-80 block text-[10px] whitespace-normal"
+                            >({$_(syncStatusDetail.key, {
+                              values: syncStatusDetail.values,
+                            })})</span
+                          >
+                        {:else if syncStatusMessage}
                           <span
                             class="opacity-80 block text-[10px] whitespace-normal"
                             >({syncStatusMessage})</span

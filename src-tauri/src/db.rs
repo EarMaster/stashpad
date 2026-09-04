@@ -1,3 +1,16 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+
+// Copyright (C) 2026 Nico Wiedemann
+//
+// This file is part of Stashpad.
+// Stashpad is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License, version 3,
+// as published by the Free Software Foundation.
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+// See the GNU Affero General Public License for more details.
+
 use crate::models::{Context, StashItem, StashPosition, Attachment, ContextRule}; 
 use rusqlite::{params, Connection, Result, OptionalExtension};
 use std::path::Path;
@@ -244,7 +257,87 @@ impl DbManager {
         // Ensure default context exists
         self.ensure_default_context()?;
 
+        // Repair rows left behind by the name-collision bug.
+        self.reconcile_colliding_attachment_sizes();
+
         Ok(())
+    }
+
+    /// Correct the recorded size of attachments that share a file with another row.
+    ///
+    /// Attachments used to be written straight to `cache/<ctx>/<stash>/<file name>`, so two
+    /// files of one name on one stash resolved to the same path: the second write replaced
+    /// the first one's bytes, and the losing row went on recording a size the file no
+    /// longer had. That row's size is what the app declares when it uploads, and the cloud
+    /// rejects a confirmation whose size does not match what it stored - which wedged sync
+    /// on a 400 that no amount of retrying could clear.
+    ///
+    /// New attachments get a unique path (`utils::reserve_unique_path`), so this only has
+    /// to deal with rows already on disk. It runs on every start rather than behind a
+    /// version flag because it is idempotent by construction and normally selects nothing:
+    /// the query returns only paths claimed by more than one row, which is rare, and the
+    /// stat is per colliding row rather than per attachment.
+    ///
+    /// What it deliberately does *not* do:
+    ///
+    /// - It never copies, blanks or deletes. Nothing records which row the surviving file
+    ///   belonged to, so handing it to both fabricates history, and making a file vanish at
+    ///   startup with no explanation is worse than a stale size. The overwritten bytes are
+    ///   gone either way; the honest repair is to make the row describe the file it
+    ///   actually resolves to.
+    /// - It skips rows that have already been uploaded. Their bytes are published and the
+    ///   cloud copy is authoritative, so rewriting the size here would push a figure that
+    ///   disagrees with the stored object and skew quota accounting, while fixing nothing -
+    ///   the confirmation those rows failed at never runs again.
+    ///
+    /// Failures are logged, never propagated: a repair that cannot run is not a reason to
+    /// refuse to open the database.
+    fn reconcile_colliding_attachment_sizes(&self) {
+        let colliding: Vec<String> = match self.conn.prepare(
+            "SELECT file_path FROM attachments WHERE TRIM(file_path) <> '' \
+             GROUP BY file_path HAVING COUNT(*) > 1",
+        ) {
+            Ok(mut stmt) => match stmt.query_map([], |row| row.get::<_, String>(0)) {
+                Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
+                Err(e) => {
+                    log::warn!("[Attachments] could not scan for shared paths: {}", e);
+                    return;
+                }
+            },
+            Err(e) => {
+                log::warn!("[Attachments] could not scan for shared paths: {}", e);
+                return;
+            }
+        };
+
+        if colliding.is_empty() {
+            return;
+        }
+
+        let mut repaired = 0usize;
+        for path in &colliding {
+            let Ok(actual) = std::fs::metadata(path).map(|m| m.len() as i64) else {
+                // The file is gone. The upload path already blanks paths like this the
+                // next time it meets them; there is nothing to reconcile against here.
+                continue;
+            };
+
+            match self.conn.execute(
+                "UPDATE attachments SET file_size = ?2 \
+                 WHERE file_path = ?1 AND uploaded_at IS NULL AND file_size <> ?2",
+                params![path, actual],
+            ) {
+                Ok(changed) => repaired += changed,
+                Err(e) => log::warn!("[Attachments] could not correct the size of {}: {}", path, e),
+            }
+        }
+
+        if repaired > 0 {
+            log::info!(
+                "[Attachments] corrected the recorded size of {} attachment(s) sharing a file with another row",
+                repaired
+            );
+        }
     }
 
     fn ensure_default_context(&self) -> Result<()> {
@@ -1070,6 +1163,119 @@ mod tests {
         manager
     }
     
+    /// Two attachments sharing one file, as the name-collision bug left them: one
+    /// uploaded row whose size matches the surviving file, and one that does not.
+    fn seed_shared_path(db: &DbManager, path: &str, sizes: &[(&str, i64, Option<i64>)]) {
+        db.conn
+            .execute(
+                "INSERT INTO stashes (id, context_id, content, files, created_at, completed) \
+                 VALUES ('s-dup', 'default', 'dup', '[]', '2026-08-29T00:00:00Z', 0)",
+                [],
+            )
+            .unwrap();
+
+        for (id, size, uploaded) in sizes {
+            db.conn
+                .execute(
+                    "INSERT INTO attachments (id, stash_id, file_path, file_name, file_size, created_at, uploaded_at) \
+                     VALUES (?1, 's-dup', ?2, 'image.png', ?3, '2026-08-29T00:00:00Z', ?4)",
+                    params![id, path, size, uploaded],
+                )
+                .unwrap();
+        }
+    }
+
+    fn recorded_size(db: &DbManager, id: &str) -> i64 {
+        db.conn
+            .query_row(
+                "SELECT file_size FROM attachments WHERE id = ?1",
+                params![id],
+                |row| row.get(0),
+            )
+            .unwrap()
+    }
+
+    #[test]
+    fn a_row_sharing_a_file_is_corrected_to_the_size_on_disk() {
+        // The clobbered row declared 171375 bytes while the file it pointed at held
+        // 441450, and that declaration is what the cloud rejected on every retry.
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("image.png");
+        std::fs::write(&file, vec![0u8; 441450]).unwrap();
+        let path = file.to_string_lossy().into_owned();
+
+        let db = create_test_db();
+        seed_shared_path(
+            &db,
+            &path,
+            &[("att-stale", 171375, None), ("att-live", 441450, Some(123))],
+        );
+
+        db.reconcile_colliding_attachment_sizes();
+
+        assert_eq!(
+            recorded_size(&db, "att-stale"),
+            441450,
+            "the row must describe the file it actually resolves to"
+        );
+    }
+
+    #[test]
+    fn an_already_uploaded_row_is_left_alone() {
+        // Its bytes are published and the cloud copy is authoritative, so rewriting the
+        // size here would only push a figure that disagrees with the stored object.
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("image.png");
+        std::fs::write(&file, vec![0u8; 500]).unwrap();
+        let path = file.to_string_lossy().into_owned();
+
+        let db = create_test_db();
+        seed_shared_path(
+            &db,
+            &path,
+            &[("att-pending", 10, None), ("att-uploaded", 20, Some(123))],
+        );
+
+        db.reconcile_colliding_attachment_sizes();
+
+        assert_eq!(recorded_size(&db, "att-pending"), 500);
+        assert_eq!(recorded_size(&db, "att-uploaded"), 20);
+    }
+
+    #[test]
+    fn a_path_used_by_only_one_row_is_never_touched() {
+        // The repair exists for collisions. A single row whose size drifted for some other
+        // reason is the upload path's business, not something to rewrite at startup.
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("solo.png");
+        std::fs::write(&file, vec![0u8; 999]).unwrap();
+        let path = file.to_string_lossy().into_owned();
+
+        let db = create_test_db();
+        seed_shared_path(&db, &path, &[("att-solo", 1, None)]);
+
+        db.reconcile_colliding_attachment_sizes();
+
+        assert_eq!(recorded_size(&db, "att-solo"), 1);
+    }
+
+    #[test]
+    fn a_missing_file_is_skipped_rather_than_zeroed() {
+        // Deleting a stash removes its cache folder and leaves the rows behind. Recording
+        // those as 0 bytes would be a lie the upload path then has to undo.
+        let db = create_test_db();
+        seed_shared_path(
+            &db,
+            "/nowhere/at/all/image.png",
+            &[("att-a", 111, None), ("att-b", 222, None)],
+        );
+
+        db.reconcile_colliding_attachment_sizes();
+
+        assert_eq!(recorded_size(&db, "att-a"), 111);
+        assert_eq!(recorded_size(&db, "att-b"), 222);
+    }
+
     #[test]
     fn test_default_context_creation() {
         let db = create_test_db();

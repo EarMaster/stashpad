@@ -18,7 +18,7 @@
       DesktopStorageAdapter,
       setLocalMutationListener,
    } from "$lib/services/desktop-adapter";
-   import { CloudSyncService, type SyncStatus } from "$lib/services/cloud-sync";
+   import { CloudSyncService, type SyncStatus, type SyncStatusDetail } from "$lib/services/cloud-sync";
    import { attachmentSync } from "$lib/stores/attachment-sync.svelte";
    import { _ } from "$lib/i18n";
    import type { Settings, StashItem, Context, Attachment } from "$lib/types";
@@ -76,6 +76,9 @@
    // Cloud sync status
    let syncStatus: SyncStatus = $state("idle");
    let syncStatusMessage: string = $state("");
+   // Set only where the raw message would be a technical string; the components translate
+   // it and fall back to `syncStatusMessage` when it is null.
+   let syncStatusDetail: SyncStatusDetail | null = $state(null);
    let showPromptReloadedToast = $state(false);
 
    const appWindow = getCurrentWindow();
@@ -220,9 +223,10 @@
 
       // Listen to sync status changes
       const unsubscribeSync = cloudSync.addListener(
-         (status, message, appliedRemoteChanges) => {
+         (status, message, appliedRemoteChanges, detail) => {
             syncStatus = status;
             syncStatusMessage = message || "";
+            syncStatusDetail = detail ?? null;
             // Only when the sync actually wrote server data locally. Refreshing on every
             // success reloaded the entire stash list - content and attachments, over IPC,
             // followed by a full re-render - after syncs that had pulled nothing at all,
@@ -668,6 +672,7 @@
             }}
             {syncStatus}
             {syncStatusMessage}
+            {syncStatusDetail}
             updateAvailable={updateChecker.showIndicator}
             updateVersion={updateChecker.indicatorVersion ?? undefined}
             onShowUpdateNotice={() => void openUpdateNotice()}
@@ -729,6 +734,7 @@
             bind:settings
             {syncStatus}
             syncStatusMessage={syncStatusMessage}
+            {syncStatusDetail}
             onBack={() => {
                view = "Main";
                // No need to reload, we are bound. But safe to keep or remove.

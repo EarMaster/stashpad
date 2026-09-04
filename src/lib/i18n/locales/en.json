@@ -236,6 +236,8 @@
         "syncing": "Syncing…",
         "syncSuccess": "Sync successful",
         "syncError": "Sync failed",
+        "attachmentUploadFailed": "Could not upload {fileName} — trying again in {minutes} min",
+        "attachmentUploadFailedMany": "Could not upload {fileName} and {count} more — trying again in {minutes} min",
         "sessionExpired": "Session expired",
         "loginAgain": "Log In Again"
       }
