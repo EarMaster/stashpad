@@ -19,7 +19,7 @@ which:
    agree; refuses if the tag or a release for it already exists; gates on the changelog;
    composes the release notes once.
 2. `test` — the full suite from `test.yml`, as a reusable workflow.
-3. `create-release` — creates a **draft**. No git tag exists at this point.
+3. `draft` — creates a **draft release**. No git tag exists at this point.
 4. `build` — four platforms, uploading into that draft by its numeric id.
 5. `publish` — verifies the assets, then publishes. **Publishing is what creates the tag.**
 
@@ -125,14 +125,14 @@ disappears from the body and from every update popover.
 
 - `releaseDraft` in the `tauri-action` step is **inert** while `releaseId` is set — both are
   only read inside the action's `getOrCreateRelease`, which an id bypasses. The draft state is
-  set by `create-release`. Editing that input will not change anything.
+  set by `draft`. Editing that input will not change anything.
 - `tagName` is passed alongside `releaseId` and is **not** redundant. GitHub reports a draft's
   asset URLs as `…/releases/download/untagged-<hash>/<asset>`; the action rewrites that segment
   to the tag. Drop it and the URLs fall back to `/releases/latest/download/`, which resolves to
   whichever release is newest *at update time* rather than the one those signatures were made
   for — so an older install downloads a newer file and rejects its own manifest's signature.
 - `releaseBody` is what becomes `latest.json`'s `notes`. The release page's body is written by
-  `create-release` and is not touched from the matrix, so dropping `releaseBody` leaves the
+  `draft` and is not touched from the matrix, so dropping `releaseBody` leaves the
   page reading correctly while the update popover is blank.
 - `npm run sync-version` **does not run in CI.** `tauri-action` invokes
   `npm run tauri -- build`, whose npm hook would be `pretauri`; `tauri.conf.json`'s
