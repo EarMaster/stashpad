@@ -53,6 +53,13 @@ https://github.com/EarMaster/stashpad/releases/latest/download/latest.json
 `releases/latest` is the entire delivery mechanism, which is why `publish` passes `make_latest`
 explicitly and then fetches that URL to confirm it serves the new version.
 
+**This depends on `EarMaster/stashpad` being a public repository**, and it is the only one of
+the four that is. Installed apps fetch that URL unauthenticated, with no token to offer. Make
+this repo private and every installed copy's updater starts getting a 404 - silently, since
+the updater has no way to report it and the release itself would still look perfectly fine.
+The `publish` job's endpoint check would catch it on the next release; nothing would catch it
+in between.
+
 ## When the changelog gate fails
 
 The gate runs before anything is created, so nothing was published and there is nothing to
