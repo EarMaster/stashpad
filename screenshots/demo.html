@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en" class="dark">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex" />
+  <title>Stashpad demo</title>
+  <style>
+    /*
+      No splash screen here. The real one covers the window until the app has mounted,
+      which is useful on a cold start and useless in a screenshot - the capture waits for
+      the mounted app instead. `#app` is shown immediately for the same reason: the
+      fade-in in index.html would otherwise photograph as a half-transparent window.
+    */
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      background: #18181b;
+    }
+
+    /* The window is a rounded, borderless panel in real life; match it so the capture
+       does not need to fake the shape afterwards. */
+    body {
+      overflow: hidden;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="app"></div>
+  <script type="module" src="/screenshots/demo.ts"></script>
+</body>
+
+</html>
