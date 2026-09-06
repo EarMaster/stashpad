@@ -307,27 +307,38 @@
       }
    });
 
-   function handleKeydown(e: KeyboardEvent) {
-      // Check for switch_context shortcut
-      // Parsing "CommandOrControl+P" is tricky natively in JS without a library,
-      // but for this specific request we can hardcode the check or do basic parsing.
-      // Ideally we'd use a robust hotkey library, but for now:
+   /**
+    * The configured switch-context shortcut, split into the pieces both key handlers
+    * need. Parsing "CommandOrControl+P" by hand is crude, but it only has to cope with
+    * what ShortcutInput can record, and deriving it once beats re-splitting the string
+    * on every keystroke in two places.
+    */
+   let switchShortcut = $derived.by(() => {
       const shortcut =
          settings.shortcuts["switch_context"] || "CommandOrControl+P";
       const keys = shortcut.toLowerCase().split("+");
-      const isCtrl =
-         keys.includes("control") ||
-         keys.includes("commandorcontrol") ||
-         keys.includes("ctrl");
-      const isMeta =
-         keys.includes("command") ||
-         keys.includes("commandorcontrol") ||
-         keys.includes("meta");
-      const key = keys.find((k) => k.length === 1); // finding the char
+      return {
+         ctrl:
+            keys.includes("control") ||
+            keys.includes("commandorcontrol") ||
+            keys.includes("ctrl"),
+         meta:
+            keys.includes("command") ||
+            keys.includes("commandorcontrol") ||
+            keys.includes("meta"),
+         alt: keys.includes("alt"),
+         key: keys.find((k) => k.length === 1),
+      };
+   });
 
-      const pressedCtrl = e.ctrlKey || (isMeta && e.metaKey);
+   function handleKeydown(e: KeyboardEvent) {
+      const { ctrl, meta, alt, key } = switchShortcut;
+      // Only the modifiers the shortcut actually asks for count. Reading e.ctrlKey
+      // unconditionally meant an Alt+P binding still opened the switcher on Ctrl+P.
+      const modifierHeld =
+         (ctrl && e.ctrlKey) || (meta && e.metaKey) || (alt && e.altKey);
 
-      if (pressedCtrl && e.key.toLowerCase() === key) {
+      if (modifierHeld && key && e.key.toLowerCase() === key) {
          e.preventDefault();
          if (!contextSelectorOpen) {
             contextSelectorOpen = true;
@@ -361,25 +372,13 @@
 
    function handleKeyup(e: KeyboardEvent) {
       if (!contextSelectorOpen) return;
-
-      const shortcut =
-         settings.shortcuts["switch_context"] || "CommandOrControl+P";
-      const keys = shortcut.toLowerCase().split("+");
-      const requiresCtrl =
-         keys.includes("control") ||
-         keys.includes("commandorcontrol") ||
-         keys.includes("ctrl");
-      const requiresMeta =
-         keys.includes("command") ||
-         keys.includes("commandorcontrol") ||
-         keys.includes("meta");
-      const requiresAlt = keys.includes("alt");
+      const { ctrl, meta, alt } = switchShortcut;
 
       // Check if the released key is the significant modifier
       if (
-         (requiresCtrl && e.key === "Control") ||
-         (requiresMeta && e.key === "Meta") ||
-         (requiresAlt && e.key === "Alt")
+         (ctrl && e.key === "Control") ||
+         (meta && e.key === "Meta") ||
+         (alt && e.key === "Alt")
       ) {
          // If we were cycling (i.e. pressed shortcut > 1 time), confirm on release
          if (isCycling) {
@@ -387,6 +386,27 @@
             isCycling = false;
          }
       }
+   }
+
+   /**
+    * Losing the window means losing the modifier.
+    *
+    * The switcher is an Alt+Tab-style hold: hold Ctrl, tap P to cycle, release Ctrl to
+    * confirm. Windows never delivers the `keyup` for a key released while the window is
+    * unfocused, so alt-tabbing away mid-cycle left the app believing Ctrl was still
+    * down - the overlay stayed up, and the next unrelated Ctrl release, a paste or a
+    * select-all, silently confirmed a context switch nobody asked for.
+    *
+    * Once focus is gone no modifier is knowable any more, so the pending selection is
+    * cancelled rather than confirmed - the same thing Windows does to its own Alt+Tab
+    * when something steals focus. A switcher opened by hand (the header button, a move
+    * request) has `isCycling` false and is left alone; nothing about it hangs on a held
+    * key. Editor.svelte resets its own Shift tracking the same way.
+    */
+   function handleWindowBlur() {
+      if (!isCycling) return;
+      isCycling = false;
+      contextSelectorOpen = false;
    }
 
    // Component instance binding - don't use $state for bind:this
@@ -602,7 +622,11 @@
    });
 </script>
 
-<svelte:window onkeydown={handleKeydown} onkeyup={handleKeyup} />
+<svelte:window
+   onkeydown={handleKeydown}
+   onkeyup={handleKeyup}
+   onblur={handleWindowBlur}
+/>
 
 <main
    class="absolute inset-0 flex flex-col overflow-hidden font-sans select-none {isGlass
