@@ -11,6 +11,8 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+## [1.6.10] - 2026-09-06
+
 ### Fixed
 - **Leaving Stashpad for another window no longer leaves Ctrl stuck in the context switcher.**
   Holding Ctrl and tapping P cycles through your contexts, and letting Ctrl go picks the one you
