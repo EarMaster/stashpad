@@ -11,6 +11,20 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+## [1.6.10] - 2026-09-06
+
+### Fixed
+- **Leaving Stashpad for another window no longer leaves Ctrl stuck in the context switcher.**
+  Holding Ctrl and tapping P cycles through your contexts, and letting Ctrl go picks the one you
+  landed on - but Windows never tells a window that has lost focus a key came back up. Alt-tabbing
+  away mid-cycle left the app believing Ctrl was still held: the switcher stayed on screen eating
+  arrows and Enter, and the next time you released Ctrl for something else entirely, a paste or a
+  select-all, it quietly moved you to whichever context happened to be highlighted. Losing focus
+  now cancels the pending pick, the way Windows cancels its own Alt+Tab when something takes the
+  foreground. A switcher you opened by hand from the header is left where it is
+- **A rebound switch-context shortcut no longer answers to Ctrl as well.** Whatever you had bound,
+  the app still checked for Ctrl, so an Alt+P binding opened the switcher on Ctrl+P too
+
 ## [1.6.9] - 2026-09-04
 
 ### Fixed

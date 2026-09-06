@@ -1,42 +1,232 @@
 name: Release
+
+# Merging to `main` is the release decision. Nothing else releases: an agent prepares the
+# release commit on `develop` and stops, and `git tag` / `gh release` are denied to it at the
+# permission layer.
+#
+# The tag is created *last*, by publishing the draft, and only after all four platforms have
+# built. v1.6.9 was tagged first: two of four builds then failed, leaving a tag asserting a
+# version that did not exist and a draft holding half its assets, and recovery needed a remote
+# tag deleted by hand. Under this shape a failed build leaves nothing behind to clean up.
 on:
   push:
-    tags:
-      - 'v*'
+    branches: [main]
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Build all four platforms and upload nothing'
+        type: boolean
+        default: true
+      scratch_tag:
+        description: 'Rehearsal only: publish to this tag as a prerelease instead of vX.Y.Z'
+        type: string
+        default: ''
 
-# Two runs for the same tag - a re-run alongside the original, or a tag pushed twice -
-# would upload to the same release concurrently and race over its assets.
-# `cancel-in-progress` stays false: killing a half-uploaded release is worse than
-# waiting for it.
+# Two merges in quick succession must not both decide to release the same version: the second
+# run's `prepare` has to be able to see what the first one created. Grouped on the branch
+# rather than the SHA for exactly that reason. `cancel-in-progress` stays false - killing a
+# run mid-upload leaves a draft nobody is watching.
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  # A ~20 second gate in front of a 4-way matrix that takes ~20 minutes a leg. Releasing
-  # with no notes is not a cosmetic problem - the same text is what the in-app updater
-  # shows - and a warning here would go green and be missed, which is exactly how v1.6.2
-  # through v1.6.8 shipped with an empty changelog.
-  changelog:
-    name: Release notes exist
+  prepare:
+    name: Decide whether to release
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      should_release: ${{ steps.decide.outputs.should_release }}
+      should_build: ${{ steps.decide.outputs.should_build }}
+      version: ${{ steps.decide.outputs.version }}
+      tag: ${{ steps.decide.outputs.tag }}
+      prerelease: ${{ steps.decide.outputs.prerelease }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history and tags: the compare link in the release body is built from the
+          # previous tag, and a shallow clone has neither.
+          fetch-depth: 0
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      # No `npm ci`: the script reads two files and has no dependencies.
-      - name: Check CHANGELOG.md has a section for this version
-        env:
-          REF_NAME: ${{ github.ref_name }}
-        run: node scripts/check-changelog.mjs "$REF_NAME"
 
-  release:
-    needs: changelog
+      # package.json is the single source of truth, but tauri builds from tauri.conf.json and
+      # Cargo.toml, and `sync-version.mjs` runs on predev/prebuild - neither of which CI ever
+      # reaches. tauri-action invokes `npm run tauri -- build`, whose npm hook would be
+      # `pretauri`; tauri.conf.json's beforeBuildCommand is `npm run vite:build`, whose hook
+      # would be `previte:build`. Neither exists.
+      #
+      # So a release commit that forgot `npm run sync-version` builds the *previous* version
+      # under the new version's release: every asset misnamed, latest.json announcing the old
+      # version, and every installed app deciding it is already up to date. The old workflow
+      # had the pushed tag as a second opinion; here the tag is derived from package.json, so
+      # nothing else would disagree. This step is that second opinion.
+      - name: Versions agree across package.json, tauri.conf.json and Cargo.toml
+        run: |
+          set -eu
+          PKG=$(node -p "require('./package.json').version")
+          CONF=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          # First `^version =` in the file, which is the [package] one - the same
+          # first-match-wins rule sync-version.mjs uses to write it.
+          CARGO=$(sed -n 's/^version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' src-tauri/Cargo.toml | head -1)
+          echo "package.json=$PKG  tauri.conf.json=$CONF  Cargo.toml=$CARGO"
+          if [ "$PKG" != "$CONF" ] || [ "$PKG" != "$CARGO" ]; then
+            echo "::error::Version mismatch. Run 'npm run sync-version' and commit src-tauri/tauri.conf.json and src-tauri/Cargo.toml."
+            exit 1
+          fi
+
+      - name: Decide
+        id: decide
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SCRATCH_TAG: ${{ inputs.scratch_tag }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -eu
+          VERSION=$(node -p "require('./package.json').version")
+          TAG="${SCRATCH_TAG:-v$VERSION}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "should_build=true" >> "$GITHUB_OUTPUT"
+          # A scratch run is always a prerelease, so `releases/latest` - which is the
+          # updater's configured endpoint - cannot move onto it and installed apps see
+          # nothing. That is what makes a rehearsal safe on the real repository.
+          if [ -n "$SCRATCH_TAG" ]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            echo "Dry run: building four platforms, uploading nothing."
+            exit 0
+          fi
+
+          # Idempotency. Every merge to main starts this workflow; only a merge that brought a
+          # version bump has anything to release. Both a git tag and a release count as
+          # "already done" - a leftover draft carrying this tag_name must not be joined by a
+          # second one, because two releases sharing a tag_name are indistinguishable to `gh`.
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            echo "Tag $TAG already exists - nothing to release."
+            exit 0
+          fi
+          if gh api "repos/$GITHUB_REPOSITORY/releases" --paginate --jq '.[].tag_name' | grep -Fxq "$TAG"; then
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            echo "::error::A release already exists for $TAG - probably a draft left by a failed run. Delete it, then re-run."
+            exit 1
+          fi
+          echo "should_release=true" >> "$GITHUB_OUTPUT"
+
+      # Was advisory in the old workflow and is now a gate, running before anything is created.
+      - name: CHANGELOG.md has a section for this version
+        run: node scripts/check-changelog.mjs "${{ steps.decide.outputs.tag }}"
+
+      # Composed once, here, and carried to every consumer as an artifact.
+      #
+      # Two reasons. Every macOS leg of the v1.6.9 run failed at this exact step, twenty
+      # minutes in, after the tag had already been pushed - doing it once in a twenty-second
+      # gate turns that into a red gate and no release attempt. And the release body and
+      # latest.json's `notes` are then byte-identical by construction, rather than by four
+      # independent invocations happening to agree.
+      - name: Compose release notes
+        env:
+          MAC_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          set -eu
+          # $2 explicitly. release-notes.sh otherwise derives the previous tag from
+          # `git describe "${TAG}^"`, and under this workflow the tag does not exist yet:
+          # that resolves to nothing, the `|| true` swallows it, and the "Full changelog"
+          # compare link silently disappears from the body and from every update popover.
+          # `git describe HEAD` is the previous release by definition here, because main only
+          # ever moves at one.
+          PREV_TAG="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+          bash scripts/release-notes.sh "v${{ steps.decide.outputs.version }}" "$PREV_TAG" > release-notes.md
+          echo "--- release notes ---"
+          cat release-notes.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-notes
+          path: release-notes.md
+          retention-days: 7
+
+  # test.yml verbatim, as a called workflow - no second copy of the suite, and its jobs appear
+  # in this run's graph. It runs before anything is created, so a red test means no draft, no
+  # assets and no tag: the release attempt simply did not happen.
+  #
+  # `needs: prepare` deliberately. A commit whose version fields disagree, or whose changelog
+  # section is missing, is broken regardless of what the tests say.
+  test:
+    name: Tests
+    needs: prepare
+    uses: ./.github/workflows/test.yml
+    secrets: inherit
+
+  draft:
+    name: Create draft release
+    needs: [prepare, test]
+    if: needs.prepare.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      release_id: ${{ steps.create.outputs.release_id }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-notes
+
+      - name: Create the draft release
+        id: create
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          # No git tag is created here and none exists: GitHub cuts the tag from
+          # target_commitish only when the draft is published. That is the whole shape of this
+          # workflow - a build that fails leaves no tag claiming a version was released, and
+          # nothing that needs a `git push --delete` to undo.
+          #
+          # target_commitish is pinned to this run's SHA rather than left to default to the
+          # branch: main may have moved by the time four builds finish, and the tag has to name
+          # the commit that was actually built.
+          #
+          # Created through the API rather than `gh release create` because only the API returns
+          # the numeric id. A draft is not addressable by its tag - GitHub renders it at
+          # /releases/tag/untagged-<hash>, and `gh` resolves it only by listing releases, which
+          # picks the wrong one when a draft and a published release share a tag_name. Every
+          # later step addresses this release by id.
+          RELEASE_ID=$(jq -n \
+            --arg tag "${{ needs.prepare.outputs.tag }}" \
+            --arg name "Stashpad v${{ needs.prepare.outputs.version }}" \
+            --arg body "$(cat release-notes.md)" \
+            --arg sha "$GITHUB_SHA" \
+            --argjson pre ${{ needs.prepare.outputs.prerelease }} \
+            '{tag_name:$tag, name:$name, body:$body, target_commitish:$sha, draft:true, prerelease:$pre}' \
+            | gh api "repos/$GITHUB_REPOSITORY/releases" --method POST --input - --jq '.id')
+          echo "release_id=$RELEASE_ID" >> "$GITHUB_OUTPUT"
+          echo "Draft $RELEASE_ID for ${{ needs.prepare.outputs.tag }} at $GITHUB_SHA (no tag created)."
+
+  build:
+    needs: [prepare, test, draft]
+    # `always()` is required, not decorative: on a dry run `draft` is skipped, and a job whose
+    # dependency is skipped is itself skipped unless its `if` uses a status function. The rest
+    # of the condition then re-imposes what `needs` would otherwise have given for free.
+    if: >-
+      always()
+      && needs.prepare.result == 'success'
+      && needs.test.result == 'success'
+      && needs.prepare.outputs.should_build == 'true'
+      && (needs.draft.result == 'success' || needs.draft.result == 'skipped')
     permissions:
       contents: write
     strategy:
+      # Knowing it is one platform and not four is worth the CI minutes.
       fail-fast: false
       matrix:
         include:
@@ -50,20 +240,18 @@ jobs:
             args: ''
 
     runs-on: ${{ matrix.platform }}
-    # A hung step otherwise runs to GitHub's 6 hour default before anyone notices. The
-    # slowest healthy build so far is ~20 minutes, so this fails fast while leaving
-    # generous headroom for a cold dependency cache.
+    # A hung step otherwise runs to GitHub's 6 hour default before anyone notices. The slowest
+    # healthy build so far is ~20 minutes, so this fails fast while leaving generous headroom
+    # for a cold dependency cache.
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with:
-          # Full history and tags: the compare link in the release body is built from the
-          # previous tag, and the default shallow clone has neither.
           fetch-depth: 0
 
-      # Must run *before* setup-node: this deletes $AGENT_TOOLSDIRECTORY, which is the
-      # tool cache setup-node installs Node into. Running it afterwards removes the very
-      # toolchain the next steps depend on.
+      # Must run *before* setup-node: this deletes $AGENT_TOOLSDIRECTORY, which is the tool
+      # cache setup-node installs Node into. Running it afterwards removes the very toolchain
+      # the next steps depend on.
       - name: Free Disk Space (Ubuntu)
         if: matrix.platform == 'ubuntu-22.04'
         run: |
@@ -89,9 +277,9 @@ jobs:
 
       - name: install dependencies (ubuntu only)
         if: matrix.platform == 'ubuntu-22.04'
-        # Bounded separately from the job: this step has hung indefinitely on the
-        # ubuntu-22.04 image while the same commit installed fine on ubuntu-latest, so
-        # it is worth failing in minutes rather than blocking the whole release.
+        # Bounded separately from the job: this step has hung indefinitely on the ubuntu-22.04
+        # image while the same commit installed fine on ubuntu-latest, so it is worth failing
+        # in minutes rather than blocking the whole release.
         timeout-minutes: 15
         env:
           DEBIAN_FRONTEND: noninteractive
@@ -120,12 +308,16 @@ jobs:
       - name: install frontend dependencies
         run: npm ci
 
-      # Signing is enabled by exporting secrets into $GITHUB_ENV only when they are
-      # actually configured. Setting them directly on the build step would not work:
-      # a secret that does not exist expands to an empty string, leaving the variable
-      # *set but empty*, and the bundler then tries to sign with an empty key or
-      # identity and fails the build. Exporting conditionally leaves it truly unset, so
-      # builds keep succeeding unsigned until the secrets are added.
+      # Signing is enabled by exporting secrets into $GITHUB_ENV only when they are actually
+      # configured. Setting them directly on the build step would not work: a secret that does
+      # not exist expands to an empty string, leaving the variable *set but empty*, and the
+      # bundler then tries to sign with an empty key or identity and fails the build. Exporting
+      # conditionally leaves it truly unset, so builds keep succeeding unsigned until the
+      # secrets are added.
+      #
+      # An unsigned build therefore goes green with only a ::warning::. The `publish` job below
+      # is what turns that into a stop, by refusing to publish a release whose bundles have no
+      # .sig beside them.
       - name: Configure signing
         shell: bash
         env:
@@ -140,9 +332,9 @@ jobs:
         run: |
           set -eu
 
-          # Append to $GITHUB_ENV using heredoc syntax. A plain `echo "NAME=$value"`
-          # silently corrupts any value containing a newline, which private keys and
-          # base64 certificate blobs often do.
+          # Append to $GITHUB_ENV using heredoc syntax. A plain `echo "NAME=$value"` silently
+          # corrupts any value containing a newline, which private keys and base64 certificate
+          # blobs often do.
           put_env() {
             delim="EOF_$(date +%s%N)_$$"
             {
@@ -152,9 +344,9 @@ jobs:
             } >> "$GITHUB_ENV"
           }
 
-          # Tauri's own update signature. Unrelated to Apple code signing: this is what
-          # lets an already-installed app verify an update really came from us. The
-          # public half lives in tauri.conf.json under plugins.updater.pubkey.
+          # Tauri's own update signature. Unrelated to Apple code signing: this is what lets an
+          # already-installed app verify an update really came from us. The public half lives in
+          # tauri.conf.json under plugins.updater.pubkey.
           # Generate a keypair with: npm run tauri signer generate
           if [ -n "$UPDATER_KEY" ]; then
             put_env TAURI_SIGNING_PRIVATE_KEY "$UPDATER_KEY"
@@ -165,9 +357,9 @@ jobs:
           fi
 
           # Apple code signing + notarization. Requires a paid Apple Developer Program
-          # membership for a "Developer ID Application" certificate. Without it macOS
-          # reports "App is damaged and cannot be opened" on download, because a
-          # quarantined app with no valid signature is refused outright on Apple Silicon.
+          # membership for a "Developer ID Application" certificate. Without it macOS reports
+          # "App is damaged and cannot be opened" on download, because a quarantined app with
+          # no valid signature is refused outright on Apple Silicon.
           if [ "$RUNNER_OS" = "macOS" ]; then
             if [ -n "$MAC_SIGNING_IDENTITY" ]; then
               put_env APPLE_CERTIFICATE "$MAC_CERTIFICATE"
@@ -182,57 +374,220 @@ jobs:
             fi
           fi
 
-      # Builds the release body: what actually changed, plus the macOS quarantine
-      # workaround when the build is unsigned. Runs on every platform because whichever
-      # job creates the release first supplies the body.
-      #
-      # The composition lives in scripts/release-notes.sh rather than here: the same code
-      # has to regenerate an old release locally, and markdown written inside a YAML block
-      # scalar cannot start a line at column 0 without terminating the scalar.
-      - name: Compose release notes
+      # Downloaded rather than recomposed. This text reaches latest.json's `notes` field, which
+      # is what the in-app updater renders, and composing it four more times is four more
+      # chances for the release body and the update notes to come apart - which is how they
+      # came apart before.
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-notes
+
+      - name: Load release notes into the environment
         shell: bash
-        env:
-          MAC_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
           set -eu
-
-          # package.json, not the tag: tauri-action takes __VERSION__ in releaseName from
-          # it, as do every asset filename and latest.json, so notes keyed off a tag that
-          # disagreed would describe a different build than the one attached. The
-          # `changelog` gate job has already checked the two agree.
-          VERSION="$(node -p "require('./package.json').version")"
-
-          # `if ! VAR="$(...)"` rather than a bare assignment: the `if` condition suspends
-          # errexit, so the failure is reported here instead of exiting with no message.
-          if ! RELEASE_NOTES="$(bash scripts/release-notes.sh "v${VERSION}")"; then
-            echo "::error file=CHANGELOG.md::No '## [${VERSION}]' section in CHANGELOG.md - refusing to publish a release with empty notes."
-            exit 1
-          fi
-
-          # Append to $GITHUB_ENV using heredoc syntax. A plain `echo "NAME=$value"`
-          # silently corrupts any value containing a newline, and a release body is almost
-          # entirely newlines.
           delim="EOF_$(date +%s%N)_$$"
           {
             printf '%s<<%s\n' RELEASE_BODY "$delim"
-            printf '%s\n' "$RELEASE_NOTES"
+            cat release-notes.md
             printf '%s\n' "$delim"
           } >> "$GITHUB_ENV"
-
-          # ::stop-commands:: so a changelog line that happens to begin with `::` is
-          # echoed rather than executed as a workflow command.
-          echo "--- release notes ---"
-          echo "::stop-commands::$delim"
-          printf '%s\n' "$RELEASE_NOTES"
-          echo "::$delim::"
 
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.ref_name }} # This determines the release; On manual run, it will use the branch name.
-          releaseName: 'Stashpad v__VERSION__'
+          # releaseId, never tagName alone. With an id set, the action uploads straight to that
+          # release and never calls getOrCreateRelease - which its own README warns four
+          # parallel legs must not do. For a *draft* it is worse than a warning: a draft cannot
+          # be fetched by tag, so getOrCreateRelease falls back to paginating every release, and
+          # two legs that both missed would each create their own draft under the same tag_name.
+          #
+          # Empty string on a dry run: with neither releaseId nor tagName the action builds,
+          # prints the artifact paths and uploads nothing.
+          releaseId: ${{ needs.draft.outputs.release_id }}
+
+          # Required *alongside* releaseId, and not for the release - for latest.json. GitHub
+          # reports a draft's asset URLs as /releases/download/untagged-<hash>/<asset>, which
+          # die the moment the draft is published and the real tag appears. tauri-action rewrites
+          # that segment to /download/<tagName>/. Omit it and the URLs fall back to
+          # /releases/latest/download/<asset>, which resolves to whichever release is newest *at
+          # update time* rather than the one these signatures were made for - so an older install
+          # downloads a newer file and rejects its own manifest's signature.
+          #
+          # Blanked on a dry run, and that is load-bearing rather than tidy: `tagName` set with
+          # `releaseId` empty is exactly the combination that sends the action into
+          # getOrCreateRelease, so a rehearsal meant to upload nothing would instead create a
+          # real release - four times over, racing.
+          tagName: ${{ needs.prepare.outputs.should_release == 'true' && needs.prepare.outputs.tag || '' }}
+
+          # latest.json's `notes`. The release page's body was written by the `draft` job and is
+          # not touched from here, so dropping this leaves the page reading correctly while the
+          # update popover is blank - the v1.6.2-v1.6.8 failure relocated to the one place
+          # nobody looks.
           releaseBody: ${{ env.RELEASE_BODY }}
+
+          # latest.json plus a .sig per updater bundle. Installed apps will not accept an update
+          # without both.
+          includeUpdaterJson: true
+
+          # Inert while releaseId is set - both are only read inside getOrCreateRelease - and
+          # kept as documentation of what the release is. Editing them changes nothing; the draft
+          # state is set by the `draft` job.
           releaseDraft: true
-          prerelease: false
+          prerelease: ${{ needs.prepare.outputs.prerelease }}
+
           args: ${{ matrix.args }}
+
+  publish:
+    name: Publish release
+    needs: [prepare, draft, build]
+    # `needs.build.result` is 'success' only when all four legs succeeded. With fail-fast: false
+    # a single failed leg leaves it 'failure', and this job never runs.
+    if: needs.prepare.outputs.should_release == 'true' && needs.build.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      RELEASE_ID: ${{ needs.draft.outputs.release_id }}
+      TAG: ${{ needs.prepare.outputs.tag }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      # This is the review a permanent draft was supposed to provide, done by machine and more
+      # thoroughly. v1.2.1 through v1.2.8 were each left as a draft for a human to inspect and
+      # publish, and each one was forgotten - so for months the newest version users could
+      # actually get was v1.2.0, with green builds and real assets the whole time.
+      - name: Verify the release before publishing it
+        run: |
+          set -eu
+          gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" --jq '.assets[].name' | sort > assets.txt
+          echo "::group::attached assets"
+          cat assets.txt
+          echo "::endgroup::"
+
+          # A leg can go green having produced no signature: tauri-action logs "Signature not
+          # found for the updater JSON. Skipping upload..." and returns normally. So the
+          # manifest is checked for content, not just presence.
+          grep -qx 'latest.json' assets.txt \
+            || { echo "::error::latest.json is missing - the updater cannot see this release."; exit 1; }
+
+          # Draft assets are not publicly downloadable, so this goes through the API with the
+          # run's token rather than the browser URL.
+          ASSET_ID=$(gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" \
+            --jq '.assets[] | select(.name=="latest.json") | .id')
+          curl -sSfL -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/octet-stream' \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/assets/$ASSET_ID" -o latest.json
+          echo "::group::latest.json"
+          cat latest.json
+          echo "::endgroup::"
+
+          # latest.json is merged in place by each leg in turn, so a partial matrix produces a
+          # *valid* manifest describing only the platforms that built. These four keys are the
+          # ones installed apps look up.
+          for KEY in darwin-aarch64 darwin-x86_64 linux-x86_64 windows-x86_64; do
+            jq -e --arg k "$KEY" '.platforms[$k].url and .platforms[$k].signature' latest.json >/dev/null \
+              || { echo "::error::latest.json has no signed entry for $KEY."; exit 1; }
+          done
+
+          jq -r '.version' latest.json | grep -qx "$VERSION" \
+            || { echo "::error::latest.json announces a different version than package.json - was 'npm run sync-version' committed?"; exit 1; }
+          [ -n "$(jq -r '.notes' latest.json)" ] \
+            || { echo "::error::latest.json has empty notes - the update popover would show nothing."; exit 1; }
+
+          # An untagged or /latest/download/ url means tagName never reached tauri-action. Both
+          # would 404 or serve the wrong file once this is published.
+          jq -r '.platforms[].url' latest.json | sort -u > urls.txt
+          echo "::group::updater urls"
+          cat urls.txt
+          echo "::endgroup::"
+          if grep -q 'untagged-\|/releases/latest/download/' urls.txt; then
+            echo "::error::latest.json urls do not name the tag."; exit 1
+          fi
+          if grep -qv "/download/$TAG/" urls.txt; then
+            echo "::error::latest.json names a tag other than $TAG."; exit 1
+          fi
+
+          # Every bundle the manifest points at must be attached, each with its signature beside
+          # it. Derived from the manifest rather than hard-coded, so this cannot drift as bundle
+          # targets change.
+          for A in $(jq -r '.platforms[].url' latest.json | xargs -n1 basename | sort -u); do
+            grep -qx "$A" assets.txt || { echo "::error::latest.json points at $A, which is not attached."; exit 1; }
+            grep -qx "$A.sig" assets.txt || { echo "::error::$A has no .sig - installed apps will refuse the update."; exit 1; }
+          done
+
+      - name: Publish - this is the step that creates the tag
+        run: |
+          set -eu
+          # GitHub cuts refs/tags/$TAG from the target_commitish recorded on the draft. Until
+          # this line, nothing anywhere claimed that this version was released.
+          #
+          # make_latest is passed explicitly because releases/latest/download/latest.json is the
+          # updater's configured endpoint (src-tauri/tauri.conf.json, plugins.updater.endpoints)
+          # - this flag is what actually ships the update. A prerelease cannot be latest, which
+          # is exactly what makes a scratch-tag rehearsal harmless.
+          gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" --method PATCH \
+            -F draft=false \
+            -f make_latest=${{ needs.prepare.outputs.prerelease == 'true' && 'false' || 'true' }}
+
+      - name: Verify the tag landed on the commit that was built
+        run: |
+          set -eu
+          SHA=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq '.object.sha')
+          [ "$SHA" = "$GITHUB_SHA" ] \
+            || { echo "::error::$TAG points at $SHA, not the built commit $GITHUB_SHA."; exit 1; }
+
+      # The end-to-end check nothing has ever performed: that the URL installed apps actually
+      # fetch now serves this version. Retried because the redirect takes a moment to settle.
+      - name: The updater endpoint serves this version
+        if: needs.prepare.outputs.prerelease != 'true'
+        run: |
+          set -eu
+          URL="https://github.com/$GITHUB_REPOSITORY/releases/latest/download/latest.json"
+          for i in 1 2 3 4 5; do
+            if curl -sSfL "$URL" | jq -e --arg v "$VERSION" '.version == $v' >/dev/null; then
+              echo "$URL serves $VERSION."
+              exit 0
+            fi
+            echo "attempt $i: not yet"
+            sleep 10
+          done
+          echo "::error::$URL does not serve $VERSION. The release is published; the endpoint is not resolving to it."
+          exit 1
+
+      - name: Summary
+        run: |
+          {
+            echo "### Released $TAG"
+            echo
+            echo "- <https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG>"
+            echo "- tag created at \`$GITHUB_SHA\`"
+            echo "- \`latest.json\` verified for darwin-aarch64, darwin-x86_64, linux-x86_64, windows-x86_64"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  cleanup:
+    name: Delete the draft
+    needs: [prepare, draft, build, publish]
+    if: always() && needs.draft.result == 'success' && needs.publish.result != 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          # There is no tag to clean up. One is only created when a draft is published, so
+          # deleting the draft is the entire recovery - no remote tag deletion, which is the step
+          # an agent is not permitted to take and which turned a failed v1.6.9 build into a
+          # manual incident.
+          #
+          # The assets that did build go with it. Twenty minutes of rebuild is cheaper than a
+          # draft holding two platforms out of four, sitting there looking publishable.
+          gh api "repos/$GITHUB_REPOSITORY/releases/${{ needs.draft.outputs.release_id }}" --method DELETE
+          {
+            echo "### Not released"
+            echo
+            echo "The draft for \`${{ needs.prepare.outputs.tag }}\` was deleted and **no tag was created**."
+            echo "Fix the failing platform and merge again, or re-run this workflow. Nothing needs cleaning up by hand."
+          } >> "$GITHUB_STEP_SUMMARY"

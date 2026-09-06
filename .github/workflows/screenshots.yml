@@ -1,0 +1,100 @@
+name: Screenshots
+
+# Photograph the app and hand the pictures to the website.
+#
+# Runs after a release is published, on the tag that was just released, so the gallery on
+# stashpad.org always shows the build people can download. The capture itself is
+# `screenshots/capture.mjs`: the real UI against a fake backend and invented data, driven
+# through the interface a user would click.
+#
+# This job is not a release gate. It runs after `publish`, and a failure here leaves the
+# release intact and the website showing the previous set of screenshots.
+on:
+  release:
+    types: [published]
+  # For regenerating the set after a website change, or after fixing a scene, without
+  # waiting for the next release.
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Tag or branch to photograph
+        required: false
+        default: main
+
+concurrency:
+  group: screenshots
+  cancel-in-progress: false
+
+jobs:
+  capture:
+    name: Capture and publish to the website
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the app
+        uses: actions/checkout@v4
+        with:
+          # A release event's default checkout is the default branch, not the released
+          # commit. Photographing main would silently ship pictures of work that has not
+          # been released yet.
+          ref: ${{ github.event.release.tag_name || inputs.ref }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      # --with-deps pulls the system libraries headless Chromium needs on the runner.
+      # Only Chromium: the capture pins one browser so two runs cannot disagree about
+      # font rendering or rounding.
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Capture
+        env:
+          SCREENSHOT_VERSION: ${{ github.event.release.tag_name || '' }}
+        run: npm run screenshots
+
+      - name: Check out the website
+        uses: actions/checkout@v4
+        with:
+          repository: EarMaster/stashpad-website
+          # A fine-grained PAT with contents:write on the website repo. The default
+          # GITHUB_TOKEN cannot reach another repository, and this is the only reason a
+          # secret is needed here. Without it the job fails at this step and nothing else
+          # is affected.
+          token: ${{ secrets.WEBSITE_SYNC_TOKEN }}
+          path: website
+
+      - name: Copy the new set in
+        run: |
+          rm -rf website/public/screenshots
+          mkdir -p website/public/screenshots website/src/data
+          cp -r screenshots/out/en screenshots/out/de website/public/screenshots/
+          cp screenshots/out/manifest.json website/src/data/screenshots.json
+
+      - name: Commit and push, if anything actually changed
+        working-directory: website
+        run: |
+          git config user.name 'stashpad-bot'
+          git config user.email 'noreply@stashpad.org'
+          git add public/screenshots src/data/screenshots.json
+
+          # Re-encoding produces byte-identical files for an unchanged UI, so a release
+          # that did not touch the interface makes no commit at all - and therefore no
+          # deploy. Pushing regardless would spend the website's hourly deploy throttle
+          # on nothing.
+          if git diff --cached --quiet; then
+            echo "The screenshots are unchanged; nothing to push."
+            echo "### Screenshots unchanged" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          VERSION="${{ github.event.release.tag_name || 'a manual run' }}"
+          git commit -m "Update the app screenshots for ${VERSION}" -m \
+            "Regenerated from the released build by the app's screenshots workflow."
+          git push
+          echo "### Screenshots updated for ${VERSION}" >> "$GITHUB_STEP_SUMMARY"
