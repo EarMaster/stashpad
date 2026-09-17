@@ -11,6 +11,25 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+### Fixed
+- **The last English leftovers in a German app are translated.** The Resize Images switch was the
+  visible one: its label, its explanation and the warning shown once you turn it off sat in the
+  middle of a list where everything above and below had switched over. Nine more places were
+  written straight into the screen the same way and never reached the translations - the
+  Subscription heading and its status line under Cloud Sync, the Days unit beside the
+  auto-delete field, the CORS hint appended when an AI connection test fails, the attachment
+  count in the import summary, the title of the file picker for attachments, and three labels
+  only a screen reader reads out. The plan names Pro, Enterprise and Free stay as they are
+- **The import conflict dialog and the editor's Clear button speak German too.** Twelve
+  translations were missing rather than hardcoded, which shows up as the same thing and is
+  easier to miss: the app quietly falls back to the English text, so the conflict dialog you
+  get when an imported context disagrees with your current one was English throughout, as were
+  the Clear button and its confirmation. Both languages now carry the same set of keys
+- **The German app says du throughout.** Sixteen strings had been written in the formal Sie
+  while everything around them used du, so the tone changed as you moved between screens - the
+  quit prompt, the paste dialog, the error screen, the Apple Intelligence note and most of the
+  settings descriptions among them
+
 ## [1.6.11] - 2026-09-17
 
 ### Fixed

@@ -496,7 +496,7 @@
                             ? 'border-primary bg-primary/5'
                             : 'border-muted'}"
                         role="region"
-                        aria-label="Drop zone"
+                        aria-label={$_("contexts.importDialog.dropZone")}
                     >
                         <div
                             class="w-16 h-16 rounded-full bg-muted flex items-center justify-center"
@@ -720,7 +720,12 @@
                             <span class="truncate">{importedFileName}</span>
                             {#if attachmentCount > 0}
                                 <span class="text-muted-foreground">
-                                    ({attachmentCount} attachments)
+                                    {$_(
+                                        attachmentCount === 1
+                                            ? "contexts.importDialog.attachment"
+                                            : "contexts.importDialog.attachments",
+                                        { values: { count: attachmentCount } },
+                                    )}
                                 </span>
                             {/if}
                         </div>
