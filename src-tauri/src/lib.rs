@@ -352,7 +352,22 @@ pub fn run() {
 
     #[cfg(not(debug_assertions))]
     {
-        builder = builder.plugin(tauri_plugin_log::Builder::default().build());
+        // The defaults log at TRACE, and Tauri's own `tracing` spans mean every IPC call
+        // writes about thirty lines. With the default 40 KB cap and a rotation that keeps
+        // one file, the log wiped itself roughly every five seconds of ordinary use - so
+        // `log_frontend_error`, added precisely so a webview error that wedges the UI
+        // leaves a trace on disk, was always gone before anyone could read it. It also
+        // meant a continuous few KB a second of synchronous disk writes on the IPC thread.
+        //
+        // Only this crate's own records are kept, and the file is given room to hold a
+        // session's worth of them.
+        builder = builder.plugin(
+            tauri_plugin_log::Builder::default()
+                .level(log::LevelFilter::Warn)
+                .level_for("app_lib", log::LevelFilter::Info)
+                .max_file_size(512_000)
+                .build(),
+        );
     }
 
     builder

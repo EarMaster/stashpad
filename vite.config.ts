@@ -27,7 +27,7 @@ export default defineConfig({
             output: {
                 manualChunks: {
                     // UI framework components
-                    'vendor-ui': ['bits-ui', 'lucide-svelte', 'svelte-dnd-action', '@thisux/sveltednd'],
+                    'vendor-ui': ['lucide-svelte', 'svelte-dnd-action', '@thisux/sveltednd'],
                     // Markdown rendering
                     'vendor-markdown': ['marked', 'marked-highlight'],
                     // Syntax highlighting (large — all language grammars)

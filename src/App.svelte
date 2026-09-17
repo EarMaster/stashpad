@@ -206,6 +206,40 @@
          }
       });
 
+      // A refresh that lands while the window is not on screen is deferred until it
+      // is, because nothing in the webview animates while the window is hidden.
+      //
+      // Chromium stops producing frames for a window that is hidden or fully covered,
+      // and every teardown in the UI hangs off one: a Svelte `transition:` ends when
+      // its Web Animation reports finished, an `animate:flip` ticks on
+      // `requestAnimationFrame`, and bits-ui unmounts a dialog from inside one. Change
+      // the queue while no frames are coming and those animations start but never end,
+      // so the elements they belong to are never removed and the layout is left part
+      // way through a move - the window comes back looking normal but wedged, and only
+      // a reload clears it. It is a sync from another machine that gets to do this,
+      // since it is the one thing that redraws the queue while nobody is looking.
+      //
+      // Deferring costs nothing: the refresh is for a view no one can see, and it runs
+      // the moment the window is back. While the window is visible this is a straight
+      // pass-through, hidden or not being the only thing it tests.
+      let refreshPending = false;
+
+      const requestRefresh = () => {
+         if (document.hidden) {
+            refreshPending = true;
+            return;
+         }
+         refreshTrigger++;
+      };
+
+      const handleVisibilityChange = () => {
+         if (document.hidden || !refreshPending) return;
+         refreshPending = false;
+         refreshTrigger++;
+      };
+
+      document.addEventListener("visibilitychange", handleVisibilityChange);
+
       // Periodic cleanup for "after-n-days" strategy (every 5 minutes)
       const cleanupInterval = setInterval(
          () => {
@@ -214,7 +248,7 @@
                   // Only when something was actually deleted. This fires every five
                   // minutes and usually has nothing to clean, so refreshing regardless
                   // reloaded the whole stash list for no reason.
-                  if (removed > 0) refreshTrigger++;
+                  if (removed > 0) requestRefresh();
                });
             }
          },
@@ -236,7 +270,7 @@
             // "success" meant those pulled stashes stayed invisible until something
             // else happened to reload the queue.
             if (appliedRemoteChanges) {
-               refreshTrigger++;
+               requestRefresh();
             }
          },
       );
@@ -252,6 +286,10 @@
          unlisten.then((f) => f());
          unlistenMenuUpdate.then((f) => f());
          clearInterval(cleanupInterval);
+         document.removeEventListener(
+            "visibilitychange",
+            handleVisibilityChange,
+         );
          unsubscribeSync();
          setLocalMutationListener(null);
          cloudSync.dispose();
