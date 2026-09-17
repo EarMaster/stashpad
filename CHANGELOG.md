@@ -11,6 +11,8 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+## [1.6.11] - 2026-09-17
+
 ### Fixed
 - **A sync arriving while Stashpad is in the background no longer leaves the window wedged.** If
   you also run Stashpad on another machine, its syncs redraw your queue while you are off in
