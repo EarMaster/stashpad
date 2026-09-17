@@ -1,6 +1,6 @@
 {
   "name": "stashpad",
-  "version": "1.6.10",
+  "version": "1.6.11",
   "description": "The staging area for your AI context.",
   "author": {
     "name": "Nico Wiedemann",
@@ -77,7 +77,6 @@
     "@tauri-apps/plugin-updater": "^2.10.0",
     "@thisux/sveltednd": "^0.0.20",
     "@types/dompurify": "^3.0.5",
-    "bits-ui": "^2.14.4",
     "clsx": "^2.1.1",
     "dompurify": "^3.3.2",
     "fuzzysort": "^3.1.0",

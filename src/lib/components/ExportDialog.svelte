@@ -5,7 +5,8 @@
 
 <script lang="ts">
     import { _, locale } from "$lib/i18n";
-    import { Dialog } from "bits-ui";
+    import { portal } from "$lib/actions/portal";
+    import { trapFocus } from "$lib/actions/trapFocus";
     import { save } from "@tauri-apps/plugin-dialog";
     import { stat } from "@tauri-apps/plugin-fs";
     import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
@@ -215,11 +216,22 @@
     }
 
 
+    const uid = $props.id();
+    const titleId = `${uid}-title`;
+    const descriptionId = `${uid}-description`;
+
     /**
      * Handle dialog close
      */
     function handleClose() {
         open = false;
+    }
+
+    function handleKeydown(event: KeyboardEvent) {
+        if (open && event.key === "Escape") {
+            event.preventDefault();
+            handleClose();
+        }
     }
 
     /**
@@ -233,29 +245,55 @@
     }
 </script>
 
-<Dialog.Root bind:open onOpenChange={(v) => (open = v)}>
-    <Dialog.Portal>
-        <Dialog.Overlay
-            class="fixed inset-0 z-[100] bg-black/50 backdrop-blur-sm animate-in fade-in-0"
-        />
-        <Dialog.Content
-            class="fixed left-[50%] top-[50%] z-[100] w-full max-w-2xl translate-x-[-50%] translate-y-[-50%] outline-none max-h-[85vh] flex flex-col animate-in zoom-in-95 fade-in-0 duration-200"
-        >
+<svelte:window onkeydown={handleKeydown} />
+
+<!--
+  A plain `{#if}` overlay rather than a bits-ui Dialog. See the note in CloudAuthModal:
+  bits-ui unmounts a dialog from inside a `requestAnimationFrame` that waits on the
+  panel's animations to settle, and a window that is not painting frames never gets
+  there - the closed dialog stays in the DOM with `pointer-events: none` still on
+  `<body>`, so the app looks fine and ignores every click until a reload. This dialog
+  hands the foreground to the OS file picker partway through, which is exactly when a
+  window stops being painted, so it is a close that can land in that gap. `{#if}` tears
+  the panel down synchronously, painted or not, and the entry animation is gone because
+  one that starts at `opacity: 0` would leave the panel invisible for as long as the
+  window is hidden.
+-->
+{#if open}
+    <div
+        use:portal={"body"}
+        class="fixed inset-0 z-[100] bg-black/50 backdrop-blur-sm"
+        role="presentation"
+        onclick={handleClose}
+    ></div>
+
+    <div
+        use:portal={"body"}
+        use:trapFocus
+        class="fixed left-[50%] top-[50%] z-[100] w-full max-w-2xl translate-x-[-50%] translate-y-[-50%] outline-none max-h-[85vh] flex flex-col"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={descriptionId}
+        tabindex="-1"
+    >
             <div
                 class="bg-popover text-popover-foreground border-border border shadow-lg rounded-lg flex flex-col overflow-hidden"
             >
                 <!-- Header -->
                 <div class="px-4 py-3 border-b border-border shrink-0">
-                    <Dialog.Title
+                    <h2
+                        id={titleId}
                         class="text-base font-semibold block tracking-tight"
                     >
                         {$_("contexts.exportDialog.title")}: {context.name}
-                    </Dialog.Title>
-                    <Dialog.Description
+                    </h2>
+                    <p
+                        id={descriptionId}
                         class="text-xs text-muted-foreground mt-0.5"
                     >
                         {$_("contexts.exportDialog.selectStashes")}
-                    </Dialog.Description>
+                    </p>
                 </div>
 
                 <!-- Stash List -->
@@ -486,6 +524,5 @@
                     </div>
                 </div>
             </div>
-        </Dialog.Content>
-    </Dialog.Portal>
-</Dialog.Root>
+    </div>
+{/if}

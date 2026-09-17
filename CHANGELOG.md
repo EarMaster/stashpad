@@ -11,6 +11,28 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+## [1.6.11] - 2026-09-17
+
+### Fixed
+- **A sync arriving while Stashpad is in the background no longer leaves the window wedged.** If
+  you also run Stashpad on another machine, its syncs redraw your queue while you are off in
+  another application - and a window that is hidden or completely covered is one Chromium has
+  stopped drawing frames for. Everything that clears an element away waits on a frame: a fading
+  panel ends when its animation reports finished, a card sliding into its new position ticks once
+  per frame, a dialog unmounts from inside one. Redrawing the queue then starts animations that
+  never end, so nothing is taken back down and the layout is left part way through a move. You
+  came back to a window that looked normal and ignored every click, with a reload the only way
+  out. A refresh that arrives while the window is off screen now waits until it is back, which is
+  the first moment anyone could have seen it anyway
+- **Import, export and the confirmation prompts can no longer wedge the window either.** They
+  were the last dialogs built on a library that takes its panel back down from inside an
+  animation frame, so a close that landed while the window was not being drawn left an
+  invisible sheet over the app that swallowed every click. Import and export are the two that
+  could arrange this unaided: both hand the screen to the system file picker partway through,
+  which is the moment the window stops being drawn. All of them now close outright rather than
+  waiting to be animated away. Escape, clicking outside, and tabbing within the panel work as
+  before, and closing one now returns you to whatever you were on when it opened
+
 ## [1.6.10] - 2026-09-06
 
 ### Fixed

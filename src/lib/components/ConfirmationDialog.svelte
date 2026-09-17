@@ -5,7 +5,8 @@
 
 <script lang="ts">
     import { _ } from "$lib/i18n";
-    import { Dialog } from "bits-ui";
+    import { portal } from "$lib/actions/portal";
+    import { trapFocus } from "$lib/actions/trapFocus";
 
     let {
         open = $bindable(false),
@@ -31,6 +32,12 @@
     let confirmBtn = $state<HTMLButtonElement | null>(null);
     let hasOpened = $state(false);
 
+    // Several of these exist on screen at once - Queue alone mounts three - so the
+    // ids that tie the panel to its heading have to be per instance.
+    const uid = $props.id();
+    const titleId = `${uid}-title`;
+    const descriptionId = `${uid}-description`;
+
     let finalConfirmText = $derived(confirmText || $_("common.save"));
     let finalCancelText = $derived(cancelText || $_("common.cancel"));
 
@@ -49,6 +56,19 @@
         }
     });
 
+    // The confirm button is the default target, as it was under bits-ui. `trapFocus`
+    // has already put focus on Cancel by the time this runs, so this moves it on.
+    $effect(() => {
+        if (open) confirmBtn?.focus();
+    });
+
+    function handleKeydown(event: KeyboardEvent) {
+        if (open && event.key === "Escape") {
+            event.preventDefault();
+            handleCancel();
+        }
+    }
+
     function handleCancel() {
         open = false;
     }
@@ -64,52 +84,76 @@
     }
 </script>
 
-<Dialog.Root bind:open onOpenChange={(v) => (open = v)}>
-    <Dialog.Portal>
-        <Dialog.Overlay
-            class="fixed inset-0 z-[100] bg-black/50 backdrop-blur-sm animate-in fade-in-0 duration-150"
-        />
-        <Dialog.Content
-            class="fixed left-[50%] top-[50%] z-[100] w-full max-w-sm translate-x-[-50%] translate-y-[-50%] outline-none animate-in zoom-in-95 fade-in-0 duration-200"
-            onOpenAutoFocus={(e) => {
-                e.preventDefault();
-                confirmBtn?.focus();
-            }}
-        >
-            <div
-                class="bg-popover text-popover-foreground border-border border shadow-lg rounded-lg p-6 space-y-4"
-            >
-                <div class="space-y-2">
-                    <Dialog.Title
-                        class="text-lg font-semibold block tracking-tight"
-                    >
-                        {title}
-                    </Dialog.Title>
-                    <Dialog.Description class="text-sm text-muted-foreground">
-                        {description}
-                    </Dialog.Description>
-                </div>
+<svelte:window onkeydown={handleKeydown} />
 
-                <div class="flex justify-end gap-2">
-                    <button
-                        type="button"
-                        class="px-3 py-2 text-sm font-medium hover:bg-muted rounded-md transition-colors"
-                        onclick={handleCancel}
-                    >
-                        {finalCancelText}
-                    </button>
-                    <button
-                        bind:this={confirmBtn}
-                        type="button"
-                        class="{variant === 'destructive'
-                            ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90'
-                            : 'bg-primary text-primary-foreground hover:bg-primary/90'} px-3 py-2 text-sm font-medium rounded-md transition-colors"
-                        onclick={handleConfirm}
-                    >
-                        {finalConfirmText}
-                    </button>
-                </div>
+<!--
+  A plain `{#if}` overlay rather than a bits-ui Dialog, for the reason set out at
+  length in CloudAuthModal: bits-ui unmounts a dialog from inside a
+  `requestAnimationFrame` that waits on the panel's animations to settle, and a window
+  that is not painting frames never gets there. The closed dialog then stays in the DOM
+  with `pointer-events: none` still on `<body>`, so the app looks fine and ignores every
+  click until a reload. A sync from another machine is enough to land a close in that
+  window. `{#if}` tears the panel down synchronously, painted or not.
+
+  For the same reason there is no entry animation: one that starts at `opacity: 0` and
+  waits on frames would leave the panel invisible for as long as the window is hidden.
+
+  Both halves are portalled to `<body>` because these are mounted deep inside the queue
+  and the editor, where an ancestor with a transform or a filter would otherwise make
+  `position: fixed` resolve against that ancestor instead of the viewport.
+-->
+{#if open}
+    <div
+        use:portal={"body"}
+        class="fixed inset-0 z-[100] bg-black/50 backdrop-blur-sm"
+        role="presentation"
+        onclick={handleCancel}
+    ></div>
+
+    <div
+        use:portal={"body"}
+        use:trapFocus
+        class="fixed left-[50%] top-[50%] z-[100] w-full max-w-sm translate-x-[-50%] translate-y-[-50%] outline-none"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={descriptionId}
+        tabindex="-1"
+    >
+        <div
+            class="bg-popover text-popover-foreground border-border border shadow-lg rounded-lg p-6 space-y-4"
+        >
+            <div class="space-y-2">
+                <h2
+                    id={titleId}
+                    class="text-lg font-semibold block tracking-tight"
+                >
+                    {title}
+                </h2>
+                <p id={descriptionId} class="text-sm text-muted-foreground">
+                    {description}
+                </p>
             </div>
-        </Dialog.Content>
-    </Dialog.Portal>
-</Dialog.Root>
+
+            <div class="flex justify-end gap-2">
+                <button
+                    type="button"
+                    class="px-3 py-2 text-sm font-medium hover:bg-muted rounded-md transition-colors"
+                    onclick={handleCancel}
+                >
+                    {finalCancelText}
+                </button>
+                <button
+                    bind:this={confirmBtn}
+                    type="button"
+                    class="{variant === 'destructive'
+                        ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90'
+                        : 'bg-primary text-primary-foreground hover:bg-primary/90'} px-3 py-2 text-sm font-medium rounded-md transition-colors"
+                    onclick={handleConfirm}
+                >
+                    {finalConfirmText}
+                </button>
+            </div>
+        </div>
+    </div>
+{/if}
