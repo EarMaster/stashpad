@@ -11,6 +11,15 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+### Added
+- **Stashpad installs on ARM machines running Linux or Windows now.** Every release carried one
+  Linux package set and one Windows installer, both for Intel and AMD processors, and only macOS
+  shipped for two architectures - so an ARM Ubuntu machine or a Snapdragon Windows laptop had
+  nothing to install at all. Releases now carry arm64 Linux packages and an arm64 Windows
+  installer beside the existing ones; pick the file with `arm64` or `aarch64` in its name.
+  Machines already running Stashpad are unaffected and keep updating to the build they were
+  installed from
+
 ### Fixed
 - **The last English leftovers in a German app are translated.** The Resize Images switch was the
   visible one: its label, its explanation and the warning shown once you turn it off sat in the

@@ -36,6 +36,10 @@ On macOS, pick the build that matches your chip — check  → About This Mac:
 | Apple Silicon (M1–M4) | `stashpad_<version>_aarch64.dmg` |
 | Intel | `stashpad_<version>_x64.dmg` |
 
+Linux and Windows ship for two architectures as well: `amd64`, `x64` and `x86_64` in a file
+name mean an Intel or AMD machine, `arm64` and `aarch64` mean an ARM one - a Snapdragon
+Windows laptop, a Raspberry Pi, or an Ampere or Graviton server.
+
 The `.app.tar.gz` files are used by the in-app updater and are not meant for manual installation.
 
 ### ⚠️ macOS: "Stashpad is damaged and cannot be opened"

@@ -20,7 +20,7 @@ which:
    composes the release notes once.
 2. `test` — the full suite from `test.yml`, as a reusable workflow.
 3. `draft` — creates a **draft release**. No git tag exists at this point.
-4. `build` — four platforms, uploading into that draft by its numeric id.
+4. `build` — six platforms, uploading into that draft by its numeric id.
 5. `publish` — verifies the assets, then publishes. **Publishing is what creates the tag.**
 
 A build that fails leaves no tag. `cleanup` deletes the draft and the version stays
