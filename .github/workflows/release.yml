@@ -307,11 +307,18 @@ jobs:
           # unattended-upgrades can hold on a fresh runner.
           APT_OPTS="-o DPkg::Lock::Timeout=120"
 
+          # xdg-utils is not a build dependency - it is `xdg-mime`, which tauri's AppImage
+          # bundler copies out of /usr/bin into the AppDir. The x86_64 runner image ships it
+          # and the arm64 one does not, so the first arm64 release built its binary, bundled
+          # the deb and the rpm, and then died on the AppImage with "xdg-mime binary not
+          # found" - twenty-five minutes in, taking the whole release with it. Installed on
+          # both legs rather than conditionally: it is already there on x86_64, so the
+          # install is a no-op and the two legs stay one code path.
           for attempt in 1 2 3; do
             echo "::group::apt attempt $attempt"
             if sudo apt-get $APT_OPTS update && sudo apt-get $APT_OPTS install -y \
                  libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
-                 librsvg2-dev libssl-dev pkg-config libasound2-dev; then
+                 librsvg2-dev libssl-dev pkg-config libasound2-dev xdg-utils; then
               echo "::endgroup::"
               exit 0
             fi
