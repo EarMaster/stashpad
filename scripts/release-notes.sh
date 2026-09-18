@@ -95,6 +95,8 @@ cat <<'BOILERPLATE'
 ---
 
 **macOS:** choose `aarch64` for Apple Silicon (M1-M4) or `x64` for Intel.
+
+**Linux and Windows:** `amd64`, `x64` and `x86_64` are the Intel/AMD builds; `arm64` and `aarch64` are for ARM machines.
 BOILERPLATE
 
 # Without notarization every macOS user sees "damaged and cannot be opened" and most will

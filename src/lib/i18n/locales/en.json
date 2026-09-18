@@ -83,6 +83,11 @@
         "shiftModifier": "Hold Shift while pasting to always paste as inline text",
         "unit": "Bytes"
       },
+      "resizeImages": {
+        "label": "Resize Images",
+        "description": "Automatically resize large images to save tokens.",
+        "warning": "⚠️ Strongly encouraged to keep enabled to avoid exceeding token limits."
+      },
       "autostart": {
         "label": "Launch on Startup",
         "description": "Automatically start Stashpad when your computer starts"
@@ -130,7 +135,8 @@
     },
     "clearCompletedDays": {
       "label": "Days to Keep",
-      "description": "Days to keep completed stashes before deleting"
+      "description": "Days to keep completed stashes before deleting",
+      "unit": "Days"
     },
     "aiEnhancement": {
       "title": "Prompt Enhancement",
@@ -170,7 +176,8 @@
       },
       "testConnection": "Test Connection",
       "testSuccess": "Connection successful!",
-      "testFailed": "Connection failed: {error}"
+      "testFailed": "Connection failed: {error}",
+      "corsHint": "(Check if 'Cross-Origin (CORS)' is enabled in LM Studio settings)"
     },
     "updates": {
       "checkForUpdates": "Check for Updates…",
@@ -196,6 +203,11 @@
       }
     },
     "cloudSync": {
+      "subscription": {
+        "label": "Subscription",
+        "active": "Active",
+        "freeNote": "Cloud sync requires a subscription"
+      },
       "usage": {
         "attachments": "{count} attachments",
         "records": "{stashes} stashes, {contexts} contexts",
@@ -285,6 +297,9 @@
       "title": "Import Context",
       "selectStashes": "Select stashes to import",
       "selectFile": "Select Export File",
+      "dropZone": "Drop zone",
+      "attachment": "({count} attachment)",
+      "attachments": "({count} attachments)",
       "selectFileDesc": "Import stashes from a Stashpad export file (.md or .zip)",
       "supportedFormats": "Supports .md and .zip files",
       "chooseFile": "Choose File",
@@ -296,7 +311,7 @@
       "import": "Import Selected",
       "selectedCount": "{count} stashes selected",
       "conflictTitle": "Metadata Conflict",
-      "conflictDescription": " The imported context has different metadata than your current context. Please choose which values to keep.",
+      "conflictDescription": "The imported context has different metadata than your current context. Please choose which values to keep.",
       "confirmImport": "Confirm Import"
     },
     "rules": {
@@ -406,6 +421,9 @@
     "dropFiles": "Drop attachment(s) to stash",
     "dragFilesHere": "or drag attachments here…",
     "addFile": "Add attachments",
+    "selectFilesTitle": "Select files to attach",
+    "removeFile": "Remove file",
+    "regionLabel": "Stash editor",
     "bold": "Bold",
     "italic": "Italic",
     "heading": "Heading",

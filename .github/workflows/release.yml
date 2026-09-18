@@ -4,7 +4,7 @@ name: Release
 # release commit on `develop` and stops, and `git tag` / `gh release` are denied to it at the
 # permission layer.
 #
-# The tag is created *last*, by publishing the draft, and only after all four platforms have
+# The tag is created *last*, by publishing the draft, and only after every platform has
 # built. v1.6.9 was tagged first: two of four builds then failed, leaving a tag asserting a
 # version that did not exist and a draft holding half its assets, and recovery needed a remote
 # tag deleted by hand. Under this shape a failed build leaves nothing behind to clean up.
@@ -14,7 +14,7 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: 'Build all four platforms and upload nothing'
+        description: 'Build every platform and upload nothing'
         type: boolean
         default: true
       scratch_tag:
@@ -102,7 +102,7 @@ jobs:
 
           if [ "$DRY_RUN" = "true" ]; then
             echo "should_release=false" >> "$GITHUB_OUTPUT"
-            echo "Dry run: building four platforms, uploading nothing."
+            echo "Dry run: building every platform, uploading nothing."
             exit 0
           fi
 
@@ -193,7 +193,7 @@ jobs:
           # nothing that needs a `git push --delete` to undo.
           #
           # target_commitish is pinned to this run's SHA rather than left to default to the
-          # branch: main may have moved by the time four builds finish, and the tag has to name
+          # branch: main may have moved by the time the builds finish, and the tag has to name
           # the commit that was actually built.
           #
           # Created through the API rather than `gh release create` because only the API returns
@@ -226,17 +226,30 @@ jobs:
     permissions:
       contents: write
     strategy:
-      # Knowing it is one platform and not four is worth the CI minutes.
+      # Knowing it is one platform and not all six is worth the CI minutes.
       fail-fast: false
+      # The two `-arm` runners are native arm64 hosts, so their `args` stay empty: no --target,
+      # no sysroot, no cross, no QEMU. They are free for public repositories, which this repo
+      # has to be anyway for the updater endpoint to resolve. macOS is the only platform that
+      # needs `--target`, because both its architectures build on the same runner.
+      #
+      # Adding them makes six release blockers out of four: `publish` runs only when every leg
+      # succeeds and `cleanup` deletes the draft otherwise, so two more legs are two more ways
+      # for a release to fail wholesale. That is the intended trade - a release that ships half
+      # the platforms it announces is worse than one that does not ship.
       matrix:
         include:
           - platform: 'macos-latest' # for Arm64
             args: '--target aarch64-apple-darwin'
           - platform: 'macos-latest' # for Intel
             args: '--target x86_64-apple-darwin'
-          - platform: 'ubuntu-22.04' # for Linux
+          - platform: 'ubuntu-22.04' # for Linux x86_64
             args: ''
-          - platform: 'windows-latest' # for Windows
+          - platform: 'ubuntu-22.04-arm' # for Linux arm64
+            args: ''
+          - platform: 'windows-latest' # for Windows x86_64
+            args: ''
+          - platform: 'windows-11-arm' # for Windows arm64
             args: ''
 
     runs-on: ${{ matrix.platform }}
@@ -252,8 +265,11 @@ jobs:
       # Must run *before* setup-node: this deletes $AGENT_TOOLSDIRECTORY, which is the tool
       # cache setup-node installs Node into. Running it afterwards removes the very toolchain
       # the next steps depend on.
+      #
+      # `startsWith`, not `==`: ubuntu-22.04-arm is a different runner label and an exact
+      # match would quietly skip this on the arm64 leg.
       - name: Free Disk Space (Ubuntu)
-        if: matrix.platform == 'ubuntu-22.04'
+        if: startsWith(matrix.platform, 'ubuntu-')
         run: |
           sudo rm -rf /usr/share/dotnet
           sudo rm -rf /usr/local/lib/android
@@ -275,8 +291,10 @@ jobs:
           # Those targets are only used on macos runners so it's skip on linux and windows
           targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
+      # Same widening as above, and it matters more here: skipping this step does not fail
+      # the leg, it fails the build twenty minutes later with a missing webkit2gtk.
       - name: install dependencies (ubuntu only)
-        if: matrix.platform == 'ubuntu-22.04'
+        if: startsWith(matrix.platform, 'ubuntu-')
         # Bounded separately from the job: this step has hung indefinitely on the ubuntu-22.04
         # image while the same commit installed fine on ubuntu-latest, so it is worth failing
         # in minutes rather than blocking the whole release.
@@ -375,7 +393,7 @@ jobs:
           fi
 
       # Downloaded rather than recomposed. This text reaches latest.json's `notes` field, which
-      # is what the in-app updater renders, and composing it four more times is four more
+      # is what the in-app updater renders, and composing it once per leg is five more
       # chances for the release body and the update notes to come apart - which is how they
       # came apart before.
       - uses: actions/download-artifact@v4
@@ -398,7 +416,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           # releaseId, never tagName alone. With an id set, the action uploads straight to that
-          # release and never calls getOrCreateRelease - which its own README warns four
+          # release and never calls getOrCreateRelease - which its own README warns
           # parallel legs must not do. For a *draft* it is worse than a warning: a draft cannot
           # be fetched by tag, so getOrCreateRelease falls back to paginating every release, and
           # two legs that both missed would each create their own draft under the same tag_name.
@@ -418,7 +436,7 @@ jobs:
           # Blanked on a dry run, and that is load-bearing rather than tidy: `tagName` set with
           # `releaseId` empty is exactly the combination that sends the action into
           # getOrCreateRelease, so a rehearsal meant to upload nothing would instead create a
-          # real release - four times over, racing.
+          # real release - six times over, racing.
           tagName: ${{ needs.prepare.outputs.should_release == 'true' && needs.prepare.outputs.tag || '' }}
 
           # latest.json's `notes`. The release page's body was written by the `draft` job and is
@@ -442,7 +460,7 @@ jobs:
   publish:
     name: Publish release
     needs: [prepare, draft, build]
-    # `needs.build.result` is 'success' only when all four legs succeeded. With fail-fast: false
+    # `needs.build.result` is 'success' only when every leg succeeded. With fail-fast: false
     # a single failed leg leaves it 'failure', and this job never runs.
     if: needs.prepare.outputs.should_release == 'true' && needs.build.result == 'success'
     runs-on: ubuntu-latest
@@ -483,9 +501,10 @@ jobs:
           echo "::endgroup::"
 
           # latest.json is merged in place by each leg in turn, so a partial matrix produces a
-          # *valid* manifest describing only the platforms that built. These four keys are the
+          # *valid* manifest describing only the platforms that built. These six keys are the
           # ones installed apps look up.
-          for KEY in darwin-aarch64 darwin-x86_64 linux-x86_64 windows-x86_64; do
+          for KEY in darwin-aarch64 darwin-x86_64 linux-x86_64 linux-aarch64 \
+                     windows-x86_64 windows-aarch64; do
             jq -e --arg k "$KEY" '.platforms[$k].url and .platforms[$k].signature' latest.json >/dev/null \
               || { echo "::error::latest.json has no signed entry for $KEY."; exit 1; }
           done
@@ -562,7 +581,8 @@ jobs:
             echo
             echo "- <https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG>"
             echo "- tag created at \`$GITHUB_SHA\`"
-            echo "- \`latest.json\` verified for darwin-aarch64, darwin-x86_64, linux-x86_64, windows-x86_64"
+            echo "- \`latest.json\` verified for darwin-aarch64, darwin-x86_64, linux-x86_64,"
+            echo "  linux-aarch64, windows-x86_64 and windows-aarch64"
           } >> "$GITHUB_STEP_SUMMARY"
 
   cleanup:
@@ -583,7 +603,7 @@ jobs:
           # manual incident.
           #
           # The assets that did build go with it. Twenty minutes of rebuild is cheaper than a
-          # draft holding two platforms out of four, sitting there looking publishable.
+          # draft holding two platforms out of six, sitting there looking publishable.
           gh api "repos/$GITHUB_REPOSITORY/releases/${{ needs.draft.outputs.release_id }}" --method DELETE
           {
             echo "### Not released"

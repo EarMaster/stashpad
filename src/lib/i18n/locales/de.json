@@ -28,6 +28,8 @@
     "unknown": "Unbekannt",
     "close": "Schließen",
     "minimize": "Minimieren",
+    "current": "Aktuell",
+    "imported": "Importiert",
     "select": "Auswählen…"
   },
   "header": {
@@ -35,6 +37,7 @@
     "manualContext": "Manueller Kontext",
     "settings": "Einstellungen",
     "checking": "Prüfe…",
+    "calculating": "Berechne…",
     "updateAvailable": "Update auf {version} verfügbar"
   },
   "settings": {
@@ -44,7 +47,7 @@
     "contextManagement": {
       "title": "Kontextverwaltung",
       "manageContexts": "Kontexte verwalten",
-      "description": "Konfigurieren Sie benutzerdefinierte Kontexte und Auto-Wechsel-Regeln"
+      "description": "Konfiguriere benutzerdefinierte Kontexte und Auto-Wechsel-Regeln"
     },
     "general": {
       "title": "Allgemein",
@@ -57,7 +60,7 @@
       },
       "language": {
         "label": "Sprache",
-        "description": "Wählen Sie Ihre bevorzugte Sprache",
+        "description": "Wähle deine bevorzugte Sprache",
         "automatic": "Automatisch",
         "automaticDescription": "Systemspracheinstellungen verwenden"
       },
@@ -80,6 +83,11 @@
         "shiftModifier": "Shift halten beim Einfügen, um immer als Text einzufügen",
         "unit": "Bytes"
       },
+      "resizeImages": {
+        "label": "Bilder verkleinern",
+        "description": "Große Bilder automatisch verkleinern, um Tokens zu sparen.",
+        "warning": "⚠️ Sollte aktiviert bleiben, um Token-Limits nicht zu überschreiten."
+      },
       "autostart": {
         "label": "Beim Start ausführen",
         "description": "Stashpad automatisch beim Systemstart starten"
@@ -101,7 +109,7 @@
       },
       "uiScale": {
         "label": "Größe der Benutzeroberfläche",
-        "description": "Passen Sie die Größe der Benutzeroberfläche an"
+        "description": "Passe die Größe der Benutzeroberfläche an"
       }
     },
     "shortcuts": {
@@ -127,7 +135,8 @@
     },
     "clearCompletedDays": {
       "label": "Aufbewahrungsdauer",
-      "description": "Tage, die erledigte Stashes aufbewahrt werden"
+      "description": "Tage, die erledigte Stashes aufbewahrt werden",
+      "unit": "Tage"
     },
     "aiEnhancement": {
       "title": "Prompt Verbesserung",
@@ -137,7 +146,7 @@
       },
       "provider": {
         "label": "Anbieter",
-        "description": "Wählen Sie einen Anbieter oder Benutzerdefiniert",
+        "description": "Wähle einen Anbieter oder Benutzerdefiniert",
         "custom": "Benutzerdefiniert"
       },
       "endpoint": {
@@ -146,7 +155,7 @@
       },
       "apiKey": {
         "label": "API-Schlüssel",
-        "description": "Ihr API-Schlüssel (optional)",
+        "description": "Dein API-Schlüssel (optional)",
         "show": "API-Schlüssel anzeigen",
         "hide": "API-Schlüssel verbergen"
       },
@@ -158,21 +167,24 @@
         "label": "System-Prompt",
         "description": "Die Anweisungen für die KI-Optimierung. Diese sind in einer externen Datei gespeichert.",
         "edit": "Prompt-Datei bearbeiten",
+      "create": "Erstellen und öffnen",
+      "fallbackHint": "Es wird der Standard-Prompt verwendet. Erstelle die Datei, um die Anweisungen anzupassen.",
         "reloaded": "System-Prompt wurde von der Festplatte neu geladen"
       },
       "appleIntelligence": {
-        "info": "Apple Intelligence läuft vollständig auf Ihrem Gerät. Ihre Daten verlassen niemals Ihren Mac, und es ist kein API-Schlüssel oder eine Internetverbindung für die Verbesserung erforderlich."
+        "info": "Apple Intelligence läuft vollständig auf deinem Gerät. Deine Daten verlassen niemals deinen Mac, und es ist kein API-Schlüssel oder eine Internetverbindung für die Verbesserung erforderlich."
       },
       "testConnection": "Verbindung testen",
       "testSuccess": "Verbindung erfolgreich!",
-      "testFailed": "Verbindung fehlgeschlagen: {error}"
+      "testFailed": "Verbindung fehlgeschlagen: {error}",
+      "corsHint": "(Prüfe, ob 'Cross-Origin (CORS)' in den LM-Studio-Einstellungen aktiviert ist)"
     },
     "updates": {
       "checkForUpdates": "Nach Updates suchen…",
       "checking": "Suche…",
       "updateAvailable": "Update verfügbar",
       "noUpdateTitle": "Kein Update verfügbar",
-      "noUpdateMessage": "Sie verwenden bereits die neueste Version von Stashpad.",
+      "noUpdateMessage": "Du verwendest bereits die neueste Version von Stashpad.",
       "sectionTitle": "Updates",
       "currentVersion": "Stashpad {version}",
       "availableVersion": "Version {version} ist verfügbar",
@@ -191,6 +203,11 @@
       }
     },
     "cloudSync": {
+      "subscription": {
+        "label": "Abonnement",
+        "active": "Aktiv",
+        "freeNote": "Cloud-Synchronisierung erfordert ein Abonnement"
+      },
       "usage": {
         "attachments": "{count} Anhänge",
         "records": "{stashes} Stashes, {contexts} Kontexte",
@@ -204,7 +221,7 @@
       },
       "enable": {
         "label": "Cloud-Sync aktivieren",
-        "description": "Synchronisieren Sie Ihre Stashes und Kontexte geräteübergreifend"
+        "description": "Synchronisiere deine Stashes und Kontexte geräteübergreifend"
       },
       "endpoint": {
         "label": "API-Endpunkt",
@@ -243,7 +260,7 @@
     "defaultContext": "Standard",
     "back": "Zurück",
     "loadingContexts": "Kontexte werden geladen…",
-    "manageDescription": "Verwalten Sie Ihre Kontexte und Auto-Wechsel-Regeln.",
+    "manageDescription": "Verwalte deine Kontexte und Auto-Wechsel-Regeln.",
     "addContext": "Kontext hinzufügen",
     "addRule": "Regel hinzufügen",
     "newContext": "Neuer Kontext",
@@ -279,6 +296,9 @@
       "unreadableDates": "Bei {count} Stash(es) war das Erstellungsdatum nicht lesbar - sie erhalten den Zeitpunkt des Imports.",
       "title": "Stashes importieren",
       "selectFile": "Datei auswählen",
+      "dropZone": "Ablagebereich",
+      "attachment": "({count} Anhang)",
+      "attachments": "({count} Anhänge)",
       "selectFileDesc": "Wähle eine Stashpad-Exportdatei zum Importieren",
       "selectStashes": "Stashes zum Importieren auswählen",
       "supportedFormats": "Unterstützt .md und .zip Dateien aus Stashpad",
@@ -286,10 +306,13 @@
       "parsing": "Lädt…",
       "import": "Importieren",
       "noStashesFound": "Keine Stashes in Datei gefunden",
-      "duplicate": "Duplikat",
       "duplicateTooltip": "Dieser Stash existiert möglicherweise bereits in deiner Warteschlange",
       "duplicatesFound": "{count} mögliche Duplikate gefunden",
-      "dropToImport": "oder Datei hier ablegen"
+      "dropToImport": "oder Datei hier ablegen",
+      "selectedCount": "{count} Stashes ausgewählt",
+      "conflictTitle": "Metadaten-Konflikt",
+      "conflictDescription": "Der importierte Kontext hat andere Metadaten als dein aktueller Kontext. Wähle, welche Werte behalten werden sollen.",
+      "confirmImport": "Import bestätigen"
     },
     "rules": {
       "process": "Prozessname",
@@ -398,6 +421,9 @@
     "dropFiles": "Anhänge hier ablegen",
     "dragFilesHere": "oder hierher ziehen…",
     "addFile": "Anhänge hinzufügen",
+    "selectFilesTitle": "Dateien zum Anhängen auswählen",
+    "removeFile": "Datei entfernen",
+    "regionLabel": "Stash-Editor",
     "bold": "Fett",
     "italic": "Kursiv",
     "heading": "Überschrift",
@@ -408,24 +434,29 @@
     "expand": "Editor maximieren",
     "collapse": "Editor minimieren",
     "pasteChoice": {
-      "title": "Wie möchten Sie einfügen?",
+      "title": "Wie möchtest du einfügen?",
       "description": "Der eingefügte Inhalt kann als Text hinzugefügt oder als Dateianhang gespeichert werden.",
       "inline": "Als Text einfügen",
       "attachment": "Als Anhang speichern"
+    },
+    "clear": "Leeren",
+    "clearConfirm": {
+      "title": "Editor leeren?",
+      "description": "Dies entfernt den gesamten Text und alle Anhänge. Diese Aktion kann nicht rückgängig gemacht werden."
     }
   },
   "shortcutInput": {
-    "ariaLabel": "Tastenkürzel-Eingabe. Drücken Sie Enter, um ein neues Tastenkürzel aufzuzeichnen."
+    "ariaLabel": "Tastenkürzel-Eingabe. Drücke Enter, um ein neues Tastenkürzel aufzuzeichnen."
   },
   "errorBoundary": {
     "title": "Etwas ist schiefgelaufen",
-    "description": "Dieser Teil der App reagiert nicht mehr. Ihre Stashes sind auf der Festplatte sicher. Details wurden in das App-Protokoll geschrieben.",
+    "description": "Dieser Teil der App reagiert nicht mehr. Deine Stashes sind auf der Festplatte sicher. Details wurden in das App-Protokoll geschrieben.",
     "tryAgain": "Erneut versuchen",
     "reload": "Neu laden"
   },
   "exitDialog": {
     "title": "Entwurf verwerfen?",
-    "description": "Sie haben ungespeicherte Inhalte im Editor. Möchten Sie wirklich beenden?",
+    "description": "Du hast ungespeicherte Inhalte im Editor. Möchtest du wirklich beenden?",
     "discardAndExit": "Verwerfen & Beenden"
   },
   "filePreview": {
@@ -433,7 +464,7 @@
     "dragOrClickToPreview": "Ziehen zum Exportieren, klicken für Vorschau",
     "openLocation": "Speicherort öffnen",
     "unsupportedType": "Vorschau für diesen Anhang-Typ nicht verfügbar",
-    "videoNotSupported": "Ihr Browser unterstützt keine Videowiedergabe",
+    "videoNotSupported": "Dein Browser unterstützt keine Videowiedergabe",
     "selectLanguage": "Sprache für Syntaxhervorhebung auswählen"
   },
   "attachments": {
@@ -445,10 +476,10 @@
     "version": "Version {version}",
     "notesHeading": "Release-Hinweise",
     "installAndRestart": "Installieren und neu starten",
-    "howToUpdate": "Stashpad wurde mit {pmName} installiert. Aktualisieren Sie es dort:",
+    "howToUpdate": "Stashpad wurde mit {pmName} installiert. Aktualisiere es dort:",
     "managedByStore": "Updates für diese Installation übernimmt {storeName}.",
     "remindLater": "In 7 Tagen erneut erinnern",
     "skipVersion": "{version} überspringen",
-    "updateExternally": "Diese Stashpad-Installation wird außerhalb der App verwaltet. Aktualisieren Sie sie so, wie Sie sie installiert haben."
+    "updateExternally": "Diese Stashpad-Installation wird außerhalb der App verwaltet. Aktualisiere sie so, wie du sie installiert hast."
   }
 }

@@ -419,8 +419,7 @@
         errorMsg.includes("Load failed") &&
         isLocalAIProvider(settings.aiConfig)
       ) {
-        errorMsg +=
-          " (Check if 'Cross-Origin (CORS)' is enabled in LM Studio settings)";
+        errorMsg += " " + $_("settings.aiEnhancement.corsHint");
       }
 
       connectionTestResult = {
@@ -854,21 +853,23 @@
               transition:fade={{ duration: 150 }}
             >
               <div class="space-y-0.5 flex-1 mr-4">
-                <div class="text-sm font-medium">Subscription</div>
+                <div class="text-sm font-medium">
+                  {$_("settings.cloudSync.subscription.label")}
+                </div>
                 <div class="text-xs text-muted-foreground">
                   {#if settings.cloudConfig.subscriptionTier === "pro"}
                     <span class="text-blue-500 font-medium">Pro</span>
                     {#if settings.cloudConfig.subscriptionStatus === "active"}
-                      — Active
+                      — {$_("settings.cloudSync.subscription.active")}
                     {:else if settings.cloudConfig.subscriptionStatus}
                       — {settings.cloudConfig.subscriptionStatus}
                     {/if}
                   {:else if settings.cloudConfig.subscriptionTier === "enterprise"}
                     <span class="text-purple-500 font-medium">Enterprise</span>
-                    — Active
+                    — {$_("settings.cloudSync.subscription.active")}
                   {:else}
                     <span class="text-muted-foreground">Free</span>
-                    — Cloud sync requires a subscription
+                    — {$_("settings.cloudSync.subscription.freeNote")}
                   {/if}
                 </div>
               </div>
@@ -1054,14 +1055,15 @@
           class="flex items-center justify-between p-3 rounded-lg border border-border bg-card"
         >
           <div class="space-y-0.5">
-            <div class="text-sm font-medium">Resize Images</div>
+            <div class="text-sm font-medium">
+              {$_("settings.general.resizeImages.label")}
+            </div>
             <div class="text-xs text-muted-foreground">
-              Automatically resize large images to save tokens.
+              {$_("settings.general.resizeImages.description")}
             </div>
             {#if (settings.resizeImages ?? true) === false}
               <div class="text-[10px] text-amber-500 mt-1 font-medium">
-                ⚠️ Strongly encouraged to keep enabled to avoid exceeding token
-                limits.
+                {$_("settings.general.resizeImages.warning")}
               </div>
             {/if}
           </div>
@@ -1158,7 +1160,9 @@
                   }
                 }}
               />
-              <span class="text-xs text-muted-foreground">Days</span>
+              <span class="text-xs text-muted-foreground"
+                >{$_("settings.clearCompletedDays.unit")}</span
+              >
             </div>
           </div>
         {/if}

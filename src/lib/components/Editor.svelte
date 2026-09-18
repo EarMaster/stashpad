@@ -1050,7 +1050,7 @@
     try {
       const selected = await open({
         multiple: true,
-        title: "Select files to attach",
+        title: $_("editor.selectFilesTitle"),
       });
       if (selected) {
         // selected can be a string or string[] depending on multiple option
@@ -1097,7 +1097,7 @@
   ondragenter={handleDragEnter}
   ondragleave={handleDragLeave}
   role="region"
-  aria-label="Stash Editor"
+  aria-label={$_("editor.regionLabel")}
 >
   <!-- Overlay for drag -->
   {#if dragOver}
@@ -1283,7 +1283,7 @@
                 e.stopPropagation();
                 removeFile(i);
               }}
-              aria-label="Remove file"
+              aria-label={$_("editor.removeFile")}
             >
               <X size={10} />
             </button>
