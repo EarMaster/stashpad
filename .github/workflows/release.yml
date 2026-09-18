@@ -43,13 +43,13 @@ jobs:
       tag: ${{ steps.decide.outputs.tag }}
       prerelease: ${{ steps.decide.outputs.prerelease }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # Full history and tags: the compare link in the release body is built from the
           # previous tag, and a shallow clone has neither.
           fetch-depth: 0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
 
@@ -149,7 +149,7 @@ jobs:
           echo "--- release notes ---"
           cat release-notes.md
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-notes
           path: release-notes.md
@@ -177,7 +177,7 @@ jobs:
     outputs:
       release_id: ${{ steps.create.outputs.release_id }}
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: release-notes
 
@@ -258,7 +258,7 @@ jobs:
     # for a cold dependency cache.
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -280,7 +280,7 @@ jobs:
           fi
 
       - name: setup node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: 'npm'
@@ -307,11 +307,18 @@ jobs:
           # unattended-upgrades can hold on a fresh runner.
           APT_OPTS="-o DPkg::Lock::Timeout=120"
 
+          # xdg-utils is not a build dependency - it is `xdg-mime`, which tauri's AppImage
+          # bundler copies out of /usr/bin into the AppDir. The x86_64 runner image ships it
+          # and the arm64 one does not, so the first arm64 release built its binary, bundled
+          # the deb and the rpm, and then died on the AppImage with "xdg-mime binary not
+          # found" - twenty-five minutes in, taking the whole release with it. Installed on
+          # both legs rather than conditionally: it is already there on x86_64, so the
+          # install is a no-op and the two legs stay one code path.
           for attempt in 1 2 3; do
             echo "::group::apt attempt $attempt"
             if sudo apt-get $APT_OPTS update && sudo apt-get $APT_OPTS install -y \
                  libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
-                 librsvg2-dev libssl-dev pkg-config libasound2-dev; then
+                 librsvg2-dev libssl-dev pkg-config libasound2-dev xdg-utils; then
               echo "::endgroup::"
               exit 0
             fi
@@ -396,7 +403,7 @@ jobs:
       # is what the in-app updater renders, and composing it once per leg is five more
       # chances for the release body and the update notes to come apart - which is how they
       # came apart before.
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: release-notes
 
@@ -411,7 +418,7 @@ jobs:
             printf '%s\n' "$delim"
           } >> "$GITHUB_ENV"
 
-      - uses: tauri-apps/tauri-action@v0
+      - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -425,19 +432,18 @@ jobs:
           # prints the artifact paths and uploads nothing.
           releaseId: ${{ needs.draft.outputs.release_id }}
 
-          # Required *alongside* releaseId, and not for the release - for latest.json. GitHub
-          # reports a draft's asset URLs as /releases/download/untagged-<hash>/<asset>, which
-          # die the moment the draft is published and the real tag appears. tauri-action rewrites
-          # that segment to /download/<tagName>/. Omit it and the URLs fall back to
-          # /releases/latest/download/<asset>, which resolves to whichever release is newest *at
-          # update time* rather than the one these signatures were made for - so an older install
-          # downloads a newer file and rejects its own manifest's signature.
+          # `tagName` is deliberately not passed. Under v0 it was required alongside
+          # releaseId - not for the release, for latest.json, whose urls were a draft's
+          # /releases/download/untagged-<hash>/<asset> until the action rewrote that segment to
+          # the tag. v1 writes api.github.com asset urls instead, which name no tag at all, so
+          # the input has nothing left to do here. The `publish` job puts the tag back into the
+          # urls itself.
           #
-          # Blanked on a dry run, and that is load-bearing rather than tidy: `tagName` set with
-          # `releaseId` empty is exactly the combination that sends the action into
-          # getOrCreateRelease, so a rehearsal meant to upload nothing would instead create a
-          # real release - six times over, racing.
-          tagName: ${{ needs.prepare.outputs.should_release == 'true' && needs.prepare.outputs.tag || '' }}
+          # Dropping it also retires a footgun rather than leaving it primed: `tagName` set
+          # while `releaseId` is empty is the one combination that sends the action into
+          # getOrCreateRelease, so a dry run - which has no releaseId by design - would have
+          # created a real release six times over, racing, if that expression ever evaluated
+          # wrong. With the input gone, a run with no releaseId uploads nothing, full stop.
 
           # latest.json's `notes`. The release page's body was written by the `draft` job and is
           # not touched from here, so dropping this leaves the page reading correctly while the
@@ -446,8 +452,10 @@ jobs:
           releaseBody: ${{ env.RELEASE_BODY }}
 
           # latest.json plus a .sig per updater bundle. Installed apps will not accept an update
-          # without both.
-          includeUpdaterJson: true
+          # without both. Renamed from `includeUpdaterJson` in v1 - the old spelling is simply
+          # ignored, so a leg would go green having uploaded no manifest at all, and the first
+          # thing to notice would be `publish` refusing to publish.
+          uploadUpdaterJson: true
 
           # Inert while releaseId is set - both are only read inside getOrCreateRelease - and
           # kept as documentation of what the release is. Editing them changes nothing; the draft
@@ -472,6 +480,88 @@ jobs:
       TAG: ${{ needs.prepare.outputs.tag }}
       VERSION: ${{ needs.prepare.outputs.version }}
     steps:
+      # tauri-action v1 writes every latest.json url as an api.github.com asset url -
+      # https://api.github.com/repos/<owner>/<repo>/releases/assets/<id> - and there is no input
+      # to turn that off: it was added so private repos could update with a token
+      # (tauri-action#1297), and the request for an opt-out (#885) has been open since 2024.
+      #
+      # It would work. tauri-plugin-updater sends `Accept: application/octet-stream` on the
+      # download, which is exactly what an asset url needs. But it moves every installed app off
+      # github.com and onto an endpoint that is rate limited to 60 requests an hour per IP when
+      # unauthenticated, shared by everyone behind the same NAT, and blocked outright on some
+      # corporate networks that allow github.com. That is a worse deal than this repo had
+      # before, so the urls are put back before anyone can fetch them.
+      #
+      # Rewriting the manifest is safe: the `signature` fields are signatures of the bundles,
+      # not of the manifest, and the file a url resolves to is byte-identical either way.
+      #
+      # The tag cannot come from the API's own `browser_download_url` - on a draft that still
+      # reads /releases/download/untagged-<hash>/<asset> and dies the moment the draft is
+      # published. It is composed from $TAG, which is what the tag will be cut as.
+      - name: Point the updater at github.com rather than the API
+        run: |
+          set -eu
+          gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets" --paginate \
+            --jq '[.[] | {key: (.id|tostring), value: .name}] | from_entries' > asset-names.json
+
+          LATEST_ID=$(jq -r 'to_entries[] | select(.value == "latest.json") | .key' asset-names.json)
+          [ -n "$LATEST_ID" ] \
+            || { echo "::error::latest.json is missing - the updater cannot see this release."; exit 1; }
+
+          # Draft assets are not publicly downloadable, so this goes through the API with the
+          # run's token rather than the browser url.
+          curl -sSfL -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/octet-stream' \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/assets/$LATEST_ID" -o latest.json
+          echo "::group::latest.json as the action wrote it"
+          cat latest.json
+          echo "::endgroup::"
+
+          # A url that is neither an asset url nor already tag-shaped means the action changed
+          # in a way this step has not been told about. Guessing at it would be worse than
+          # stopping: the draft is deleted and nothing is published.
+          BAD=$(jq -r --arg tag "$TAG" '.platforms | to_entries[]
+                  | select((.value.url | test("/releases/assets/[0-9]+$")) or
+                           (.value.url | contains("/releases/download/" + $tag + "/")) | not)
+                  | .key + "  " + .value.url' latest.json)
+          if [ -n "$BAD" ]; then
+            echo "::error::latest.json carries a url shape this step cannot rewrite:"
+            echo "$BAD"
+            exit 1
+          fi
+
+          # An asset id that is not in this release's own asset list is the failure this
+          # replaces the old string match on the tag with, and it is the stricter of the two:
+          # a tag-shaped url only proved the text was right, an id proves the file is ours.
+          jq --slurpfile names asset-names.json \
+             --arg base "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/" '
+            .platforms |= with_entries(
+              if (.value.url | test("/releases/assets/[0-9]+$")) then
+                (.value.url | capture("/releases/assets/(?<id>[0-9]+)$") | .id) as $id
+                | ($names[0][$id]
+                   // error("latest.json points at an asset that is not attached to this release")) as $name
+                | .value.url = $base + $name
+              else . end
+            )' latest.json > latest.rewritten.json \
+            || { echo "::error::could not rewrite latest.json - see the error above."; exit 1; }
+
+          echo "::group::latest.json as it will ship"
+          cat latest.rewritten.json
+          echo "::endgroup::"
+
+          # GitHub has no update-in-place for a release asset, so the old one goes first. Both
+          # calls address the draft by id, which is the only way to reach its assets. If this
+          # step dies between the two, the manifest is missing and the verification below
+          # refuses to publish - the draft is then deleted and nothing needs cleaning up.
+          gh api "repos/$GITHUB_REPOSITORY/releases/assets/$LATEST_ID" --method DELETE
+          # curl rather than `gh api` for the upload: this is uploads.github.com, not the API
+          # host, and it wants the file as a raw body with an explicit content type.
+          curl -sSf -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data-binary @latest.rewritten.json \
+            "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?name=latest.json" \
+            > /dev/null
+
       # This is the review a permanent draft was supposed to provide, done by machine and more
       # thoroughly. v1.2.1 through v1.2.8 were each left as a draft for a human to inspect and
       # publish, and each one was forgotten - so for months the newest version users could
