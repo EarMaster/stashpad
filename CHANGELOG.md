@@ -11,6 +11,8 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-09-18
+
 ### Added
 - **Stashpad installs on ARM machines running Linux or Windows now.** Every release carried one
   Linux package set and one Windows installer, both for Intel and AMD processors, and only macOS
