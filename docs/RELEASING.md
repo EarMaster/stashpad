@@ -126,11 +126,25 @@ disappears from the body and from every update popover.
 - `releaseDraft` in the `tauri-action` step is **inert** while `releaseId` is set — both are
   only read inside the action's `getOrCreateRelease`, which an id bypasses. The draft state is
   set by `draft`. Editing that input will not change anything.
-- `tagName` is passed alongside `releaseId` and is **not** redundant. GitHub reports a draft's
-  asset URLs as `…/releases/download/untagged-<hash>/<asset>`; the action rewrites that segment
-  to the tag. Drop it and the URLs fall back to `/releases/latest/download/`, which resolves to
-  whichever release is newest *at update time* rather than the one those signatures were made
-  for — so an older install downloads a newer file and rejects its own manifest's signature.
+- `tagName` is **deliberately not passed**, and that changed with tauri-action v1. Under v0 it
+  was required alongside `releaseId`: a draft's asset URLs read
+  `…/releases/download/untagged-<hash>/<asset>` and the action rewrote that segment to the tag.
+  v1 writes `api.github.com/…/releases/assets/<id>` URLs instead, which name no tag at all, so
+  the input has nothing left to do — and dropping it retires a footgun: `tagName` set while
+  `releaseId` is empty is the one combination that sends the action into `getOrCreateRelease`,
+  which is how a dry run could have created six racing releases.
+- **`publish` rewrites `latest.json` before publishing it**, in *Point the updater at github.com
+  rather than the API*. v1's `api.github.com` asset URLs would work — `tauri-plugin-updater`
+  sends `Accept: application/octet-stream` — but they put every installed app on an endpoint
+  that is rate limited to 60 requests an hour per unauthenticated IP and is blocked on some
+  networks that allow `github.com`. The step maps each asset id back to its name, composes
+  `…/releases/download/<tag>/<asset>`, and replaces the attached manifest. This is safe because
+  the `signature` fields sign the bundles, not the manifest. There is no input to turn the API
+  URLs off: tauri-action#1297 added them for private repos and #885 has asked for the opt-out
+  since 2024 — if that lands, this step becomes a no-op rather than wrong, since it passes
+  already tag-shaped URLs through untouched.
+- `uploadUpdaterJson` was called `includeUpdaterJson` before v1. The old spelling is ignored
+  rather than rejected, so a leg would go green having uploaded no manifest at all.
 - `releaseBody` is what becomes `latest.json`'s `notes`. The release page's body is written by
   `draft` and is not touched from the matrix, so dropping `releaseBody` leaves the
   page reading correctly while the update popover is blank.
