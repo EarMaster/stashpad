@@ -64,9 +64,11 @@ jobs:
 
       - name: Upload coverage to Codecov
         if: matrix.os == 'ubuntu-latest'
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v7
         with:
-          file: ./coverage/coverage-final.json
+          # `files`, plural: v5 deprecated the singular `file`, and a v7 that does not
+          # recognise the input uploads nothing while still reporting success.
+          files: ./coverage/coverage-final.json
           flags: frontend
           fail_ci_if_error: false
 
