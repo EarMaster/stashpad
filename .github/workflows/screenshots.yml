@@ -31,7 +31,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out the app
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           # A release event's default checkout is the default branch, not the released
           # commit. Photographing main would silently ship pictures of work that has not
@@ -39,7 +39,7 @@ jobs:
           ref: ${{ github.event.release.tag_name || inputs.ref }}
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: "npm"
@@ -59,7 +59,7 @@ jobs:
         run: npm run screenshots
 
       - name: Check out the website
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: EarMaster/stashpad-website
           # A fine-grained PAT with contents:write on the website repo. The default

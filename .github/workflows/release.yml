@@ -43,13 +43,13 @@ jobs:
       tag: ${{ steps.decide.outputs.tag }}
       prerelease: ${{ steps.decide.outputs.prerelease }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # Full history and tags: the compare link in the release body is built from the
           # previous tag, and a shallow clone has neither.
           fetch-depth: 0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
 
@@ -149,7 +149,7 @@ jobs:
           echo "--- release notes ---"
           cat release-notes.md
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-notes
           path: release-notes.md
@@ -177,7 +177,7 @@ jobs:
     outputs:
       release_id: ${{ steps.create.outputs.release_id }}
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: release-notes
 
@@ -258,7 +258,7 @@ jobs:
     # for a cold dependency cache.
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -280,7 +280,7 @@ jobs:
           fi
 
       - name: setup node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: 'npm'
@@ -403,7 +403,7 @@ jobs:
       # is what the in-app updater renders, and composing it once per leg is five more
       # chances for the release body and the update notes to come apart - which is how they
       # came apart before.
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: release-notes
 
