@@ -24,6 +24,12 @@ popover, not for the person who wrote the commit.
   server can read that account while it is serving such a request, and creating no access
   key means it cannot read anything; and this protects what is on the server, not what is on
   your own disk
+- **Attachments are encrypted too, including their file names.** A file name is often as
+  revealing as the file — `Q3-layoffs-list.xlsx` tells you what it is without opening it — so
+  with encryption on, the name, type and the bytes are all encrypted before they leave your
+  machine, and the storage path no longer contains the name either. Nothing changes in how
+  attachments look or behave in the app. Files you uploaded before turning encryption on stay
+  as they were until they are converted, and Stashpad does not claim otherwise
 - **Access keys for AI tools are created in the app once your stashes are encrypted.** Giving
   a tool access means handing it a copy of your key, and only something that already has that
   key can do it — the account page does not, and deliberately never will. So for an encrypted

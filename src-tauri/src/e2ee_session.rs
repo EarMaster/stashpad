@@ -443,6 +443,173 @@ fn open_field(
     Ok(())
 }
 
+/// An attachment's bytes, sealed, plus the metadata blob that describes them.
+pub struct SealedAttachment {
+    /// What goes to the object store. Its length is what the server records as `file_size`.
+    pub bytes: Vec<u8>,
+    /// Name, MIME type, syntax, the plaintext size and the wrapped per-file key, as one
+    /// sealed value that travels in the `file_name` column.
+    pub metadata: String,
+}
+
+/// Seal an attachment for upload.
+///
+/// The per-file key exists for two reasons. Devices upload independently and offline, so a
+/// per-file key means no nonce is ever reused across files without any coordination. And it
+/// is the only shape that lets one file be handed over later - to the MCP proxy, say -
+/// without handing over anything that opens the rest of the account.
+///
+/// Name, MIME type and syntax are sealed together rather than separately: three envelopes
+/// would triple the overhead on a row that is mostly metadata, and would make "name from
+/// one record, type from another" something the additional data has to defend against. One
+/// blob makes that impossible by construction.
+pub fn seal_attachment(
+    plaintext: &[u8],
+    file_name: &str,
+    mime_type: Option<&str>,
+    syntax: Option<&str>,
+    attachment_id: &str,
+    user_id: &str,
+) -> Result<Option<SealedAttachment>, String> {
+    use chacha20poly1305::{
+        aead::{Aead, KeyInit},
+        XChaCha20Poly1305, XNonce,
+    };
+    use rand::RngCore;
+
+    let guard = lock_or_recover(&CONTENT_KEY);
+    let Some(content_key) = guard.as_ref() else {
+        return Ok(None);
+    };
+    let epoch = *lock_or_recover(&EPOCH);
+
+    let mut file_key = Zeroizing::new([0u8; 32]);
+    let mut nonce = [0u8; 24];
+    {
+        let mut rng = rand::thread_rng();
+        rng.fill_bytes(file_key.as_mut());
+        rng.fill_bytes(&mut nonce);
+    }
+
+    let cipher = XChaCha20Poly1305::new_from_slice(file_key.as_slice())
+        .map_err(|_| "bad file key".to_string())?;
+    let ciphertext = cipher
+        .encrypt(XNonce::from_slice(&nonce), plaintext)
+        .map_err(|_| "could not encrypt the attachment".to_string())?;
+
+    let mut bytes = Vec::with_capacity(24 + ciphertext.len());
+    bytes.extend_from_slice(&nonce);
+    bytes.extend_from_slice(&ciphertext);
+
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
+    let descriptor = serde_json::json!({
+        "n": file_name,
+        "m": mime_type,
+        "s": syntax,
+        // The plaintext length, for the other devices' interface. What the server records
+        // is the stored length, which is this plus the nonce and tag.
+        "z": plaintext.len(),
+        "k": STANDARD.encode(file_key.as_slice()),
+    })
+    .to_string();
+
+    let metadata = envelope::seal(
+        content_key,
+        &descriptor,
+        &Binding {
+            user_id,
+            kind: Kind::Attachment,
+            record_id: attachment_id,
+            field: Field::Meta,
+            epoch,
+        },
+    )
+    .map_err(|e| format!("could not encrypt the attachment details: {:?}", e))?;
+
+    Ok(Some(SealedAttachment { bytes, metadata }))
+}
+
+/// Open an attachment's metadata blob, and with it the key for its bytes.
+pub fn open_attachment_metadata(
+    sealed: &str,
+    attachment_id: &str,
+    user_id: &str,
+) -> Result<Option<AttachmentDetails>, String> {
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
+
+    if !envelope::is_envelope(sealed) {
+        // Plaintext, from before this account was converted. Nothing to open.
+        return Ok(None);
+    }
+
+    let guard = lock_or_recover(&CONTENT_KEY);
+    let content_key = guard.as_ref().ok_or("this installation is locked")?;
+    let epoch = *lock_or_recover(&EPOCH);
+
+    let json = envelope::open(
+        content_key,
+        epoch,
+        sealed,
+        &Binding {
+            user_id,
+            kind: Kind::Attachment,
+            record_id: attachment_id,
+            field: Field::Meta,
+            epoch,
+        },
+    )
+    .map_err(|e| format!("{:?}", e))?;
+
+    let value: serde_json::Value =
+        serde_json::from_str(&json).map_err(|e| format!("damaged attachment details: {}", e))?;
+
+    let key_bytes = STANDARD
+        .decode(value["k"].as_str().unwrap_or_default())
+        .map_err(|_| "damaged attachment key".to_string())?;
+    if key_bytes.len() != 32 {
+        return Err("attachment key is the wrong size".to_string());
+    }
+    let mut file_key = Zeroizing::new([0u8; 32]);
+    file_key.copy_from_slice(&key_bytes);
+
+    Ok(Some(AttachmentDetails {
+        file_name: value["n"].as_str().unwrap_or_default().to_string(),
+        mime_type: value["m"].as_str().map(str::to_string),
+        syntax: value["s"].as_str().map(str::to_string),
+        plaintext_size: value["z"].as_u64().unwrap_or(0) as i64,
+        file_key,
+    }))
+}
+
+/// What an attachment's sealed metadata describes.
+pub struct AttachmentDetails {
+    pub file_name: String,
+    pub mime_type: Option<String>,
+    pub syntax: Option<String>,
+    pub plaintext_size: i64,
+    file_key: Zeroizing<[u8; 32]>,
+}
+
+/// Decrypt downloaded bytes with the key from the metadata blob.
+pub fn open_attachment_bytes(
+    details: &AttachmentDetails,
+    stored: &[u8],
+) -> Result<Vec<u8>, String> {
+    use chacha20poly1305::{
+        aead::{Aead, KeyInit},
+        XChaCha20Poly1305, XNonce,
+    };
+
+    if stored.len() < 24 + 16 {
+        return Err("the stored file is too short to be intact".to_string());
+    }
+    let cipher = XChaCha20Poly1305::new_from_slice(details.file_key.as_slice())
+        .map_err(|_| "bad file key".to_string())?;
+    cipher
+        .decrypt(XNonce::from_slice(&stored[..24]), &stored[24..])
+        .map_err(|_| "this file could not be decrypted".to_string())
+}
+
 /// Unwrap the content key with this installation's key pair.
 pub fn unlock_with_device(
     keypair: &DeviceKeypair,
@@ -497,7 +664,7 @@ mod tests {
     ///
     /// `lock_or_recover` rather than `.lock().unwrap()`: one failing test would otherwise
     /// poison the mutex and every later test would panic on the lock instead of running.
-    static TEST_LOCK: Mutex<()> = Mutex::new(());
+    pub(super) static TEST_LOCK: Mutex<()> = Mutex::new(());
 
     fn with_key<T>(body: impl FnOnce() -> T) -> T {
         let _guard = lock_or_recover(&TEST_LOCK);
@@ -676,5 +843,120 @@ mod tests {
         assert!(confirm_and_hold(key, 1, &verifier).is_ok());
         assert!(is_unlocked());
         clear_content_key();
+    }
+}
+
+#[cfg(test)]
+mod attachment_tests {
+    use super::*;
+
+    const USER: &str = "11111111-1111-4111-8111-111111111111";
+    const ATT: &str = "55555555-5555-4555-8555-555555555555";
+
+    fn held<T>(body: impl FnOnce() -> T) -> T {
+        let _guard = lock_or_recover(&tests::TEST_LOCK);
+        set_content_key(e2ee::new_content_key(), 1);
+        let out = body();
+        clear_content_key();
+        out
+    }
+
+    #[test]
+    fn an_attachment_round_trips() {
+        held(|| {
+            let plaintext = b"the bytes of a screenshot";
+            let sealed = seal_attachment(
+                plaintext,
+                "Q3-layoffs.xlsx",
+                Some("application/vnd.ms-excel"),
+                None,
+                ATT,
+                USER,
+            )
+            .expect("seal")
+            .expect("a key is held");
+
+            // The stored length is what the server records, and it is not the plaintext
+            // length - the nonce and tag are part of what the bucket holds.
+            assert_eq!(sealed.bytes.len(), plaintext.len() + 24 + 16);
+            assert!(envelope::is_envelope(&sealed.metadata));
+            assert!(
+                !sealed.metadata.contains("layoffs"),
+                "the file name must not be legible in the metadata blob"
+            );
+
+            let details = open_attachment_metadata(&sealed.metadata, ATT, USER)
+                .expect("open")
+                .expect("sealed");
+            assert_eq!(details.file_name, "Q3-layoffs.xlsx");
+            assert_eq!(details.mime_type.as_deref(), Some("application/vnd.ms-excel"));
+            assert_eq!(details.syntax, None);
+            assert_eq!(details.plaintext_size, plaintext.len() as i64);
+
+            let opened = open_attachment_bytes(&details, &sealed.bytes).expect("decrypt");
+            assert_eq!(opened, plaintext);
+        });
+    }
+
+    /// Every file gets its own key, so one handed over later does not open the rest.
+    #[test]
+    fn two_attachments_do_not_share_a_key() {
+        held(|| {
+            let a = seal_attachment(b"one", "a.txt", None, None, ATT, USER)
+                .unwrap()
+                .unwrap();
+            let b = seal_attachment(b"two", "b.txt", None, None, "66666666-6666-4666-8666-666666666666", USER)
+                .unwrap()
+                .unwrap();
+
+            let details_a = open_attachment_metadata(&a.metadata, ATT, USER).unwrap().unwrap();
+            assert!(
+                open_attachment_bytes(&details_a, &b.bytes).is_err(),
+                "one file's key must not open another's bytes"
+            );
+        });
+    }
+
+    /// The metadata blob is bound to its attachment, like every other sealed field.
+    #[test]
+    fn metadata_does_not_open_for_another_attachment() {
+        held(|| {
+            let sealed = seal_attachment(b"x", "a.txt", None, None, ATT, USER)
+                .unwrap()
+                .unwrap();
+            assert!(open_attachment_metadata(&sealed.metadata, "another-id", USER).is_err());
+            assert!(open_attachment_metadata(&sealed.metadata, ATT, "another-user").is_err());
+        });
+    }
+
+    #[test]
+    fn without_a_key_an_attachment_is_left_alone() {
+        let _guard = lock_or_recover(&tests::TEST_LOCK);
+        clear_content_key();
+        assert!(seal_attachment(b"x", "a.txt", None, None, ATT, USER)
+            .unwrap()
+            .is_none());
+    }
+
+    /// A plaintext name from before conversion is not an envelope, so there is nothing to
+    /// open and the caller keeps using the column.
+    #[test]
+    fn a_plaintext_name_reports_nothing_to_open() {
+        held(|| {
+            assert!(open_attachment_metadata("screenshot.png", ATT, USER)
+                .unwrap()
+                .is_none());
+        });
+    }
+
+    #[test]
+    fn truncated_bytes_do_not_open() {
+        held(|| {
+            let sealed = seal_attachment(b"the bytes", "a.txt", None, None, ATT, USER)
+                .unwrap()
+                .unwrap();
+            let details = open_attachment_metadata(&sealed.metadata, ATT, USER).unwrap().unwrap();
+            assert!(open_attachment_bytes(&details, &sealed.bytes[..20]).is_err());
+        });
     }
 }
