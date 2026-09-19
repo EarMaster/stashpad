@@ -53,6 +53,10 @@ argon2 = "0.5"
 # makes random nonces safe with no state to share.
 chacha20poly1305 = "0.10"
 hkdf = "0.12"
+# Device key agreement. Paired with hkdf and chacha20poly1305 above, this is the sealed-box
+# construction (ephemeral key, ECDH, derive, seal) rather than a full HPKE dependency -
+# see the note in src/e2ee.rs for exactly what is bound into the derivation and why.
+x25519-dalek = { version = "2", features = ["static_secrets", "zeroize"] }
 zeroize = { version = "1", features = ["zeroize_derive"] }
 tauri-plugin-opener = "2"
 tauri-plugin-deep-link = "2"

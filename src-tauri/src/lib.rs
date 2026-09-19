@@ -28,6 +28,7 @@ use active_win_pos_rs::get_active_window;
 mod models;
 mod state;
 mod utils;
+mod e2ee;
 mod envelope;
 mod keychain;
 mod localkey;
