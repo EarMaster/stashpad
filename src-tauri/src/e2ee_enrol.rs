@@ -443,3 +443,182 @@ pub async fn e2ee_seal(settings_state: State<'_, Arc<SettingsState>>) -> Result<
     crate::sync::e2ee_post(&settings_state, "/e2ee/seal", serde_json::json!({})).await?;
     Ok(())
 }
+
+// ---------------------------------------------------------------------------------------
+// MCP access keys
+//
+// These are minted here rather than on the server, because issuing one means sealing the
+// content key to it and only something already holding the content key can do that. The
+// server receives a hash, a prefix and an opaque wrap, and can derive none of them from
+// the others.
+//
+// This is also the deliberate hole in the guarantee, and the interface says so where the
+// key is created: while a request carrying that key is being served, the server can read
+// that account's content. An account with no access key cannot be read there at all.
+// ---------------------------------------------------------------------------------------
+
+/// A freshly generated access key, in the four pieces the server needs.
+struct MintedAccessKey {
+    prefix: String,
+    secret: String,
+    hash: String,
+    last_four: String,
+}
+
+/// Generate one, in the exact format `cloud/src/middleware/api_key.rs` expects.
+///
+/// The shape is load-bearing and fails quietly if it drifts: the server finds a key by its
+/// prefix and compares a hex SHA-256 of the whole string, so a key of the wrong shape is
+/// accepted here, stored, shown to the user once - and then authenticates nowhere, which
+/// surfaces as "my agent cannot connect" with nothing to point at. Hence the tests below.
+fn mint_access_key() -> MintedAccessKey {
+    use rand::distributions::{Alphanumeric, Distribution};
+    use sha2::{Digest, Sha256};
+
+    let mut rng = rand::thread_rng();
+    let prefix_bytes: [u8; 4] = rand::Rng::gen(&mut rng);
+    let prefix = format!(
+        "sk_stashpad_{}",
+        prefix_bytes
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect::<String>()
+    );
+    let secret_part: String = Alphanumeric
+        .sample_iter(&mut rng)
+        .take(43)
+        .map(char::from)
+        .collect();
+    let secret = format!("{}_{}", prefix, secret_part);
+    let hash = format!("{:x}", Sha256::digest(secret.as_bytes()));
+    let last_four = secret_part[secret_part.len() - 4..].to_string();
+
+    MintedAccessKey {
+        prefix,
+        secret,
+        hash,
+        last_four,
+    }
+}
+
+/// The one and only time the secret is visible.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreatedAccessKey {
+    /// Show it once. There is no way to retrieve it afterwards.
+    pub key: String,
+    pub id: String,
+    pub name: String,
+    pub scope: String,
+}
+
+/// Generate an access key, seal the content key to it, and register it.
+///
+/// The format has to match what `cloud/src/middleware/api_key.rs` expects exactly: the tag,
+/// four hex bytes of prefix, an underscore, then 43 alphanumeric characters. The server
+/// finds a key by its prefix and compares a hex SHA-256 of the whole string, so a mismatch
+/// here is a key that authenticates nowhere.
+#[tauri::command]
+pub async fn e2ee_create_access_key(
+    settings_state: State<'_, Arc<SettingsState>>,
+    name: String,
+    scope: String,
+    expires_in_days: Option<i64>,
+) -> Result<CreatedAccessKey, String> {
+    // Called in its own statement so the generator is dropped before the first await:
+    // `thread_rng` is not Send, and a Tauri command's future has to be.
+    let MintedAccessKey {
+        prefix,
+        secret,
+        hash,
+        last_four,
+    } = mint_access_key();
+
+    let (server, user_id, _device) = fetch_state(&settings_state).await?;
+
+    // An unencrypted account has nothing to wrap, so let the server mint as it always has.
+    let minted = if server.epoch > 0 {
+        let content_key = e2ee_session::content_key_bytes()
+            .ok_or("Unlock this installation before creating an access key")?;
+        let (salt, wrapped) =
+            e2ee::wrap_to_api_key(&secret, &content_key, &user_id, server.epoch)?;
+        Some(serde_json::json!({
+            "prefix": prefix,
+            "hash": hash,
+            "lastFour": last_four,
+            "wrappedKey": wrapped,
+            "kdfSalt": salt,
+            "wrapId": uuid::Uuid::new_v4().to_string(),
+        }))
+    } else {
+        None
+    };
+
+    let mut body = serde_json::json!({ "name": name, "scope": scope });
+    if let Some(days) = expires_in_days {
+        body["expiresInDays"] = serde_json::json!(days);
+    }
+    if let Some(minted) = minted {
+        body["minted"] = minted;
+    }
+
+    let created = crate::sync::e2ee_post(&settings_state, "/account/api-keys", body).await?;
+
+    Ok(CreatedAccessKey {
+        // For an encrypted account the server echoes nothing, and this is the only copy.
+        key: if created["key"].as_str().unwrap_or_default().is_empty() {
+            secret
+        } else {
+            created["key"].as_str().unwrap_or_default().to_string()
+        },
+        id: created["id"].as_str().unwrap_or_default().to_string(),
+        name: created["name"].as_str().unwrap_or_default().to_string(),
+        scope: created["scope"].as_str().unwrap_or_default().to_string(),
+    })
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Mirrors what `cloud/src/middleware/api_key.rs` does with a presented key: strip the
+    /// tag, split on the underscore, look up by prefix, compare a hex SHA-256. If this
+    /// drifts, keys minted here authenticate nowhere.
+    #[test]
+    fn a_minted_key_has_the_shape_the_server_parses() {
+        let minted = mint_access_key();
+
+        assert!(minted.secret.starts_with("sk_stashpad_"));
+        assert!(minted.prefix.starts_with("sk_stashpad_"));
+        assert!(minted.secret.starts_with(&minted.prefix));
+
+        let rest = minted.secret.strip_prefix("sk_stashpad_").expect("tag");
+        let (prefix_hex, secret_part) = rest.split_once('_').expect("one underscore");
+
+        assert_eq!(prefix_hex.len(), 8, "four bytes of prefix, hex encoded");
+        assert!(prefix_hex.chars().all(|c| c.is_ascii_hexdigit()));
+
+        assert_eq!(secret_part.len(), 43);
+        assert!(secret_part.chars().all(|c| c.is_ascii_alphanumeric()));
+
+        assert_eq!(minted.hash.len(), 64, "hex SHA-256");
+        assert!(minted.hash.chars().all(|c| c.is_ascii_hexdigit()));
+        assert_eq!(minted.last_four, secret_part[secret_part.len() - 4..]);
+    }
+
+    #[test]
+    fn the_hash_is_of_the_whole_key() {
+        use sha2::{Digest, Sha256};
+        let minted = mint_access_key();
+        assert_eq!(
+            minted.hash,
+            format!("{:x}", Sha256::digest(minted.secret.as_bytes()))
+        );
+    }
+
+    #[test]
+    fn two_keys_differ() {
+        assert_ne!(mint_access_key().secret, mint_access_key().secret);
+    }
+}

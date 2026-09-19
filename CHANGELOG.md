@@ -24,6 +24,11 @@ popover, not for the person who wrote the commit.
   server can read that account while it is serving such a request, and creating no access
   key means it cannot read anything; and this protects what is on the server, not what is on
   your own disk
+- **Access keys for AI tools are created in the app once your stashes are encrypted.** Giving
+  a tool access means handing it a copy of your key, and only something that already has that
+  key can do it — the account page does not, and deliberately never will. So for an encrypted
+  account the key is created here instead, and the account page goes on listing and revoking
+  them, which is where people look. Revoking a key now takes its copy of your key with it
 - **Another computer has to be let in before it can read your stashes.** Signing in on a new
   machine gets you your queue, but not the ability to decrypt it until you approve it from a
   machine that already can — you compare a short code shown on both screens, which is what

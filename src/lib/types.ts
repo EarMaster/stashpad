@@ -285,6 +285,23 @@ export interface IStorageService {
     /** Queues every local record for re-encryption. Returns how many. */
     e2eeStartConversion(): Promise<number>;
     e2eeSeal(): Promise<void>;
+    /**
+     * Mints an MCP access key on this machine and seals the content key to it. The secret
+     * comes back once and cannot be retrieved afterwards.
+     */
+    e2eeCreateAccessKey(
+        name: string,
+        scope: "read" | "readwrite",
+        expiresInDays?: number,
+    ): Promise<CreatedAccessKey>;
+}
+
+export interface CreatedAccessKey {
+    /** Show once. There is no way to get it again. */
+    key: string;
+    id: string;
+    name: string;
+    scope: string;
 }
 
 /** Where an account and this installation stand on encryption. */

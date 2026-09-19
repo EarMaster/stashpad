@@ -481,6 +481,7 @@ pub fn run() {
             e2ee_enrol::e2ee_acknowledge_recovery,
             e2ee_enrol::e2ee_start_conversion,
             e2ee_enrol::e2ee_seal,
+            e2ee_enrol::e2ee_create_access_key,
             utils::is_windows_10,
             contexts::get_contexts,
             contexts::save_contexts,
