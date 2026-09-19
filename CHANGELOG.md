@@ -24,6 +24,12 @@ popover, not for the person who wrote the commit.
   server can read that account while it is serving such a request, and creating no access
   key means it cannot read anything; and this protects what is on the server, not what is on
   your own disk
+- **You can put a Stashpad Cloud export back.** Downloading your data has always worked;
+  restoring it never did, which made "export your data" a one-way door. The app now reads an
+  `export.json` from the account area, decrypts it if your account is encrypted, tells you
+  what it found before it commits anything, and puts the records back — from where they sync
+  to your other machines as usual. It also writes your whole account out as Markdown, one
+  file per context, in the same format the existing per-context export already uses
 - **Attachments are encrypted too, including their file names.** A file name is often as
   revealing as the file — `Q3-layoffs-list.xlsx` tells you what it is without opening it — so
   with encryption on, the name, type and the bytes are all encrypted before they leave your

@@ -28,6 +28,7 @@ use active_win_pos_rs::get_active_window;
 mod models;
 mod state;
 mod utils;
+mod account_export;
 mod e2ee;
 mod e2ee_enrol;
 mod e2ee_session;
@@ -482,6 +483,9 @@ pub fn run() {
             e2ee_enrol::e2ee_start_conversion,
             e2ee_enrol::e2ee_seal,
             e2ee_enrol::e2ee_create_access_key,
+            account_export::read_account_export,
+            account_export::import_account_export,
+            account_export::export_whole_account,
             utils::is_windows_10,
             contexts::get_contexts,
             contexts::save_contexts,
