@@ -48,6 +48,11 @@ rand = "0.8"
 # Only for the device passphrase - the one human-chosen input in the app, and the only
 # place a work factor buys anything. Everything else derives from full-entropy material.
 argon2 = "0.5"
+# Record encryption. XChaCha20-Poly1305 rather than AES-GCM because two installations
+# encrypt independently while offline and cannot coordinate a counter: a 192-bit nonce
+# makes random nonces safe with no state to share.
+chacha20poly1305 = "0.10"
+hkdf = "0.12"
 zeroize = { version = "1", features = ["zeroize_derive"] }
 tauri-plugin-opener = "2"
 tauri-plugin-deep-link = "2"

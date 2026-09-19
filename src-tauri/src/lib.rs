@@ -28,6 +28,7 @@ use active_win_pos_rs::get_active_window;
 mod models;
 mod state;
 mod utils;
+mod envelope;
 mod keychain;
 mod localkey;
 mod settings;
@@ -171,7 +172,7 @@ pub fn run() {
 
     // 2b. First launch after the credential store started working: move the secrets out
     // of settings.json. No-op on every later launch, and on machines that have no store.
-    settings::migrate_secrets_into_keychain(&settings_state.lock_settings());
+    settings::migrate_secrets_into_keychain(&settings_state);
 
     let ws_state = Arc::new(WsState {
         task_handle: Mutex::new(None),

@@ -244,51 +244,15 @@ pub fn derive_machine_key() -> [u8; 32] {
     key
 }
 
-/// Encrypt a string using AES-256-GCM (fallback for when keychain unavailable)
-pub fn encrypt_api_key(key: &str) -> String {
-    if key.is_empty() {
-        return String::new();
-    }
-    
-    use aes_gcm::{
-        aead::{Aead, KeyInit},
-        Aes256Gcm, Nonce,
-    };
-    use rand::RngCore;
-    use base64::{Engine as _, engine::general_purpose::STANDARD};
-    
-    let encryption_key = derive_machine_key();
-    let cipher = Aes256Gcm::new_from_slice(&encryption_key).expect("Invalid key length");
-    
-    // Generate random 12-byte nonce
-    let mut nonce_bytes = [0u8; 12];
-    rand::thread_rng().fill_bytes(&mut nonce_bytes);
-    let nonce = Nonce::from_slice(&nonce_bytes);
-    
-    match cipher.encrypt(nonce, key.as_bytes()) {
-        Ok(ciphertext) => {
-            // Prepend nonce to ciphertext
-            let mut result = Vec::with_capacity(12 + ciphertext.len());
-            result.extend_from_slice(&nonce_bytes);
-            result.extend_from_slice(&ciphertext);
-            STANDARD.encode(&result)
-        }
-        Err(e) => {
-            // Returning an obfuscated value here would hand back something that looks
-            // encrypted and is not. Better to store nothing and say so.
-            log::error!("Failed to encrypt secret for on-disk storage: {}", e);
-            String::new()
-        }
-    }
-}
-
-/// Decrypt a string produced by [`encrypt_api_key`].
+/// Decrypt a secret that an older build sealed under the machine key.
 ///
-/// Returns an empty string when the value cannot be opened. It deliberately does **not**
-/// fall back to the retired XOR format: that fallback fired on any AEAD failure, so a
-/// tampered or corrupted value came back as whatever XOR made of it, under a key that is
-/// a literal in public source. A value written by a pre-AES build is recovered once, by
-/// [`decrypt_legacy_secret`], during the startup migration.
+/// This is the **steady-state** reader, and it fails closed: an empty string when the value
+/// cannot be opened. It deliberately does not fall back to the retired XOR format, because
+/// that fallback fired on any AEAD failure and returned whatever XOR made of the bytes -
+/// under a key that is a literal in public source - as though it were the secret.
+///
+/// XOR lives in [`decrypt_legacy_secret`], which the one-time startup migration calls and
+/// nothing else does.
 pub fn decrypt_api_key(encoded: &str) -> String {
     decrypt_with_aes(encoded).unwrap_or_else(|| {
         log::warn!("Stored secret could not be decrypted on this machine");
@@ -367,17 +331,38 @@ fn legacy_deobfuscate(encoded: &str) -> String {
 mod tests {
     use super::*;
 
+    /// Builds a value in the format older builds wrote. Only the tests need this now -
+    /// nothing in the app seals under the machine key any more.
+    fn seal_under_machine_key(secret: &str) -> String {
+        use aes_gcm::{
+            aead::{Aead, KeyInit},
+            Aes256Gcm, Nonce,
+        };
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
+        use rand::RngCore;
+
+        let cipher = Aes256Gcm::new_from_slice(&derive_machine_key()).expect("32-byte key");
+        let mut nonce = [0u8; 12];
+        rand::thread_rng().fill_bytes(&mut nonce);
+        let ciphertext = cipher
+            .encrypt(Nonce::from_slice(&nonce), secret.as_bytes())
+            .expect("encrypt");
+        let mut out = Vec::with_capacity(12 + ciphertext.len());
+        out.extend_from_slice(&nonce);
+        out.extend_from_slice(&ciphertext);
+        STANDARD.encode(&out)
+    }
+
     #[test]
     fn a_secret_round_trips_through_the_machine_key() {
         let secret = "sk_stashpad_0123456789abcdef";
-        let sealed = encrypt_api_key(secret);
+        let sealed = seal_under_machine_key(secret);
         assert_ne!(sealed, secret, "the stored form must not be the plaintext");
         assert_eq!(decrypt_api_key(&sealed), secret);
     }
 
     #[test]
     fn an_empty_secret_stays_empty() {
-        assert_eq!(encrypt_api_key(""), "");
         assert_eq!(decrypt_api_key(""), "");
     }
 
@@ -387,7 +372,7 @@ mod tests {
     fn a_tampered_value_never_falls_back_to_the_retired_format() {
         use base64::{engine::general_purpose::STANDARD, Engine as _};
 
-        let sealed = encrypt_api_key("sk_stashpad_0123456789abcdef");
+        let sealed = seal_under_machine_key("sk_stashpad_0123456789abcdef");
         let mut raw = STANDARD.decode(&sealed).expect("encrypt emits base64");
         let last = raw.len() - 1;
         raw[last] ^= 0xff;
@@ -454,7 +439,7 @@ mod tests {
     #[test]
     fn the_migration_reader_prefers_aes() {
         let secret = "sk_stashpad_aes_wins";
-        let sealed = encrypt_api_key(secret);
+        let sealed = seal_under_machine_key(secret);
         assert_eq!(decrypt_legacy_secret(&sealed), secret);
     }
 }
