@@ -12,7 +12,7 @@
 // See the GNU Affero General Public License for more details.
 
 import { invoke } from '@tauri-apps/api/core';
-import type { IStorageService, StashItem, AppContext, Settings, FilePreviewData, Context, Attachment, CloudConfig, ExportSummary, ImportPreview, CloudUsage, StashPosition } from '../types';
+import type { IStorageService, StashItem, AppContext, Settings, FilePreviewData, Context, Attachment, CloudConfig, ExportSummary, ImportPreview, CloudUsage, StashPosition, LocalKeyStatus } from '../types';
 
 /** Called after any local write so cloud sync can be scheduled. */
 type MutationListener = () => void;
@@ -415,6 +415,30 @@ export class DesktopStorageAdapter implements IStorageService {
     /** Sign out of the cloud and erase the stored JWT from the OS keychain. */
     async cloudLogout(): Promise<void> {
         await invoke('cloud_logout');
+    }
+
+    async localKeyStatus(): Promise<LocalKeyStatus> {
+        return await invoke('local_key_status');
+    }
+
+    async localKeyIsRemembered(): Promise<boolean> {
+        return await invoke('local_key_is_remembered');
+    }
+
+    async unlockLocalKey(passphrase: string): Promise<boolean> {
+        return await invoke('unlock_local_key', { passphrase });
+    }
+
+    async setLocalPassphrase(passphrase: string, remember: boolean): Promise<void> {
+        await invoke('set_local_passphrase', { passphrase, remember });
+    }
+
+    async setLocalKeyRemembered(remember: boolean): Promise<void> {
+        await invoke('set_local_key_remembered', { remember });
+    }
+
+    async declineLocalKey(): Promise<void> {
+        await invoke('decline_local_key');
     }
 }
 

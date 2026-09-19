@@ -167,8 +167,8 @@
         "label": "System-Prompt",
         "description": "Die Anweisungen für die KI-Optimierung. Diese sind in einer externen Datei gespeichert.",
         "edit": "Prompt-Datei bearbeiten",
-      "create": "Erstellen und öffnen",
-      "fallbackHint": "Es wird der Standard-Prompt verwendet. Erstelle die Datei, um die Anweisungen anzupassen.",
+        "create": "Erstellen und öffnen",
+        "fallbackHint": "Es wird der Standard-Prompt verwendet. Erstelle die Datei, um die Anweisungen anzupassen.",
         "reloaded": "System-Prompt wurde von der Festplatte neu geladen"
       },
       "appleIntelligence": {
@@ -254,6 +254,23 @@
         "loginAgain": "Erneut Anmelden"
       }
     }
+  },
+  "deviceKey": {
+    "setupTitle": "Diese Installation schützen",
+    "unlockTitle": "Stashpad entsperren",
+    "noKeyStore": "Dieser Rechner hat keinen sicheren Schlüsselspeicher — hier ist kein System-Schlüsselbund verfügbar. Lege eine Passphrase für diese Installation fest, um Cloud-Sync zu nutzen, oder lass sie aus und arbeite lokal weiter. Alles in Stashpad funktioniert offline.",
+    "passphraseLabel": "Passphrase",
+    "confirmLabel": "Passphrase wiederholen",
+    "confirmMismatch": "Die beiden Passphrasen stimmen nicht überein",
+    "rememberLabel": "Passphrase auf diesem Rechner merken",
+    "rememberWarning": "Stashpad entsperrt sich dann beim Start von selbst, ohne zu fragen. Dafür muss der Schlüssel auf diesem Rechner so liegen, dass Stashpad ihn wieder lesen kann — wer dein Benutzerkonto lesen kann, kann ihn also wiederherstellen: jemand an deinem entsperrten Rechner, ein Backup dieses Ordners oder Schadsoftware, die unter deinem Konto läuft. Lässt du das aus, wirst du bei jedem Start gefragt, was die sicherere Wahl ist.",
+    "forgotNote": "Wenn du sie vergisst, geht nichts verloren: Diese Installation richtet sich neu ein und deine Stashes bleiben, wo sie sind.",
+    "wrongPassphrase": "Das ist nicht die Passphrase dieser Installation",
+    "setupAction": "Passphrase festlegen",
+    "unlockAction": "Entsperren",
+    "workLocally": "Ohne Passphrase lokal arbeiten",
+    "rememberedNotice": "Passphrase auf diesem Rechner gemerkt — wiederherstellbar von jedem, der Zugriff auf dein Benutzerkonto hat.",
+    "forgetRemembered": "Beim Start wieder danach fragen"
   },
   "contexts": {
     "title": "Kontexte",

@@ -16,7 +16,7 @@
 <script lang="ts">
   import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
   import type { SyncStatus, SyncStatusDetail } from "$lib/services/cloud-sync";
-  import type { Settings, AIConfig, CloudUsage } from "$lib/types";
+  import type { Settings, AIConfig, CloudUsage, LocalKeyStatus } from "$lib/types";
   import {
     _,
     locale,
@@ -272,6 +272,22 @@
   /** Cloud storage usage, fetched when the panel opens. Null until it arrives. */
   let cloudUsage = $state<CloudUsage | null>(null);
 
+  // Device passphrase. Stays "notNeeded" - and the block below stays hidden - on every
+  // machine with a working OS credential store, which is all of Windows, macOS and any
+  // desktop Linux with a keyring service.
+  let deviceKeyStatus = $state<LocalKeyStatus>("notNeeded");
+  let deviceKeyRemembered = $state(false);
+
+  async function refreshDeviceKey() {
+    deviceKeyStatus = await adapter.localKeyStatus();
+    deviceKeyRemembered = await adapter.localKeyIsRemembered();
+  }
+
+  async function stopRemembering() {
+    await adapter.setLocalKeyRemembered(false);
+    await refreshDeviceKey();
+  }
+
   /** Clamped so an account past its allowance shows a full bar, not an overflowing one. */
   let usagePercent = $derived(
     cloudUsage && cloudUsage.quotaBytes > 0
@@ -302,6 +318,7 @@
   }
 
   onMount(loadCloudUsage);
+  onMount(refreshDeviceKey);
 
   onMount(async () => {
     isWin10 = await adapter.isWindows10();
@@ -894,6 +911,24 @@
         >
           {$_("settings.general.title")}
         </h2>
+
+        <!-- Device passphrase, only where there is no OS credential store -->
+        {#if deviceKeyStatus !== "notNeeded" && deviceKeyRemembered}
+          <div
+            class="flex items-start justify-between gap-3 p-3 rounded-lg border border-border bg-card"
+          >
+            <div class="text-xs text-muted-foreground">
+              {$_("deviceKey.rememberedNotice")}
+            </div>
+            <button
+              type="button"
+              class="shrink-0 text-xs text-primary hover:underline"
+              onclick={stopRemembering}
+            >
+              {$_("deviceKey.forgetRemembered")}
+            </button>
+          </div>
+        {/if}
 
         <!-- Language Selector -->
         <div

@@ -29,6 +29,7 @@ mod models;
 mod state;
 mod utils;
 mod keychain;
+mod localkey;
 mod settings;
 mod contexts;
 mod sync;
@@ -142,6 +143,19 @@ pub fn run() {
     // 1. Initialize Storage
     ensure_storage_ready();
 
+    // 1b. Probe the OS credential store before anything reads a secret.
+    //
+    // `load_settings_from_disk` below pulls the cloud token and the provider key, and it
+    // asks the credential store first - so the probe has to have run by then, or every
+    // read takes the file fallback and every write puts the secret back there.
+    keychain::probe_keychain();
+
+    // 1c. On a machine with no credential store, work out whether a device passphrase is
+    // set and whether it can be restored without asking. Must follow the probe: on every
+    // machine that has a store this is a no-op.
+    let local_key_status = localkey::initialize();
+    log::info!("Device key status at startup: {:?}", local_key_status);
+
     // 2. Initialize DB
     let db_path = get_app_dir().join("stashpad.db");
     let db_manager = DbManager::new(&db_path).expect("Failed to init DB");
@@ -154,6 +168,10 @@ pub fn run() {
     let settings_state = Arc::new(SettingsState {
         settings: Mutex::new(load_settings_from_disk()),
     });
+
+    // 2b. First launch after the credential store started working: move the secrets out
+    // of settings.json. No-op on every later launch, and on machines that have no store.
+    settings::migrate_secrets_into_keychain(&settings_state.lock_settings());
 
     let ws_state = Arc::new(WsState {
         task_handle: Mutex::new(None),
@@ -445,6 +463,12 @@ pub fn run() {
             settings::get_settings,
             settings::save_settings,
             settings::cloud_logout,
+            localkey::local_key_status,
+            localkey::local_key_is_remembered,
+            localkey::unlock_local_key,
+            localkey::set_local_passphrase,
+            localkey::set_local_key_remembered,
+            localkey::decline_local_key,
             utils::is_windows_10,
             contexts::get_contexts,
             contexts::save_contexts,

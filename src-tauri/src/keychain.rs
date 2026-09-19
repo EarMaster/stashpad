@@ -11,12 +11,18 @@
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 // See the GNU Affero General Public License for more details.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::OnceLock;
 
 use crate::utils::get_app_dir;
 
-/// Simple obfuscation key for API key storage (fallback)
-const OBFUSCATION_KEY: &[u8] = b"StashpadAIConfigKey2026";
+/// Key of the long-retired XOR obfuscation. Reachable from exactly one place -
+/// [`decrypt_legacy_secret`], used only by the one-time startup migration - so a secret
+/// written by a very old build is still recoverable.
+///
+/// It is deliberately *not* reachable from [`decrypt_api_key`] any more. That path used to
+/// fall through to XOR on **any** AEAD failure, which meant a corrupted or tampered value
+/// was silently "decrypted" with a constant compiled into public source.
+const LEGACY_OBFUSCATION_KEY: &[u8] = b"StashpadAIConfigKey2026";
 
 /// Keychain identifiers - using explicit target for Windows compatibility
 const KEYCHAIN_SERVICE: &str = "stashpad";
@@ -36,15 +42,92 @@ pub fn create_cloud_keychain_entry() -> Result<keyring::Entry, keyring::Error> {
     keyring::Entry::new_with_target(KEYCHAIN_CLOUD_TARGET, KEYCHAIN_SERVICE, KEYCHAIN_CLOUD_USER)
 }
 
-/// Whether this process has already proved the keychain round-trips correctly.
+/// Whether this machine has a credential store that actually works.
 ///
-/// The read-back verification below is worth doing once - a credential store that
-/// accepts writes but cannot return them would silently lose the user's API key -
-/// but it used to run on *every* write. Combined with a `save_settings` fired from
-/// `oninput`, that meant a `CredWrite` plus a `CredRead` per keystroke, each one
-/// blocking a Tokio worker. Verifying once per process keeps the safety check and
-/// drops the per-write cost.
-static KEYCHAIN_VERIFIED: AtomicBool = AtomicBool::new(false);
+/// Probed once at startup with a canary rather than discovered per write, so the rest of
+/// the app can branch on a known fact. The distinction matters: an *absent* store is a
+/// machine configuration to work around, while a *failure* on a machine that probed
+/// `Working` is an error - and must never be answered by quietly writing the secret
+/// somewhere weaker.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeychainStatus {
+    /// A real credential store accepted a value and gave it back.
+    Working,
+    /// No usable credential store on this machine (headless Linux, no Secret Service).
+    Unavailable,
+}
+
+/// Set once by [`probe_keychain`] at startup.
+///
+/// A module-level cell rather than Tauri managed state because the readers are free
+/// functions in `settings.rs` that run outside any command context and have no `State`
+/// to draw from.
+static KEYCHAIN_STATUS: OnceLock<KeychainStatus> = OnceLock::new();
+
+/// Round-trip a canary through the credential store and remember the outcome.
+///
+/// Call once, early in startup, **before** anything reads a secret. The canary exists so
+/// the probe never writes a real secret: a probe that stored the cloud token to find out
+/// whether storing works is how you lose the cloud token.
+pub fn probe_keychain() -> KeychainStatus {
+    let status = run_probe();
+    match status {
+        KeychainStatus::Working => log::info!("Credential store is available and round-trips"),
+        KeychainStatus::Unavailable => log::warn!(
+            "No usable credential store on this machine - secrets fall back to an encrypted file"
+        ),
+    }
+    let _ = KEYCHAIN_STATUS.set(status);
+    status
+}
+
+fn run_probe() -> KeychainStatus {
+    const CANARY: &str = "stashpad-keychain-probe";
+    let entry = match keyring::Entry::new_with_target(
+        "stashpad.probe",
+        KEYCHAIN_SERVICE,
+        "keychain_probe",
+    ) {
+        Ok(entry) => entry,
+        Err(e) => {
+            log::debug!("Credential store probe could not create an entry: {}", e);
+            return KeychainStatus::Unavailable;
+        }
+    };
+
+    if let Err(e) = entry.set_password(CANARY) {
+        log::debug!("Credential store probe could not write: {}", e);
+        return KeychainStatus::Unavailable;
+    }
+
+    // A second `Entry` on purpose: the mock store keeps its value on the handle, so
+    // reading back through the same one would pass against a store that persists nothing.
+    let readback = keyring::Entry::new_with_target(
+        "stashpad.probe",
+        KEYCHAIN_SERVICE,
+        "keychain_probe",
+    )
+    .and_then(|verify| verify.get_password());
+
+    let _ = entry.delete_credential();
+
+    match readback {
+        Ok(value) if value == CANARY => KeychainStatus::Working,
+        Ok(_) => {
+            log::debug!("Credential store probe read back a different value");
+            KeychainStatus::Unavailable
+        }
+        Err(e) => {
+            log::debug!("Credential store probe could not read back: {}", e);
+            KeychainStatus::Unavailable
+        }
+    }
+}
+
+/// What the startup probe found. `Unavailable` until [`probe_keychain`] has run.
+pub fn keychain_status() -> KeychainStatus {
+    *KEYCHAIN_STATUS.get().unwrap_or(&KeychainStatus::Unavailable)
+}
 
 /// Store a secret in the system keychain.
 ///
@@ -67,31 +150,15 @@ pub fn store_secret_in_keychain(
             return false;
         }
     };
-    if entry.set_password(secret).is_err() {
-        log::warn!("Failed to store secret in keychain");
+    if let Err(e) = entry.set_password(secret) {
+        log::warn!("Failed to store secret in keychain: {}", e);
         return false;
     }
 
-    if KEYCHAIN_VERIFIED.load(Ordering::Relaxed) {
-        return true;
-    }
-
-    // First write of this process: prove the store can return what it took.
-    match create_entry().and_then(|verify| verify.get_password()) {
-        Ok(retrieved) if retrieved == secret => {
-            log::debug!("Secret stored and verified in system keychain");
-            KEYCHAIN_VERIFIED.store(true, Ordering::Relaxed);
-            true
-        }
-        Ok(_) => {
-            log::warn!("Keychain verification failed: retrieved value doesn't match");
-            false
-        }
-        Err(_) => {
-            log::warn!("Keychain verification failed on retrieval");
-            false
-        }
-    }
+    // No read-back here any more. The startup probe already proved the store round-trips,
+    // with a canary rather than a real secret, so verifying on every first write only
+    // repeated that at the cost of a credential-store read on the hot save path.
+    true
 }
 
 /// Store API key in system keychain and verify it can be retrieved
@@ -206,77 +273,188 @@ pub fn encrypt_api_key(key: &str) -> String {
             result.extend_from_slice(&ciphertext);
             STANDARD.encode(&result)
         }
-        Err(_e) => {
-            log::warn!("AES encryption failed, using XOR fallback");
-            // Fallback to simple obfuscation if encryption fails
-            obfuscate_simple(key)
+        Err(e) => {
+            // Returning an obfuscated value here would hand back something that looks
+            // encrypted and is not. Better to store nothing and say so.
+            log::error!("Failed to encrypt secret for on-disk storage: {}", e);
+            String::new()
         }
     }
 }
 
-/// Decrypt a string that was encrypted with encrypt_api_key
+/// Decrypt a string produced by [`encrypt_api_key`].
+///
+/// Returns an empty string when the value cannot be opened. It deliberately does **not**
+/// fall back to the retired XOR format: that fallback fired on any AEAD failure, so a
+/// tampered or corrupted value came back as whatever XOR made of it, under a key that is
+/// a literal in public source. A value written by a pre-AES build is recovered once, by
+/// [`decrypt_legacy_secret`], during the startup migration.
 pub fn decrypt_api_key(encoded: &str) -> String {
-    if encoded.is_empty() {
-        return String::new();
+    decrypt_with_aes(encoded).unwrap_or_else(|| {
+        log::warn!("Stored secret could not be decrypted on this machine");
+        String::new()
+    })
+}
+
+/// One-time reader for secrets written by older builds.
+///
+/// Tries AES-256-GCM first, then the retired XOR obfuscation. Called **only** from the
+/// startup migration in `settings.rs`, so the live read path keeps failing closed.
+pub fn decrypt_legacy_secret(encoded: &str) -> String {
+    if let Some(plaintext) = decrypt_with_aes(encoded) {
+        return plaintext;
     }
-    
+    let xor = legacy_deobfuscate(encoded);
+    if !xor.is_empty() {
+        log::info!("Recovered a secret written in the retired obfuscation format");
+    }
+    xor
+}
+
+/// `Some(plaintext)` when the value opens under the machine key, `None` when it does not.
+///
+/// A value that is not base64 at all is treated as plaintext from a build that predates
+/// any encryption here - an actual migration case, unlike the AEAD failures above.
+fn decrypt_with_aes(encoded: &str) -> Option<String> {
+    if encoded.is_empty() {
+        return Some(String::new());
+    }
+
     use aes_gcm::{
         aead::{Aead, KeyInit},
         Aes256Gcm, Nonce,
     };
-    use base64::{Engine as _, engine::general_purpose::STANDARD};
-    
-    match STANDARD.decode(encoded) {
-        Ok(data) => {
-            if data.len() < 13 {
-                // Too short to be valid (12 byte nonce + at least 1 byte)
-                // Try legacy deobfuscation
-                return deobfuscate_simple(encoded);
-            }
-            
-            let (nonce_bytes, ciphertext) = data.split_at(12);
-            let encryption_key = derive_machine_key();
-            let cipher = Aes256Gcm::new_from_slice(&encryption_key).expect("Invalid key length");
-            let nonce = Nonce::from_slice(nonce_bytes);
-            
-            match cipher.decrypt(nonce, ciphertext) {
-                Ok(plaintext) => String::from_utf8(plaintext).unwrap_or_default(),
-                Err(_) => {
-                    // Decryption failed - might be old XOR obfuscated format
-                    deobfuscate_simple(encoded)
-                }
-            }
-        }
-        Err(_) => {
-            // Base64 decode failed - assume it's plaintext (migration case)
-            encoded.to_string()
-        }
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
+
+    let data = match STANDARD.decode(encoded) {
+        Ok(data) => data,
+        Err(_) => return Some(encoded.to_string()),
+    };
+
+    // 12-byte nonce plus at least one byte of ciphertext.
+    if data.len() < 13 {
+        return None;
+    }
+
+    let (nonce_bytes, ciphertext) = data.split_at(12);
+    let encryption_key = derive_machine_key();
+    let cipher = Aes256Gcm::new_from_slice(&encryption_key).expect("Invalid key length");
+    let nonce = Nonce::from_slice(nonce_bytes);
+
+    match cipher.decrypt(nonce, ciphertext) {
+        Ok(plaintext) => String::from_utf8(plaintext).ok(),
+        Err(_) => None,
     }
 }
 
-/// Simple XOR obfuscation (legacy fallback)
-pub fn obfuscate_simple(key: &str) -> String {
-    let bytes: Vec<u8> = key
-        .bytes()
-        .enumerate()
-        .map(|(i, b)| b ^ OBFUSCATION_KEY[i % OBFUSCATION_KEY.len()])
-        .collect();
-    use base64::{Engine as _, engine::general_purpose::STANDARD};
-    STANDARD.encode(&bytes)
-}
-
-/// Simple XOR deobfuscation (legacy fallback)
-pub fn deobfuscate_simple(encoded: &str) -> String {
-    use base64::{Engine as _, engine::general_purpose::STANDARD};
+/// Undo the retired XOR obfuscation. Migration only - see [`LEGACY_OBFUSCATION_KEY`].
+fn legacy_deobfuscate(encoded: &str) -> String {
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
     match STANDARD.decode(encoded) {
         Ok(bytes) => {
             let decoded: Vec<u8> = bytes
                 .iter()
                 .enumerate()
-                .map(|(i, b)| b ^ OBFUSCATION_KEY[i % OBFUSCATION_KEY.len()])
+                .map(|(i, b)| b ^ LEGACY_OBFUSCATION_KEY[i % LEGACY_OBFUSCATION_KEY.len()])
                 .collect();
             String::from_utf8(decoded).unwrap_or_default()
         }
-        Err(_) => encoded.to_string()
+        Err(_) => String::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_secret_round_trips_through_the_machine_key() {
+        let secret = "sk_stashpad_0123456789abcdef";
+        let sealed = encrypt_api_key(secret);
+        assert_ne!(sealed, secret, "the stored form must not be the plaintext");
+        assert_eq!(decrypt_api_key(&sealed), secret);
+    }
+
+    #[test]
+    fn an_empty_secret_stays_empty() {
+        assert_eq!(encrypt_api_key(""), "");
+        assert_eq!(decrypt_api_key(""), "");
+    }
+
+    /// The point of the change: a value that does not open must come back empty rather
+    /// than being run through XOR and returned as if it were the secret.
+    #[test]
+    fn a_tampered_value_never_falls_back_to_the_retired_format() {
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
+
+        let sealed = encrypt_api_key("sk_stashpad_0123456789abcdef");
+        let mut raw = STANDARD.decode(&sealed).expect("encrypt emits base64");
+        let last = raw.len() - 1;
+        raw[last] ^= 0xff;
+        let tampered = STANDARD.encode(&raw);
+
+        // The old path returned whatever XOR made of these bytes and presented it as the
+        // secret. That the retired format is genuinely unreachable is pinned by
+        // `the_migration_reader_still_opens_the_retired_format` below, which feeds a value
+        // XOR *can* decode and checks the live path still refuses it.
+        assert_eq!(decrypt_api_key(&tampered), "");
+    }
+
+    /// Too short to carry a nonce. Used to reach the XOR path; must now fail closed.
+    #[test]
+    fn a_truncated_value_fails_closed() {
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
+        assert_eq!(decrypt_api_key(&STANDARD.encode(b"short")), "");
+    }
+
+    /// Old builds stored the key with no encoding at all.
+    #[test]
+    fn a_pre_encryption_plaintext_value_still_reads() {
+        assert_eq!(decrypt_api_key("not base64 !!"), "not base64 !!");
+    }
+
+    /// The retired format is unreachable from the live path but still migratable.
+    #[test]
+    fn the_migration_reader_still_opens_the_retired_format() {
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
+        let secret = "sk-legacy-value";
+        let obfuscated: Vec<u8> = secret
+            .bytes()
+            .enumerate()
+            .map(|(i, b)| b ^ LEGACY_OBFUSCATION_KEY[i % LEGACY_OBFUSCATION_KEY.len()])
+            .collect();
+        let encoded = STANDARD.encode(&obfuscated);
+
+        assert_eq!(decrypt_legacy_secret(&encoded), secret);
+        assert_eq!(decrypt_api_key(&encoded), "", "the live path must not open it");
+    }
+
+    /// Proves the thing the unit tests above cannot: that a *real* credential store is
+    /// compiled in and round-trips. Ignored by default because a CI container has no
+    /// Secret Service and would fail it for the wrong reason.
+    ///
+    /// Run it by hand on each platform when touching the keyring wiring:
+    ///   cargo test -- --ignored the_real_credential_store_round_trips
+    #[test]
+    #[ignore]
+    fn the_real_credential_store_round_trips() {
+        assert_eq!(
+            probe_keychain(),
+            KeychainStatus::Working,
+            "no platform credential store is compiled in - check the per-target keyring              features in Cargo.toml"
+        );
+
+        let secret = "sk_stashpad_round_trip_check";
+        assert!(store_api_key_in_keychain(secret), "the store refused a write");
+        assert_eq!(get_api_key_from_keychain().as_deref(), Some(secret));
+        delete_api_key_from_keychain();
+        assert_eq!(get_api_key_from_keychain(), None, "delete must actually remove it");
+    }
+
+    #[test]
+    fn the_migration_reader_prefers_aes() {
+        let secret = "sk_stashpad_aes_wins";
+        let sealed = encrypt_api_key(secret);
+        assert_eq!(decrypt_legacy_secret(&sealed), secret);
     }
 }

@@ -11,6 +11,45 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+### Added
+- **A machine with no system keychain can now protect Stashpad with a passphrase.** Some Linux
+  setups - a server you reach over SSH, a minimal desktop with no keyring service - have nowhere
+  safe to keep a secret, and until now Stashpad put the sign-in token there anyway, scrambled
+  with a key anyone reading the folder could work out. On those machines Stashpad now asks once:
+  set a passphrase, or work locally without one. With a passphrase, your sign-in token and AI
+  provider key are protected by it. Without one, nothing is written to disk and the app keeps
+  working offline, which it does in full. You can tick "remember the passphrase on this machine"
+  to skip the prompt at startup - it says plainly that this leaves the key recoverable by anyone
+  who can read your user account, and you can turn it off again under Settings › General.
+  Forgetting the passphrase costs you nothing but a re-entry: your stashes are untouched.
+  Windows, macOS and any desktop Linux with a keyring service never see this - they use the
+  system store and are not prompted
+
+### Security
+- **Your sign-in token and AI provider key now go into the system credential store, as they
+  were always meant to.** Stashpad asked for Windows Credential Manager, the macOS Keychain or
+  the Linux Secret Service, but the library providing them was pulled in without naming any of
+  them - so every build quietly used a stand-in that keeps nothing, every read came back empty,
+  and both secrets always took the fallback path instead: a file in your Stashpad folder,
+  scrambled with a key made from your computer name, the folder's own path and a word written
+  in the source code. Anyone who could read that file could work the key out. The real
+  credential store is now built in and checked at startup, and the first launch after this
+  update moves both secrets into it and clears them from the file. Nothing to do by hand, and
+  you stay signed in
+- **A failure to reach the credential store no longer downgrades a secret behind your back.**
+  If the store was momentarily locked or refused a prompt, Stashpad wrote the weaker file copy
+  instead and said nothing, so a passing hiccup permanently lowered how a secret was protected.
+  It now treats that as the error it is and leaves the secret in memory for the session rather
+  than writing a weaker copy. Machines with no credential store at all - a headless Linux box
+  with no keyring service - still use the encrypted file, which is what they have always done
+
+### Removed
+- Dropped a long-retired scrambling format that Stashpad fell back to whenever a stored secret
+  failed to decrypt. Because it triggered on any failure and its key was a fixed word in the
+  source, a damaged or tampered value came back as whatever that produced and was then used as
+  though it were the secret. A value in that old format is still read once, during the move into
+  the credential store, so nothing is lost
+
 ## [1.7.0] - 2026-09-18
 
 ### Added

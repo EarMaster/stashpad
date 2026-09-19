@@ -255,6 +255,23 @@
       }
     }
   },
+  "deviceKey": {
+    "setupTitle": "Protect this installation",
+    "unlockTitle": "Unlock Stashpad",
+    "noKeyStore": "This machine has no secure key store — no system keychain is available here. Set a passphrase for this installation to use cloud sync, or leave it off and keep working locally. Everything in Stashpad works offline.",
+    "passphraseLabel": "Passphrase",
+    "confirmLabel": "Repeat passphrase",
+    "confirmMismatch": "The two passphrases do not match",
+    "rememberLabel": "Remember the passphrase on this machine",
+    "rememberWarning": "Stashpad will then unlock itself at startup without asking. To do that it has to keep the key on this machine in a form it can read back, so anyone who can read your user account can recover it — another person at your unlocked computer, a backup of this folder, or malware running as you. Leave this off and you will be asked each time the app starts, which is the safer choice.",
+    "forgotNote": "If you forget it, nothing is lost: this installation sets itself up again and your stashes stay where they are.",
+    "wrongPassphrase": "That is not the passphrase for this installation",
+    "setupAction": "Set passphrase",
+    "unlockAction": "Unlock",
+    "workLocally": "Work locally without one",
+    "rememberedNotice": "Passphrase remembered on this machine — recoverable by anyone with access to your user account.",
+    "forgetRemembered": "Ask for it again at startup"
+  },
   "contexts": {
     "title": "Contexts",
     "defaultContext": "Default",

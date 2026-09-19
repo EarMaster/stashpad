@@ -262,7 +262,28 @@ export interface IStorageService {
     openSystemPromptFile(): Promise<void>;
     /** Uploads the attachment's bytes. Resolves true only if bytes were actually sent. */
     uploadAttachmentToCloud(attachmentId: string): Promise<boolean>;
+
+    // Device passphrase - only ever anything but "notNeeded" on a machine with no OS
+    // credential store, where a typed passphrase is the only real protection available.
+    localKeyStatus(): Promise<LocalKeyStatus>;
+    localKeyIsRemembered(): Promise<boolean>;
+    /** Resolves false when the passphrase was simply wrong. */
+    unlockLocalKey(passphrase: string): Promise<boolean>;
+    setLocalPassphrase(passphrase: string, remember: boolean): Promise<void>;
+    setLocalKeyRemembered(remember: boolean): Promise<void>;
+    declineLocalKey(): Promise<void>;
 }
+
+/**
+ * Where the device passphrase stands on this machine.
+ *
+ * - `notNeeded` - the OS credential store works, so no passphrase is involved
+ * - `unset` - no credential store and the user has not chosen yet
+ * - `locked` - a passphrase is set but has not been entered this session
+ * - `unlocked` - the key is in memory
+ * - `declined` - the user chose no passphrase; secrets are not written to disk
+ */
+export type LocalKeyStatus = "notNeeded" | "unset" | "locked" | "unlocked" | "declined";
 
 /**
  * Data structure for file preview information.

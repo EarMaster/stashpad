@@ -42,10 +42,13 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 uuid = { version = "1.11", features = ["v4", "serde"] }
 mime_guess = "2.0.5"
 tauri-plugin-autostart = "2.5.1"
-keyring = "3"
 aes-gcm = "0.10"
 sha2 = "0.10"
 rand = "0.8"
+# Only for the device passphrase - the one human-chosen input in the app, and the only
+# place a work factor buys anything. Everything else derives from full-entropy material.
+argon2 = "0.5"
+zeroize = { version = "1", features = ["zeroize_derive"] }
 tauri-plugin-opener = "2"
 tauri-plugin-deep-link = "2"
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
@@ -61,8 +64,23 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 serde_yaml = "0.9"
 
 # Apple Intelligence (Foundation Models) - macOS 26+ only
+# keyring ships NO default features and, without one, silently compiles its in-memory
+# `mock` store - which is what this crate did until now, so the OS credential store has
+# never actually worked on any platform. The backend is declared per target so a dbus
+# dependency is never dragged into the Windows or macOS builds.
+#
+# Deliberately not `linux-native`/`linux-native-sync-persistent`: kernel keyutils entries
+# do not reliably survive a reboot, so they would appear to work and then lose the key.
+# `crypto-rust` supplies the Secret Service session encryption in Rust, so no OpenSSL.
 [target.'cfg(target_os = "macos")'.dependencies]
 fm-rs = { version = "0.1", optional = true }
+keyring = { version = "3", features = ["apple-native"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3", features = ["windows-native"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"] }
 
 [features]
 macos-apple-intelligence = ["fm-rs"]
