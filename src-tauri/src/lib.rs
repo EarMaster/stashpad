@@ -29,6 +29,7 @@ mod models;
 mod state;
 mod utils;
 mod e2ee;
+mod e2ee_session;
 mod envelope;
 mod keychain;
 mod localkey;
