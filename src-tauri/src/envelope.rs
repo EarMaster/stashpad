@@ -529,3 +529,29 @@ mod tests {
         assert_eq!(content, field_key(&KEY, Kind::Stash, Field::Content));
     }
 }
+
+/// Emit a fixture for the cloud service's matching test, so the two implementations are
+/// checked against the same bytes rather than against each other's assumptions.
+///
+/// Run with `cargo test --lib print_cross_impl_fixture -- --ignored --nocapture`, then paste
+/// the output into `cloud/src/envelope.rs`. A drift between the two is otherwise invisible
+/// until an agent authenticates and sees nothing.
+#[cfg(test)]
+#[test]
+#[ignore]
+fn print_cross_impl_fixture() {
+    let key = [7u8; 32];
+    let binding = Binding {
+        user_id: "11111111-1111-4111-8111-111111111111",
+        kind: Kind::Stash,
+        record_id: "22222222-2222-4222-8222-222222222222",
+        field: Field::Content,
+        epoch: 1,
+    };
+    let sealed = seal(&key, "the quick brown fox", &binding).expect("seal");
+    println!("KEY: [7u8; 32]");
+    println!("USER: {}", binding.user_id);
+    println!("RECORD: {}", binding.record_id);
+    println!("PLAINTEXT: the quick brown fox");
+    println!("SEALED: {}", sealed);
+}
