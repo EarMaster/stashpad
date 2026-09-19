@@ -265,14 +265,23 @@ pub async fn exchange_link_code_api(
 #[tauri::command]
 pub async fn sync_stashes_api(
     settings_state: State<'_, Arc<SettingsState>>,
-    payload: serde_json::Value,
+    mut payload: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
-    let (endpoint, token) = {
+    let (endpoint, token, user_id) = {
         let settings = settings_state.lock_settings();
         let config = settings.cloud_config.as_ref().ok_or("Cloud config missing")?;
         let token = config.access_token.clone().ok_or("Not authenticated")?;
-        (config.endpoint.clone(), token)
+        (
+            config.endpoint.clone(),
+            token,
+            config.user_id.clone().unwrap_or_default(),
+        )
     };
+
+    // Encrypt here rather than in the webview, so everything above the adapter goes on
+    // handling plaintext and no key crosses the IPC boundary. A no-op when this account
+    // has no content key.
+    crate::e2ee_session::seal_stash_payload(&mut payload, &user_id)?;
 
     let client = api_client()?;
     let response = client
@@ -298,7 +307,92 @@ pub async fn sync_stashes_api(
 
     absorb_refreshed_token(&settings_state, &response).await;
 
-    response.json().await.map_err(|e| format!("Failed to parse sync response: {}", e))
+    let mut body: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse sync response: {}", e))?;
+
+    // Records this installation cannot open are removed here, before anything above sees
+    // them. They must never reach a local row: stored as a placeholder and later edited,
+    // an unopenable value is pushed back up as though it were the record.
+    let unreadable = crate::e2ee_session::open_stash_response(&mut body, &user_id);
+    if !unreadable.is_empty() {
+        log::warn!(
+            "{} stash(es) in this sync could not be decrypted and were skipped",
+            unreadable.len()
+        );
+        body["unreadable"] = serde_json::to_value(&unreadable).unwrap_or_default();
+    }
+
+    Ok(body)
+}
+
+/// GET a JSON endpoint on the cloud API, with this account's session.
+///
+/// Used by the enrolment routes. Kept beside the sync calls because it shares their
+/// authentication and their habit of returning the server's own sentence on failure -
+/// which for these is the only thing the user will have to go on.
+pub async fn e2ee_get(
+    settings_state: &State<'_, Arc<SettingsState>>,
+    path: &str,
+) -> Result<serde_json::Value, String> {
+    let (endpoint, token) = {
+        let settings = settings_state.lock_settings();
+        let config = settings.cloud_config.as_ref().ok_or("Cloud config missing")?;
+        let token = config.access_token.clone().ok_or("Not authenticated")?;
+        (config.endpoint.clone(), token)
+    };
+
+    let response = api_client()?
+        .get(format!("{}{}", endpoint.trim_end_matches('/'), path))
+        .header("Authorization", format!("Bearer {}", token))
+        .send()
+        .await
+        .map_err(|e| format!("Could not reach Stashpad Cloud: {}", e))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(format!("{} ({})", error_snippet(&body), status));
+    }
+
+    response
+        .json()
+        .await
+        .map_err(|e| format!("Could not read the response: {}", e))
+}
+
+/// POST JSON to the cloud API, with this account's session.
+pub async fn e2ee_post(
+    settings_state: &State<'_, Arc<SettingsState>>,
+    path: &str,
+    body: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let (endpoint, token) = {
+        let settings = settings_state.lock_settings();
+        let config = settings.cloud_config.as_ref().ok_or("Cloud config missing")?;
+        let token = config.access_token.clone().ok_or("Not authenticated")?;
+        (config.endpoint.clone(), token)
+    };
+
+    let response = api_client()?
+        .post(format!("{}{}", endpoint.trim_end_matches('/'), path))
+        .header("Authorization", format!("Bearer {}", token))
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("Could not reach Stashpad Cloud: {}", e))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        return Err(format!("{} ({})", error_snippet(&text), status));
+    }
+
+    response
+        .json()
+        .await
+        .map_err(|e| format!("Could not read the response: {}", e))
 }
 
 #[tauri::command]
@@ -675,14 +769,20 @@ pub async fn download_attachment_from_cloud(
 #[tauri::command]
 pub async fn sync_contexts_api(
     settings_state: State<'_, Arc<SettingsState>>,
-    payload: serde_json::Value,
+    mut payload: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
-    let (endpoint, token) = {
+    let (endpoint, token, user_id) = {
         let settings = settings_state.lock_settings();
         let config = settings.cloud_config.as_ref().ok_or("Cloud config missing")?;
         let token = config.access_token.clone().ok_or("Not authenticated")?;
-        (config.endpoint.clone(), token)
+        (
+            config.endpoint.clone(),
+            token,
+            config.user_id.clone().unwrap_or_default(),
+        )
     };
+
+    crate::e2ee_session::seal_context_payload(&mut payload, &user_id)?;
 
     let client = api_client()?;
     let response = client
@@ -706,7 +806,21 @@ pub async fn sync_contexts_api(
 
     absorb_refreshed_token(&settings_state, &response).await;
 
-    response.json().await.map_err(|e| format!("Failed to parse sync response: {}", e))
+    let mut body: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse sync response: {}", e))?;
+
+    let unreadable = crate::e2ee_session::open_context_response(&mut body, &user_id);
+    if !unreadable.is_empty() {
+        log::warn!(
+            "{} context(s) in this sync could not be decrypted and were skipped",
+            unreadable.len()
+        );
+        body["unreadable"] = serde_json::to_value(&unreadable).unwrap_or_default();
+    }
+
+    Ok(body)
 }
 
 // --- WebSocket Sync Commands ---

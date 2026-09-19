@@ -272,6 +272,54 @@ export interface IStorageService {
     setLocalPassphrase(passphrase: string, remember: boolean): Promise<void>;
     setLocalKeyRemembered(remember: boolean): Promise<void>;
     declineLocalKey(): Promise<void>;
+
+    // Content encryption. Every one of these is a no-op for an account that has not
+    // turned it on, which is the default.
+    e2eeStatus(): Promise<E2eeStatus>;
+    e2eeRegisterDevice(): Promise<string>;
+    /** Returns the recovery code, shown once and never retrievable again. */
+    e2eeEnable(): Promise<E2eeEnableResult>;
+    e2eeApproveDevice(deviceId: string, expectedFingerprint: string): Promise<void>;
+    e2eeRecover(code: string): Promise<void>;
+    e2eeAcknowledgeRecovery(): Promise<void>;
+    /** Queues every local record for re-encryption. Returns how many. */
+    e2eeStartConversion(): Promise<number>;
+    e2eeSeal(): Promise<void>;
+}
+
+/** Where an account and this installation stand on encryption. */
+export interface E2eeStatus {
+    /** 0 when encryption has never been turned on. */
+    epoch: number;
+    /** "off", "migrating" or "sealed". */
+    state: string;
+    /** Whether this installation holds the content key right now. */
+    unlocked: boolean;
+    /** Whether the server holds a copy of the key for this installation. */
+    enrolled: boolean;
+    hasRecovery: boolean;
+    recoveryAcknowledged: boolean;
+    /** This installation's fingerprint, for the user to compare against another screen. */
+    fingerprint: string;
+    devices: E2eeDevice[];
+}
+
+export interface E2eeDevice {
+    deviceId: string;
+    publicKey: string;
+    /**
+     * Recomputed on this machine from the published key, never the server's stored copy -
+     * comparing two numbers the server supplied would verify nothing.
+     */
+    fingerprint: string;
+    /** "pending" or "active". */
+    status: string;
+    enrolledAt: string;
+}
+
+export interface E2eeEnableResult {
+    recoveryCode: string;
+    fingerprint: string;
 }
 
 /**

@@ -29,6 +29,7 @@ mod models;
 mod state;
 mod utils;
 mod e2ee;
+mod e2ee_enrol;
 mod e2ee_session;
 mod envelope;
 mod keychain;
@@ -472,6 +473,14 @@ pub fn run() {
             localkey::set_local_passphrase,
             localkey::set_local_key_remembered,
             localkey::decline_local_key,
+            e2ee_enrol::e2ee_status,
+            e2ee_enrol::e2ee_register_device,
+            e2ee_enrol::e2ee_enable,
+            e2ee_enrol::e2ee_approve_device,
+            e2ee_enrol::e2ee_recover,
+            e2ee_enrol::e2ee_acknowledge_recovery,
+            e2ee_enrol::e2ee_start_conversion,
+            e2ee_enrol::e2ee_seal,
             utils::is_windows_10,
             contexts::get_contexts,
             contexts::save_contexts,

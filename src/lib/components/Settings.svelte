@@ -17,6 +17,7 @@
   import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
   import type { SyncStatus, SyncStatusDetail } from "$lib/services/cloud-sync";
   import type { Settings, AIConfig, CloudUsage, LocalKeyStatus } from "$lib/types";
+  import EncryptionPanel from "$lib/components/EncryptionPanel.svelte";
   import {
     _,
     locale,
@@ -899,6 +900,15 @@
                   ? "Upgrade"
                   : "Manage"}
               </SettingsButton>
+            </div>
+          {/if}
+
+          <!-- Content encryption. Only meaningful for a linked account, so it sits inside
+               the authenticated branch rather than being shown to someone who cannot use
+               it yet. -->
+          {#if settings.cloudConfig?.accessToken}
+            <div class="p-3 rounded-lg border border-border bg-card">
+              <EncryptionPanel />
             </div>
           {/if}
         {/if}

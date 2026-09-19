@@ -823,6 +823,27 @@ impl DbManager {
         Ok(ids)
     }
 
+    /// Queue every live record for a push, so the conversion sweep can re-send the corpus.
+    ///
+    /// Deliberately not a bespoke code path: flagging the rows and letting the ordinary
+    /// sync machinery carry them means partial failure, backoff and edits arriving
+    /// mid-flight are all handled by code that already works. It is resumable for the same
+    /// reason - a record the server has taken is no longer pending and is not sent twice.
+    ///
+    /// Tombstones are skipped: they carry no text to convert, and re-sending them would
+    /// push deletes the server has long since recorded.
+    pub fn mark_everything_pending(&self) -> Result<usize> {
+        let stashes = self.conn.execute(
+            "UPDATE stashes SET pending_sync = 1 WHERE deleted = 0 AND pending_sync = 0",
+            [],
+        )?;
+        let contexts = self.conn.execute(
+            "UPDATE contexts SET pending_sync = 1 WHERE deleted = 0 AND pending_sync = 0",
+            [],
+        )?;
+        Ok(stashes + contexts)
+    }
+
     /// Stashes with local changes the server has not acknowledged, marked in flight.
     pub fn claim_pending_stashes(&mut self) -> Result<Vec<StashItem>> {
         // Claiming moves every pending row to the in-flight state, so selecting on it

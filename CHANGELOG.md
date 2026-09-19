@@ -12,6 +12,25 @@ popover, not for the person who wrote the commit.
 ## [Unreleased]
 
 ### Added
+- **Your synced stashes can now be encrypted before they leave your computer.** Cloud sync
+  stored them on the server in readable form: we did not read them, but we could, and the
+  privacy policy had to say so. Turn encryption on under Settings › Cloud Sync and your
+  stashes, contexts and their descriptions are encrypted on this machine first, under a key
+  the server never keeps a copy of. Existing stashes are converted in the background while
+  you keep working, and it picks up where it left off if you close the app. Three things are
+  worth knowing before you switch it on, and the setting says all three: you get a recovery
+  code, and if you lose every installation *and* that code then nobody can get your stashes
+  back, us included; an access key for AI tools carries its own copy of the key, so the
+  server can read that account while it is serving such a request, and creating no access
+  key means it cannot read anything; and this protects what is on the server, not what is on
+  your own disk
+- **Another computer has to be let in before it can read your stashes.** Signing in on a new
+  machine gets you your queue, but not the ability to decrypt it until you approve it from a
+  machine that already can — you compare a short code shown on both screens, which is what
+  stops anyone slipping a machine of their own into your account. If none of your other
+  installations is reachable, your recovery code lets the new one in instead. That is the
+  ordinary way in when your other laptop is switched off, not an emergency measure, so keep
+  the code where you keep your passwords
 - **A machine with no system keychain can now protect Stashpad with a passphrase.** Some Linux
   setups - a server you reach over SSH, a minimal desktop with no keyring service - have nowhere
   safe to keep a secret, and until now Stashpad put the sign-in token there anyway, scrambled
