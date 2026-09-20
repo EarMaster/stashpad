@@ -11,6 +11,8 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-09-20
+
 ### Added
 - **Your synced stashes can now be encrypted before they leave your computer.** Cloud sync
   stored them on the server in readable form: we did not read them, but we could, and the
@@ -24,23 +26,12 @@ popover, not for the person who wrote the commit.
   server can read that account while it is serving such a request, and creating no access
   key means it cannot read anything; and this protects what is on the server, not what is on
   your own disk
-- **You can put a Stashpad Cloud export back.** Downloading your data has always worked;
-  restoring it never did, which made "export your data" a one-way door. The app now reads an
-  `export.json` from the account area, decrypts it if your account is encrypted, tells you
-  what it found before it commits anything, and puts the records back — from where they sync
-  to your other machines as usual. It also writes your whole account out as Markdown, one
-  file per context, in the same format the existing per-context export already uses
 - **Attachments are encrypted too, including their file names.** A file name is often as
   revealing as the file — `Q3-layoffs-list.xlsx` tells you what it is without opening it — so
   with encryption on, the name, type and the bytes are all encrypted before they leave your
   machine, and the storage path no longer contains the name either. Nothing changes in how
   attachments look or behave in the app. Files you uploaded before turning encryption on stay
   as they were until they are converted, and Stashpad does not claim otherwise
-- **Access keys for AI tools are created in the app once your stashes are encrypted.** Giving
-  a tool access means handing it a copy of your key, and only something that already has that
-  key can do it — the account page does not, and deliberately never will. So for an encrypted
-  account the key is created here instead, and the account page goes on listing and revoking
-  them, which is where people look. Revoking a key now takes its copy of your key with it
 - **Another computer has to be let in before it can read your stashes.** Signing in on a new
   machine gets you your queue, but not the ability to decrypt it until you approve it from a
   machine that already can — you compare a short code shown on both screens, which is what
@@ -48,6 +39,17 @@ popover, not for the person who wrote the commit.
   installations is reachable, your recovery code lets the new one in instead. That is the
   ordinary way in when your other laptop is switched off, not an emergency measure, so keep
   the code where you keep your passwords
+- **Access keys for AI tools are created in the app once your stashes are encrypted.** Giving
+  a tool access means handing it a copy of your key, and only something that already has that
+  key can do it — the account page does not, and deliberately never will. So for an encrypted
+  account the key is created here instead, and the account page goes on listing and revoking
+  them, which is where people look. Revoking a key now takes its copy of your key with it
+- **You can put a Stashpad Cloud export back.** Downloading your data has always worked;
+  restoring it never did, which made "export your data" a one-way door. The app now reads an
+  `export.json` from the account area, decrypts it if your account is encrypted, tells you
+  what it found before it commits anything, and puts the records back — from where they sync
+  to your other machines as usual. It also writes your whole account out as Markdown, one
+  file per context, in the same format the existing per-context export already uses
 - **A machine with no system keychain can now protect Stashpad with a passphrase.** Some Linux
   setups - a server you reach over SSH, a minimal desktop with no keyring service - have nowhere
   safe to keep a secret, and until now Stashpad put the sign-in token there anyway, scrambled
