@@ -262,7 +262,93 @@ export interface IStorageService {
     openSystemPromptFile(): Promise<void>;
     /** Uploads the attachment's bytes. Resolves true only if bytes were actually sent. */
     uploadAttachmentToCloud(attachmentId: string): Promise<boolean>;
+
+    // Device passphrase - only ever anything but "notNeeded" on a machine with no OS
+    // credential store, where a typed passphrase is the only real protection available.
+    localKeyStatus(): Promise<LocalKeyStatus>;
+    localKeyIsRemembered(): Promise<boolean>;
+    /** Resolves false when the passphrase was simply wrong. */
+    unlockLocalKey(passphrase: string): Promise<boolean>;
+    setLocalPassphrase(passphrase: string, remember: boolean): Promise<void>;
+    setLocalKeyRemembered(remember: boolean): Promise<void>;
+    declineLocalKey(): Promise<void>;
+
+    // Content encryption. Every one of these is a no-op for an account that has not
+    // turned it on, which is the default.
+    e2eeStatus(): Promise<E2eeStatus>;
+    e2eeRegisterDevice(): Promise<string>;
+    /** Returns the recovery code, shown once and never retrievable again. */
+    e2eeEnable(): Promise<E2eeEnableResult>;
+    e2eeApproveDevice(deviceId: string, expectedFingerprint: string): Promise<void>;
+    e2eeRecover(code: string): Promise<void>;
+    e2eeAcknowledgeRecovery(): Promise<void>;
+    /** Queues every local record for re-encryption. Returns how many. */
+    e2eeStartConversion(): Promise<number>;
+    e2eeSeal(): Promise<void>;
+    /**
+     * Mints an MCP access key on this machine and seals the content key to it. The secret
+     * comes back once and cannot be retrieved afterwards.
+     */
+    e2eeCreateAccessKey(
+        name: string,
+        scope: "read" | "readwrite",
+        expiresInDays?: number,
+    ): Promise<CreatedAccessKey>;
 }
+
+export interface CreatedAccessKey {
+    /** Show once. There is no way to get it again. */
+    key: string;
+    id: string;
+    name: string;
+    scope: string;
+}
+
+/** Where an account and this installation stand on encryption. */
+export interface E2eeStatus {
+    /** 0 when encryption has never been turned on. */
+    epoch: number;
+    /** "off", "migrating" or "sealed". */
+    state: string;
+    /** Whether this installation holds the content key right now. */
+    unlocked: boolean;
+    /** Whether the server holds a copy of the key for this installation. */
+    enrolled: boolean;
+    hasRecovery: boolean;
+    recoveryAcknowledged: boolean;
+    /** This installation's fingerprint, for the user to compare against another screen. */
+    fingerprint: string;
+    devices: E2eeDevice[];
+}
+
+export interface E2eeDevice {
+    deviceId: string;
+    publicKey: string;
+    /**
+     * Recomputed on this machine from the published key, never the server's stored copy -
+     * comparing two numbers the server supplied would verify nothing.
+     */
+    fingerprint: string;
+    /** "pending" or "active". */
+    status: string;
+    enrolledAt: string;
+}
+
+export interface E2eeEnableResult {
+    recoveryCode: string;
+    fingerprint: string;
+}
+
+/**
+ * Where the device passphrase stands on this machine.
+ *
+ * - `notNeeded` - the OS credential store works, so no passphrase is involved
+ * - `unset` - no credential store and the user has not chosen yet
+ * - `locked` - a passphrase is set but has not been entered this session
+ * - `unlocked` - the key is in memory
+ * - `declined` - the user chose no passphrase; secrets are not written to disk
+ */
+export type LocalKeyStatus = "notNeeded" | "unset" | "locked" | "unlocked" | "declined";
 
 /**
  * Data structure for file preview information.

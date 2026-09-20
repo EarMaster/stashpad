@@ -12,7 +12,7 @@
 // See the GNU Affero General Public License for more details.
 
 import { invoke } from '@tauri-apps/api/core';
-import type { IStorageService, StashItem, AppContext, Settings, FilePreviewData, Context, Attachment, CloudConfig, ExportSummary, ImportPreview, CloudUsage, StashPosition } from '../types';
+import type { IStorageService, StashItem, AppContext, Settings, FilePreviewData, Context, Attachment, CloudConfig, ExportSummary, ImportPreview, CloudUsage, StashPosition, LocalKeyStatus, E2eeStatus, E2eeEnableResult, CreatedAccessKey } from '../types';
 
 /** Called after any local write so cloud sync can be scheduled. */
 type MutationListener = () => void;
@@ -415,6 +415,70 @@ export class DesktopStorageAdapter implements IStorageService {
     /** Sign out of the cloud and erase the stored JWT from the OS keychain. */
     async cloudLogout(): Promise<void> {
         await invoke('cloud_logout');
+    }
+
+    async localKeyStatus(): Promise<LocalKeyStatus> {
+        return await invoke('local_key_status');
+    }
+
+    async localKeyIsRemembered(): Promise<boolean> {
+        return await invoke('local_key_is_remembered');
+    }
+
+    async unlockLocalKey(passphrase: string): Promise<boolean> {
+        return await invoke('unlock_local_key', { passphrase });
+    }
+
+    async setLocalPassphrase(passphrase: string, remember: boolean): Promise<void> {
+        await invoke('set_local_passphrase', { passphrase, remember });
+    }
+
+    async setLocalKeyRemembered(remember: boolean): Promise<void> {
+        await invoke('set_local_key_remembered', { remember });
+    }
+
+    async declineLocalKey(): Promise<void> {
+        await invoke('decline_local_key');
+    }
+
+    async e2eeStatus(): Promise<E2eeStatus> {
+        return await invoke('e2ee_status');
+    }
+
+    async e2eeRegisterDevice(): Promise<string> {
+        return await invoke('e2ee_register_device');
+    }
+
+    async e2eeEnable(): Promise<E2eeEnableResult> {
+        return await invoke('e2ee_enable');
+    }
+
+    async e2eeApproveDevice(deviceId: string, expectedFingerprint: string): Promise<void> {
+        await invoke('e2ee_approve_device', { deviceId, expectedFingerprint });
+    }
+
+    async e2eeRecover(code: string): Promise<void> {
+        await invoke('e2ee_recover', { code });
+    }
+
+    async e2eeAcknowledgeRecovery(): Promise<void> {
+        await invoke('e2ee_acknowledge_recovery');
+    }
+
+    async e2eeStartConversion(): Promise<number> {
+        return await invoke('e2ee_start_conversion');
+    }
+
+    async e2eeSeal(): Promise<void> {
+        await invoke('e2ee_seal');
+    }
+
+    async e2eeCreateAccessKey(
+        name: string,
+        scope: 'read' | 'readwrite',
+        expiresInDays?: number,
+    ): Promise<CreatedAccessKey> {
+        return await invoke('e2ee_create_access_key', { name, scope, expiresInDays });
     }
 }
 

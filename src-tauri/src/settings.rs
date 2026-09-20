@@ -18,14 +18,36 @@ use tauri::{State, Manager};
 use crate::models::{Settings, CloudConfig, default_cloud_endpoint};
 use crate::utils::get_app_dir;
 use crate::keychain::{
-    get_api_key_from_keychain, get_cloud_token_from_keychain, 
-    store_api_key_in_keychain, store_cloud_token_in_keychain, 
-    encrypt_api_key, decrypt_api_key
+    decrypt_api_key, decrypt_legacy_secret, get_api_key_from_keychain, get_cloud_token_from_keychain,
+    keychain_status, store_api_key_in_keychain, store_cloud_token_in_keychain,
+    KeychainStatus,
 };
+use crate::localkey;
 use crate::state::{SettingsState, lock_or_recover};
 
 pub fn get_settings_path() -> PathBuf {
     get_app_dir().join("settings.json")
+}
+
+/// Open a secret that `settings.json` is still holding.
+///
+/// Two shapes can be in that slot and they are indistinguishable by inspection - both are
+/// base64 AEAD output - so the device key is tried first, then the machine-key blob that
+/// every pre-passphrase install has. That ordering is also what makes setting a passphrase
+/// migrate transparently: the value opens under the old key once, and the next save
+/// re-seals it under the new one.
+///
+/// Both steps fail closed. The retired XOR format is **not** tried here; it is reachable
+/// only from [`migrate_secrets_into_keychain`], which runs once. Trying it on every read
+/// is the original defect: any failure - corruption, tampering, a renamed machine - came
+/// back as whatever XOR made of the bytes, presented as the secret.
+fn open_stored_secret(encoded: &str) -> String {
+    if localkey::is_unlocked() {
+        if let Some(plaintext) = localkey::open_secret(encoded) {
+            return plaintext;
+        }
+    }
+    decrypt_api_key(encoded)
 }
 
 pub fn load_settings_from_disk() -> Settings {
@@ -38,8 +60,7 @@ pub fn load_settings_from_disk() -> Settings {
                     if let Some(keychain_key) = get_api_key_from_keychain() {
                         ai_config.api_key = keychain_key;
                     } else if !ai_config.api_key.is_empty() {
-                        // Fallback: decrypt from JSON
-                        ai_config.api_key = decrypt_api_key(&ai_config.api_key);
+                        ai_config.api_key = open_stored_secret(&ai_config.api_key);
                     }
                 }
                 // Try to get cloud access token - keychain first, then JSON fallback
@@ -48,7 +69,7 @@ pub fn load_settings_from_disk() -> Settings {
                         cloud_config.access_token = Some(keychain_token);
                     } else if let Some(ref token) = cloud_config.access_token {
                         if !token.is_empty() {
-                            cloud_config.access_token = Some(decrypt_api_key(token));
+                            cloud_config.access_token = Some(open_stored_secret(token));
                         }
                     }
                 }
@@ -194,7 +215,7 @@ fn persist_secret(
                 return if previous.in_keychain {
                     String::new()
                 } else {
-                    encrypt_api_key(secret)
+                    seal_for_file(secret, label)
                 };
             }
         }
@@ -202,7 +223,25 @@ fn persist_secret(
 
     let in_keychain = store(secret);
     if !in_keychain {
-        log::info!("Keychain unavailable for {}, using encrypted JSON", label);
+        match keychain_status() {
+            KeychainStatus::Working => {
+                // The probe already proved this machine has a working credential store,
+                // so this is a failure - a locked keychain, a denied prompt - and not a
+                // machine that has none. Writing the encrypted-file copy here is exactly
+                // how a momentary failure used to downgrade a secret permanently, with
+                // nothing but an info log to show for it. Write nothing, keep the value
+                // in memory for this session, and let the next save retry.
+                log::error!(
+                    "Credential store refused the {} although it works on this \n                     machine; not writing a weaker copy",
+                    label
+                );
+                *lock_or_recover(cache) = None;
+                return String::new();
+            }
+            KeychainStatus::Unavailable => {
+                log::info!("No credential store for {}, using the device passphrase", label);
+            }
+        }
     }
     *lock_or_recover(cache) = Some(StoredSecret {
         value: secret.to_string(),
@@ -212,7 +251,27 @@ fn persist_secret(
     if in_keychain {
         String::new()
     } else {
-        encrypt_api_key(secret)
+        seal_for_file(secret, label)
+    }
+}
+
+/// What goes into `settings.json` on a machine with no credential store.
+///
+/// Sealed under the device passphrase when one is set, and **nothing at all** when it is
+/// not. The machine key is no longer an option here: its inputs are the hostname, the app
+/// directory and a constant in public source, so writing a secret under it looks like
+/// protection and is not. A user who declines a passphrase keeps a fully working offline
+/// app and re-enters the provider key next launch, which is the honest trade.
+fn seal_for_file(secret: &str, label: &str) -> String {
+    match localkey::seal_secret(secret) {
+        Some(sealed) => sealed,
+        None => {
+            log::warn!(
+                "No device passphrase is set, so the {} is not being written to disk",
+                label
+            );
+            String::new()
+        }
     }
 }
 
@@ -445,6 +504,78 @@ pub async fn cloud_logout(state: State<'_, Arc<SettingsState>>) -> Result<(), St
 
     persist_settings_off_thread(cleared).await;
     Ok(())
+}
+
+/// Move secrets out of `settings.json` and into the credential store, once.
+///
+/// Until the credential store was actually compiled in, every secret lived in
+/// `settings.json` under a key derived from the hostname, the app directory and a
+/// constant in public source - so this runs for every existing installation on the first
+/// launch after the fix.
+///
+/// Order matters and is the whole point: [`persist_secret`] only reports the file slot as
+/// empty once the store has taken the value, so the field is blanked *after* the secret
+/// is safely elsewhere. Blanking first and failing second would log the user out and lose
+/// their provider key.
+pub fn migrate_secrets_into_keychain(state: &SettingsState) {
+    if keychain_status() != KeychainStatus::Working {
+        return;
+    }
+
+    let Some((raw_api_key, raw_token)) = raw_file_secrets() else {
+        return;
+    };
+    if raw_api_key.is_none() && raw_token.is_none() {
+        return;
+    }
+
+    log::info!("Moving stored secrets from settings.json into the credential store");
+
+    // The one place the retired XOR format is still read. `decrypt_legacy_secret` tries the
+    // machine key first and only then XOR, so a value written by any past build is
+    // recovered exactly once, here, and is written back into the credential store.
+    let mut settings = state.lock_settings().clone();
+    if let (Some(raw), Some(ai_config)) = (raw_api_key, settings.ai_config.as_mut()) {
+        if ai_config.api_key.is_empty() {
+            let recovered = decrypt_legacy_secret(&raw);
+            if !recovered.is_empty() {
+                log::info!("Recovered the provider key from an older storage format");
+                ai_config.api_key = recovered;
+            }
+        }
+    }
+    if let (Some(raw), Some(cloud_config)) = (raw_token, settings.cloud_config.as_mut()) {
+        if cloud_config.access_token.as_deref().unwrap_or("").is_empty() {
+            let recovered = decrypt_legacy_secret(&raw);
+            if !recovered.is_empty() {
+                log::info!("Recovered the cloud token from an older storage format");
+                cloud_config.access_token = Some(recovered);
+            }
+        }
+    }
+
+    // Put anything recovered back into the live settings before saving, or the next write
+    // would overwrite the file with the empty values the steady-state reader produced.
+    *state.lock_settings() = settings.clone();
+    persist_settings_to_disk(&settings);
+}
+
+/// The two secret slots exactly as `settings.json` holds them, undecrypted.
+///
+/// Reads the raw file rather than the loaded [`Settings`], because loading replaces the
+/// stored value with the plaintext and would make every launch look like a migration.
+fn raw_file_secrets() -> Option<(Option<String>, Option<String>)> {
+    let text = fs::read_to_string(get_settings_path()).ok()?;
+    let raw: serde_json::Value = serde_json::from_str(&text).ok()?;
+
+    let slot = |pointer: &str| {
+        raw.pointer(pointer)
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+    };
+
+    Some((slot("/aiConfig/apiKey"), slot("/cloudConfig/accessToken")))
 }
 
 #[cfg(test)]

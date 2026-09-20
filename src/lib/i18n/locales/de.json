@@ -167,8 +167,8 @@
         "label": "System-Prompt",
         "description": "Die Anweisungen für die KI-Optimierung. Diese sind in einer externen Datei gespeichert.",
         "edit": "Prompt-Datei bearbeiten",
-      "create": "Erstellen und öffnen",
-      "fallbackHint": "Es wird der Standard-Prompt verwendet. Erstelle die Datei, um die Anweisungen anzupassen.",
+        "create": "Erstellen und öffnen",
+        "fallbackHint": "Es wird der Standard-Prompt verwendet. Erstelle die Datei, um die Anweisungen anzupassen.",
         "reloaded": "System-Prompt wurde von der Festplatte neu geladen"
       },
       "appleIntelligence": {
@@ -254,6 +254,49 @@
         "loginAgain": "Erneut Anmelden"
       }
     }
+  },
+  "deviceKey": {
+    "setupTitle": "Diese Installation schützen",
+    "unlockTitle": "Stashpad entsperren",
+    "noKeyStore": "Dieser Rechner hat keinen sicheren Schlüsselspeicher — hier ist kein System-Schlüsselbund verfügbar. Lege eine Passphrase für diese Installation fest, um Cloud-Sync zu nutzen, oder lass sie aus und arbeite lokal weiter. Alles in Stashpad funktioniert offline.",
+    "passphraseLabel": "Passphrase",
+    "confirmLabel": "Passphrase wiederholen",
+    "confirmMismatch": "Die beiden Passphrasen stimmen nicht überein",
+    "rememberLabel": "Passphrase auf diesem Rechner merken",
+    "rememberWarning": "Stashpad entsperrt sich dann beim Start von selbst, ohne zu fragen. Dafür muss der Schlüssel auf diesem Rechner so liegen, dass Stashpad ihn wieder lesen kann — wer dein Benutzerkonto lesen kann, kann ihn also wiederherstellen: jemand an deinem entsperrten Rechner, ein Backup dieses Ordners oder Schadsoftware, die unter deinem Konto läuft. Lässt du das aus, wirst du bei jedem Start gefragt, was die sicherere Wahl ist.",
+    "forgotNote": "Wenn du sie vergisst, geht nichts verloren: Diese Installation richtet sich neu ein und deine Stashes bleiben, wo sie sind.",
+    "wrongPassphrase": "Das ist nicht die Passphrase dieser Installation",
+    "setupAction": "Passphrase festlegen",
+    "unlockAction": "Entsperren",
+    "workLocally": "Ohne Passphrase lokal arbeiten",
+    "rememberedNotice": "Passphrase auf diesem Rechner gemerkt — wiederherstellbar von jedem, der Zugriff auf dein Benutzerkonto hat.",
+    "forgetRemembered": "Beim Start wieder danach fragen"
+  },
+  "encryption": {
+    "title": "Verschlüsselung",
+    "loading": "Wird geprüft …",
+    "offExplainer": "Deine Stashes liegen auf unserem Server, damit deine Geräte denselben Stand sehen. Schaltest du das ein, werden sie vorher auf diesem Rechner verschlüsselt — mit einem Schlüssel, den wir nicht aufbewahren.",
+    "costRecovery": "Du bekommst einen Wiederherstellungscode. Verlierst du alle Installationen und diesen Code, kommt niemand mehr an deine Stashes — weder du noch wir.",
+    "costMcp": "Ein Zugriffsschlüssel für KI-Werkzeuge trägt eine eigene Kopie des Schlüssels, unser Server kann dieses Konto also lesen, solange er eine solche Anfrage bearbeitet. Legst du keinen Zugriffsschlüssel an, können wir es gar nicht lesen.",
+    "costLocal": "Das schützt, was auf unserem Server liegt. Was auf diesem Rechner liegt, bleibt unverändert.",
+    "turnOn": "Verschlüsselung einschalten",
+    "recoveryIntro": "Schreib ihn jetzt auf oder leg ihn in deinen Passwort-Manager. Er wird einmal angezeigt und lässt sich nicht noch einmal anzeigen.",
+    "recoveryWarning": "Verlierst du alle Installationen und diesen Code, lassen sich deine Stashes nicht wiederherstellen — weder von dir noch von uns. Eine Ausnahme können wir nicht machen.",
+    "copyCode": "Wiederherstellungscode kopieren",
+    "typeBackLabel": "Tippe die letzte Gruppe ({group}) ab, um zu bestätigen, dass du ihn hast",
+    "typeBackMismatch": "Das ist nicht die letzte Gruppe des Codes. Sieh noch einmal nach, was du aufgeschrieben hast.",
+    "confirmWrittenDown": "Ich habe ihn aufgeschrieben",
+    "converting": "Deine Stashes werden verschlüsselt. Noch {count} — du kannst weiterarbeiten, und es macht dort weiter, wo es aufgehört hat, wenn du die App schließt.",
+    "finish": "Abschließen",
+    "sealedExplainer": "Deine Stashes werden verschlüsselt, bevor sie diesen Rechner verlassen.",
+    "lockedHere": "Diese Installation hat den Schlüssel noch nicht. Gib sie von einer Installation frei, die ihn hat, oder gib deinen Wiederherstellungscode ein.",
+    "useRecoveryCode": "Wiederherstellungscode verwenden",
+    "pendingTitle": "Wartet auf Freigabe",
+    "compareInstruction": "Prüfe, ob das mit dem übereinstimmt, was die andere Installation anzeigt. Wenn nicht, gib sie nicht frei.",
+    "letItIn": "Freigeben",
+    "approve": "Die Codes stimmen überein, freigeben",
+    "thisInstallation": "Diese Installation",
+    "activeCount": "{count} Installation(en) können deine Stashes lesen."
   },
   "contexts": {
     "title": "Kontexte",

@@ -21,7 +21,7 @@
    import { CloudSyncService, type SyncStatus, type SyncStatusDetail } from "$lib/services/cloud-sync";
    import { attachmentSync } from "$lib/stores/attachment-sync.svelte";
    import { _ } from "$lib/i18n";
-   import type { Settings, StashItem, Context, Attachment } from "$lib/types";
+   import type { Settings, StashItem, Context, Attachment, LocalKeyStatus } from "$lib/types";
    import Header from "$lib/components/Header.svelte";
    import Editor from "$lib/components/Editor.svelte";
    import Queue from "$lib/components/Queue.svelte";
@@ -30,6 +30,7 @@
    import ContextSwitcher from "$lib/components/ContextSwitcher.svelte";
    import ConfirmationDialog from "$lib/components/ConfirmationDialog.svelte";
    import ErrorFallback from "$lib/components/ErrorFallback.svelte";
+   import DeviceKeyPrompt from "$lib/components/DeviceKeyPrompt.svelte";
    import { reportError } from "$lib/utils/error-reporting";
    import { onMount } from "svelte";
    import { fly } from "svelte/transition";
@@ -83,6 +84,7 @@
 
    const appWindow = getCurrentWindow();
    const adapter = new DesktopStorageAdapter();
+   let localKeyStatus = $state<LocalKeyStatus>("notNeeded");
    const cloudSync = new CloudSyncService(adapter);
 
    // Every local write schedules a debounced sync. Registered once here rather than at
@@ -194,6 +196,10 @@
 
    onMount(() => {
       adapter.isWindows10().then((v) => (isWin10 = v));
+      // Only ever resolves to something other than "notNeeded" on a machine with no OS
+      // credential store, so on Windows, macOS and any desktop Linux this is one call
+      // that settles to "notNeeded" and the prompt never mounts.
+      adapter.localKeyStatus().then((s) => (localKeyStatus = s));
       // The automatic schedule starts from applySettings instead, once the persisted
       // last-check timestamp is actually available to read.
       const unlistenMenuUpdate = listen("menu:check-for-updates", () => {
@@ -864,6 +870,17 @@
             <Sparkles size={16} />
             {$_("settings.aiEnhancement.systemPrompt.reloaded")}
          </div>
+      {/if}
+
+      <!-- Device passphrase. Blocks the app only on a machine with no key store, and
+           only until the user has chosen once. -->
+      {#if localKeyStatus === "unset" || localKeyStatus === "locked"}
+         <DeviceKeyPrompt
+            status={localKeyStatus}
+            onResolved={() => {
+               adapter.localKeyStatus().then((s) => (localKeyStatus = s));
+            }}
+         />
       {/if}
 
       {#snippet failed(error, reset)}

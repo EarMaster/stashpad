@@ -11,6 +11,83 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-09-20
+
+### Added
+- **Your synced stashes can now be encrypted before they leave your computer.** Cloud sync
+  stored them on the server in readable form: we did not read them, but we could, and the
+  privacy policy had to say so. Turn encryption on under Settings › Cloud Sync and your
+  stashes, contexts and their descriptions are encrypted on this machine first, under a key
+  the server never keeps a copy of. Existing stashes are converted in the background while
+  you keep working, and it picks up where it left off if you close the app. Three things are
+  worth knowing before you switch it on, and the setting says all three: you get a recovery
+  code, and if you lose every installation *and* that code then nobody can get your stashes
+  back, us included; an access key for AI tools carries its own copy of the key, so the
+  server can read that account while it is serving such a request, and creating no access
+  key means it cannot read anything; and this protects what is on the server, not what is on
+  your own disk
+- **Attachments are encrypted too, including their file names.** A file name is often as
+  revealing as the file — `Q3-layoffs-list.xlsx` tells you what it is without opening it — so
+  with encryption on, the name, type and the bytes are all encrypted before they leave your
+  machine, and the storage path no longer contains the name either. Nothing changes in how
+  attachments look or behave in the app. Files you uploaded before turning encryption on stay
+  as they were until they are converted, and Stashpad does not claim otherwise
+- **Another computer has to be let in before it can read your stashes.** Signing in on a new
+  machine gets you your queue, but not the ability to decrypt it until you approve it from a
+  machine that already can — you compare a short code shown on both screens, which is what
+  stops anyone slipping a machine of their own into your account. If none of your other
+  installations is reachable, your recovery code lets the new one in instead. That is the
+  ordinary way in when your other laptop is switched off, not an emergency measure, so keep
+  the code where you keep your passwords
+- **Access keys for AI tools are created in the app once your stashes are encrypted.** Giving
+  a tool access means handing it a copy of your key, and only something that already has that
+  key can do it — the account page does not, and deliberately never will. So for an encrypted
+  account the key is created here instead, and the account page goes on listing and revoking
+  them, which is where people look. Revoking a key now takes its copy of your key with it
+- **You can put a Stashpad Cloud export back.** Downloading your data has always worked;
+  restoring it never did, which made "export your data" a one-way door. The app now reads an
+  `export.json` from the account area, decrypts it if your account is encrypted, tells you
+  what it found before it commits anything, and puts the records back — from where they sync
+  to your other machines as usual. It also writes your whole account out as Markdown, one
+  file per context, in the same format the existing per-context export already uses
+- **A machine with no system keychain can now protect Stashpad with a passphrase.** Some Linux
+  setups - a server you reach over SSH, a minimal desktop with no keyring service - have nowhere
+  safe to keep a secret, and until now Stashpad put the sign-in token there anyway, scrambled
+  with a key anyone reading the folder could work out. On those machines Stashpad now asks once:
+  set a passphrase, or work locally without one. With a passphrase, your sign-in token and AI
+  provider key are protected by it. Without one, nothing is written to disk and the app keeps
+  working offline, which it does in full. You can tick "remember the passphrase on this machine"
+  to skip the prompt at startup - it says plainly that this leaves the key recoverable by anyone
+  who can read your user account, and you can turn it off again under Settings › General.
+  Forgetting the passphrase costs you nothing but a re-entry: your stashes are untouched.
+  Windows, macOS and any desktop Linux with a keyring service never see this - they use the
+  system store and are not prompted
+
+### Security
+- **Your sign-in token and AI provider key now go into the system credential store, as they
+  were always meant to.** Stashpad asked for Windows Credential Manager, the macOS Keychain or
+  the Linux Secret Service, but the library providing them was pulled in without naming any of
+  them - so every build quietly used a stand-in that keeps nothing, every read came back empty,
+  and both secrets always took the fallback path instead: a file in your Stashpad folder,
+  scrambled with a key made from your computer name, the folder's own path and a word written
+  in the source code. Anyone who could read that file could work the key out. The real
+  credential store is now built in and checked at startup, and the first launch after this
+  update moves both secrets into it and clears them from the file. Nothing to do by hand, and
+  you stay signed in
+- **A failure to reach the credential store no longer downgrades a secret behind your back.**
+  If the store was momentarily locked or refused a prompt, Stashpad wrote the weaker file copy
+  instead and said nothing, so a passing hiccup permanently lowered how a secret was protected.
+  It now treats that as the error it is and leaves the secret in memory for the session rather
+  than writing a weaker copy. Machines with no credential store at all - a headless Linux box
+  with no keyring service - still use the encrypted file, which is what they have always done
+
+### Removed
+- Dropped a long-retired scrambling format that Stashpad fell back to whenever a stored secret
+  failed to decrypt. Because it triggered on any failure and its key was a fixed word in the
+  source, a damaged or tampered value came back as whatever that produced and was then used as
+  though it were the secret. A value in that old format is still read once, during the move into
+  the credential store, so nothing is lost
+
 ## [1.7.0] - 2026-09-18
 
 ### Added

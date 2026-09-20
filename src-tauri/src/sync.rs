@@ -265,14 +265,23 @@ pub async fn exchange_link_code_api(
 #[tauri::command]
 pub async fn sync_stashes_api(
     settings_state: State<'_, Arc<SettingsState>>,
-    payload: serde_json::Value,
+    mut payload: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
-    let (endpoint, token) = {
+    let (endpoint, token, user_id) = {
         let settings = settings_state.lock_settings();
         let config = settings.cloud_config.as_ref().ok_or("Cloud config missing")?;
         let token = config.access_token.clone().ok_or("Not authenticated")?;
-        (config.endpoint.clone(), token)
+        (
+            config.endpoint.clone(),
+            token,
+            config.user_id.clone().unwrap_or_default(),
+        )
     };
+
+    // Encrypt here rather than in the webview, so everything above the adapter goes on
+    // handling plaintext and no key crosses the IPC boundary. A no-op when this account
+    // has no content key.
+    crate::e2ee_session::seal_stash_payload(&mut payload, &user_id)?;
 
     let client = api_client()?;
     let response = client
@@ -298,7 +307,92 @@ pub async fn sync_stashes_api(
 
     absorb_refreshed_token(&settings_state, &response).await;
 
-    response.json().await.map_err(|e| format!("Failed to parse sync response: {}", e))
+    let mut body: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse sync response: {}", e))?;
+
+    // Records this installation cannot open are removed here, before anything above sees
+    // them. They must never reach a local row: stored as a placeholder and later edited,
+    // an unopenable value is pushed back up as though it were the record.
+    let unreadable = crate::e2ee_session::open_stash_response(&mut body, &user_id);
+    if !unreadable.is_empty() {
+        log::warn!(
+            "{} stash(es) in this sync could not be decrypted and were skipped",
+            unreadable.len()
+        );
+        body["unreadable"] = serde_json::to_value(&unreadable).unwrap_or_default();
+    }
+
+    Ok(body)
+}
+
+/// GET a JSON endpoint on the cloud API, with this account's session.
+///
+/// Used by the enrolment routes. Kept beside the sync calls because it shares their
+/// authentication and their habit of returning the server's own sentence on failure -
+/// which for these is the only thing the user will have to go on.
+pub async fn e2ee_get(
+    settings_state: &State<'_, Arc<SettingsState>>,
+    path: &str,
+) -> Result<serde_json::Value, String> {
+    let (endpoint, token) = {
+        let settings = settings_state.lock_settings();
+        let config = settings.cloud_config.as_ref().ok_or("Cloud config missing")?;
+        let token = config.access_token.clone().ok_or("Not authenticated")?;
+        (config.endpoint.clone(), token)
+    };
+
+    let response = api_client()?
+        .get(format!("{}{}", endpoint.trim_end_matches('/'), path))
+        .header("Authorization", format!("Bearer {}", token))
+        .send()
+        .await
+        .map_err(|e| format!("Could not reach Stashpad Cloud: {}", e))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(format!("{} ({})", error_snippet(&body), status));
+    }
+
+    response
+        .json()
+        .await
+        .map_err(|e| format!("Could not read the response: {}", e))
+}
+
+/// POST JSON to the cloud API, with this account's session.
+pub async fn e2ee_post(
+    settings_state: &State<'_, Arc<SettingsState>>,
+    path: &str,
+    body: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let (endpoint, token) = {
+        let settings = settings_state.lock_settings();
+        let config = settings.cloud_config.as_ref().ok_or("Cloud config missing")?;
+        let token = config.access_token.clone().ok_or("Not authenticated")?;
+        (config.endpoint.clone(), token)
+    };
+
+    let response = api_client()?
+        .post(format!("{}{}", endpoint.trim_end_matches('/'), path))
+        .header("Authorization", format!("Bearer {}", token))
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("Could not reach Stashpad Cloud: {}", e))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        return Err(format!("{} ({})", error_snippet(&text), status));
+    }
+
+    response
+        .json()
+        .await
+        .map_err(|e| format!("Could not read the response: {}", e))
 }
 
 #[tauri::command]
@@ -418,14 +512,65 @@ pub async fn upload_attachment_to_cloud(
 
     let client = transfer_client()?;
     
-    // 1. Get presigned upload URL from cloud
+    // 1. Read the file, and seal it when this account is encrypted.
+    //
+    // This has to happen before presigning. `file_size` is what `confirm_upload` compares
+    // against what the object store actually holds, so it must be the *stored* length -
+    // which is only known once the bytes are encrypted. Deriving it from a formula instead
+    // would hard-code the cipher's framing into the client and the server at once.
+    let file_to_read = attachment.file_path.clone();
+    let plaintext = tauri::async_runtime::spawn_blocking(move || fs::read(&file_to_read))
+        .await
+        .map_err(|e| format!("Attachment read task failed: {}", e))?
+        .map_err(|e| {
+            let msg = format!("Failed to read attachment file {}: {}", attachment.file_path, e);
+            log::error!("[Attachment] {}", msg);
+            msg
+        })?;
+
+    let user_id = {
+        let settings = settings_state.lock_settings();
+        settings
+            .cloud_config
+            .as_ref()
+            .and_then(|c| c.user_id.clone())
+            .unwrap_or_default()
+    };
+
+    let sealed = crate::e2ee_session::seal_attachment(
+        &plaintext,
+        &attachment.file_name,
+        attachment.mime_type.as_deref(),
+        attachment.syntax.as_deref(),
+        &attachment.id,
+        &user_id,
+    )?;
+
+    // For an encrypted account the name, type and syntax travel inside the sealed blob, so
+    // the columns that used to hold them carry nothing.
+    let (file_content, declared_name, declared_size, declared_mime, declared_syntax) = match sealed
+    {
+        Some(sealed) => {
+            let size = sealed.bytes.len() as i64;
+            (sealed.bytes, sealed.metadata, size, None, None)
+        }
+        None => (
+            plaintext,
+            attachment.file_name.clone(),
+            attachment.file_size,
+            attachment.mime_type.clone(),
+            attachment.syntax.clone(),
+        ),
+    };
+
+    // 2. Get presigned upload URL from cloud
     let upload_req = serde_json::json!({
         "id": attachment.id,
         "stashId": attachment.stash_id,
-        "fileName": attachment.file_name,
-        "fileSize": attachment.file_size,
-        "mimeType": attachment.mime_type,
-        "syntax": attachment.syntax,
+        "fileName": declared_name,
+        "fileSize": declared_size,
+        "mimeType": declared_mime,
+        "syntax": declared_syntax,
     });
 
     let upload_url_resp = client
@@ -452,18 +597,8 @@ pub async fn upload_attachment_to_cloud(
     let upload_url = upload_data["uploadUrl"].as_str()
         .ok_or_else(|| "No upload URL in response".to_string())?;
 
-    // 2. Read file content, on the blocking pool. Attachments are whole files -
-    // screenshots and logs - so reading one inline parks an async worker for the
-    // duration of the disk read.
-    let file_to_read = attachment.file_path.clone();
-    let file_content = tauri::async_runtime::spawn_blocking(move || fs::read(&file_to_read))
-        .await
-        .map_err(|e| format!("Attachment read task failed: {}", e))?
-        .map_err(|e| {
-            let msg = format!("Failed to read attachment file {}: {}", attachment.file_path, e);
-            log::error!("[Attachment] {}", msg);
-            msg
-        })?;
+    // The bytes were read and sealed above, before presigning, because the size
+    // declared there has to be the stored size.
 
     // 3. PUT file to R2
     let put_resp = client
@@ -611,6 +746,52 @@ pub async fn download_attachment_from_cloud(
         .await
         .map_err(|e| format!("Failed to read attachment body: {}", e))?;
 
+    // Decrypt, when this row's details arrived sealed. `file_name` holds the whole
+    // descriptor in that case - name, type, syntax and the key for these bytes - so the
+    // real name comes out of it rather than out of the column.
+    //
+    // A file that will not open is an error rather than something written to the cache:
+    // half a picture on disk looks like a complete download forever, because every later
+    // check only tests whether the path exists.
+    let user_id = {
+        let settings = settings_state.lock_settings();
+        settings
+            .cloud_config
+            .as_ref()
+            .and_then(|c| c.user_id.clone())
+            .unwrap_or_default()
+    };
+
+    let details = crate::e2ee_session::open_attachment_metadata(&file_name, &attachment_id, &user_id)?;
+
+    let (bytes, file_name) = match details {
+        Some(details) => {
+            let plaintext = crate::e2ee_session::open_attachment_bytes(&details, &bytes)?;
+            let name = details.file_name.clone();
+
+            // The row still carries the sealed descriptor in its name column, so put the
+            // real values back now that they are known. Other devices did the same on their
+            // own merge; this is simply where this one finds out.
+            let db = state.lock_db();
+            db.conn
+                .execute(
+                    "UPDATE attachments SET file_name = ?1, mime_type = ?2, syntax = ?3, \
+                     file_size = ?4 WHERE id = ?5",
+                    params![
+                        name,
+                        details.mime_type,
+                        details.syntax,
+                        details.plaintext_size,
+                        attachment_id
+                    ],
+                )
+                .map_err(|e| e.to_string())?;
+
+            (plaintext, name)
+        }
+        None => (bytes.to_vec(), file_name),
+    };
+
     // Mirror the layout save_asset uses so cleanup on delete keeps working.
     let mut dir = get_app_dir().join("cache");
     if let Some(cid) = context_id.as_deref() {
@@ -675,14 +856,20 @@ pub async fn download_attachment_from_cloud(
 #[tauri::command]
 pub async fn sync_contexts_api(
     settings_state: State<'_, Arc<SettingsState>>,
-    payload: serde_json::Value,
+    mut payload: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
-    let (endpoint, token) = {
+    let (endpoint, token, user_id) = {
         let settings = settings_state.lock_settings();
         let config = settings.cloud_config.as_ref().ok_or("Cloud config missing")?;
         let token = config.access_token.clone().ok_or("Not authenticated")?;
-        (config.endpoint.clone(), token)
+        (
+            config.endpoint.clone(),
+            token,
+            config.user_id.clone().unwrap_or_default(),
+        )
     };
+
+    crate::e2ee_session::seal_context_payload(&mut payload, &user_id)?;
 
     let client = api_client()?;
     let response = client
@@ -706,7 +893,21 @@ pub async fn sync_contexts_api(
 
     absorb_refreshed_token(&settings_state, &response).await;
 
-    response.json().await.map_err(|e| format!("Failed to parse sync response: {}", e))
+    let mut body: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse sync response: {}", e))?;
+
+    let unreadable = crate::e2ee_session::open_context_response(&mut body, &user_id);
+    if !unreadable.is_empty() {
+        log::warn!(
+            "{} context(s) in this sync could not be decrypted and were skipped",
+            unreadable.len()
+        );
+        body["unreadable"] = serde_json::to_value(&unreadable).unwrap_or_default();
+    }
+
+    Ok(body)
 }
 
 // --- WebSocket Sync Commands ---
