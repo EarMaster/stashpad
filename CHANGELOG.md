@@ -11,6 +11,8 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+## [1.8.1] - 2026-09-20
+
 ### Fixed
 - **The encryption settings are actually there now.** Everything v1.8.0 added for encrypting
   your synced stashes shipped behind a panel that never appeared, so the whole feature was
