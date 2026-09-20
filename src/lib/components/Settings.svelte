@@ -905,8 +905,13 @@
 
           <!-- Content encryption. Only meaningful for a linked account, so it sits inside
                the authenticated branch rather than being shown to someone who cannot use
-               it yet. -->
-          {#if settings.cloudConfig?.accessToken}
+               it yet.
+
+               Gated on the same pair as the subscription block above, and deliberately not
+               on `accessToken`: that field is typed `never` in `types.ts` because the JWT
+               is never handed to the webview, so testing it is always false and this panel
+               rendered for nobody at all. -->
+          {#if settings.cloudConfig.enabled && settings.cloudConfig.userId}
             <div class="p-3 rounded-lg border border-border bg-card">
               <EncryptionPanel />
             </div>

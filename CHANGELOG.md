@@ -11,6 +11,17 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+## [1.8.1] - 2026-09-20
+
+### Fixed
+- **The encryption settings are actually there now.** Everything v1.8.0 added for encrypting
+  your synced stashes shipped behind a panel that never appeared, so the whole feature was
+  unreachable: no way to turn it on, no recovery code, no device approval. The panel was shown
+  only when a field the app deliberately never gives the interface was set, which is to say
+  never, on every platform. Update and you will find it under Settings › Cloud Sync once you
+  are signed in. Nothing was wrong with the encryption itself and nothing needs redoing - it
+  had no way of being started
+
 ## [1.8.0] - 2026-09-20
 
 ### Added
