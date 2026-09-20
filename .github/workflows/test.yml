@@ -14,6 +14,25 @@ on:
   workflow_call:
   workflow_dispatch:
 
+# A PR from develop satisfies both triggers above, so one commit gets two runs of the same
+# eight checks. That is kept on purpose: the push run is the pre-PR signal, and the
+# pull_request run is the only one that tests the merge result and the only one that runs at
+# all for a fork - this repo is public, and a fork's PR would otherwise arrive with none of
+# the contexts the ruleset requires.
+#
+# What is not wanted is a run that has been superseded. Pushing again while checks are in
+# flight used to leave the old run finishing a full three-OS matrix for a commit that is no
+# longer the PR head.
+#
+# The group carries the event as well as the commit so the push and pull_request runs of the
+# same commit stay in separate groups and never cancel each other - a required context that
+# lands as `cancelled` would block the merge. Including the sha also keeps release.yml's
+# `workflow_call` safe: it runs against a main commit nothing else here builds, so a release
+# cannot be cancelled by ordinary branch activity.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
 jobs:
   # Green between releases, since package.json and the newest CHANGELOG.md heading agree.
   # It goes red in the window between a version bump and a written changelog - which is
