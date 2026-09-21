@@ -11,6 +11,8 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+## [1.8.2] - 2026-09-21
+
 ### Fixed
 - **Encryption can be switched on now.** v1.8.1 made the panel appear, and then it refused
   with "there is nowhere safe on this machine to keep an encryption key" on every machine
