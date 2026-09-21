@@ -480,6 +480,122 @@ jobs:
       TAG: ${{ needs.prepare.outputs.tag }}
       VERSION: ${{ needs.prepare.outputs.version }}
     steps:
+      # Put back any platform the parallel legs lost.
+      #
+      # All six legs run tauri-action with `uploadUpdaterJson: true`, and each one replaces
+      # the single `latest.json` asset on the draft. That is a read-modify-write on shared
+      # state with no lock, so when two legs overlap closely enough, the later upload can be
+      # built from a manifest that does not yet contain - or no longer contains - the other
+      # legs' entries, and their platforms are simply gone.
+      #
+      # v1.8.4 is what this is written from: all six legs went green, every bundle and every
+      # .sig was attached, and the manifest that survived held only `windows-latest`'s three
+      # entries - not even the other Windows leg's. The two Windows legs finished 3 seconds
+      # apart; in v1.8.3, which passed, the same two were 107 seconds apart. The release was
+      # correct by luck, not by construction.
+      #
+      # This repairs rather than recomposes, deliberately. When nothing was lost it changes
+      # nothing, so the ordinary path stays exactly what tauri-action produces, including the
+      # `-msi`, `-nsis`, `-appimage`, `-deb`, `-rpm` and `-app` variants this does not know
+      # how to build. It only fills the six keys installed apps actually look up, and only
+      # when they are missing. If it gets that wrong, the verification below still refuses to
+      # publish - so the worst case is the failure we already have, not a broken updater.
+      - name: Put back any platform the parallel legs lost
+        run: |
+          set -eu
+
+          gh api "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets" --paginate \
+            --jq '.[] | [.id, .name] | @tsv' > assets.tsv
+
+          ASSET_ID=$(awk -F'\t' '$2 == "latest.json" { print $1 }' assets.tsv)
+          [ -n "$ASSET_ID" ] \
+            || { echo "::error::latest.json is missing - the updater cannot see this release."; exit 1; }
+
+          curl -sSfL -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/octet-stream' \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/assets/$ASSET_ID" -o latest.json
+
+          # The bundle each key points at. Mirrors what v1.8.3 shipped, which is the manifest
+          # installed apps are updating from today: the bare Windows keys are the MSI, not the
+          # NSIS installer, and Linux is the AppImage rather than the .deb.
+          set -- \
+            "darwin-aarch64:_aarch64.app.tar.gz" \
+            "darwin-x86_64:_x64.app.tar.gz" \
+            "linux-x86_64:_amd64.AppImage" \
+            "linux-aarch64:_aarch64.AppImage" \
+            "windows-x86_64:_x64_en-US.msi" \
+            "windows-aarch64:_arm64_en-US.msi"
+
+          REPAIRED=0
+          for PAIR in "$@"; do
+            KEY=${PAIR%%:*}
+            SUFFIX=${PAIR#*:}
+
+            if jq -e --arg k "$KEY" '.platforms[$k].url and .platforms[$k].signature' \
+                 latest.json >/dev/null 2>&1; then
+              continue
+            fi
+
+            echo "latest.json is missing $KEY - rebuilding it from the attached assets"
+
+            # Matched by suffix so the version in the name does not have to be spelled out.
+            # A literal tail comparison rather than a regex: every suffix here contains dots,
+            # and as a pattern those match any character.
+            BUNDLE=$(awk -F'\t' -v s="$SUFFIX" '
+              length($2) > length(s) && substr($2, length($2) - length(s) + 1) == s { print $2 }
+            ' assets.tsv)
+            if [ -z "$BUNDLE" ]; then
+              echo "::error::no attached asset ends in $SUFFIX, so $KEY cannot be rebuilt."
+              exit 1
+            fi
+
+            SIG_ID=$(awk -F'\t' -v n="$BUNDLE.sig" '$2 == n { print $1 }' assets.tsv)
+            if [ -z "$SIG_ID" ]; then
+              echo "::error::$BUNDLE has no .sig attached, so $KEY cannot be rebuilt."
+              exit 1
+            fi
+
+            # The signature field is the .sig file's contents verbatim. Checked against what
+            # v1.8.3 actually shipped: the file is already a base64 string starting
+            # "dW50cnVzdGVkIGNvbW1lbnQ6", it carries no trailing newline, and the manifest's
+            # field is byte-identical to it - so this is a copy, not an encode.
+            #
+            # Read with --rawfile rather than through a shell variable, which would eat a
+            # trailing newline silently; the trailing whitespace is then trimmed explicitly,
+            # so a .sig that does gain one cannot put a stray byte into a value installed
+            # apps compare exactly.
+            curl -sSfL -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/octet-stream' \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/assets/$SIG_ID" -o sig.txt
+
+            jq --arg k "$KEY" \
+               --rawfile sig sig.txt \
+               --arg url "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/$BUNDLE" \
+               '.platforms[$k] = { signature: ($sig | sub("\\s+$"; "")), url: $url }' \
+               latest.json > latest.patched.json
+            mv latest.patched.json latest.json
+            REPAIRED=$((REPAIRED + 1))
+          done
+
+          if [ "$REPAIRED" -eq 0 ]; then
+            echo "Every platform is present; nothing to repair."
+            exit 0
+          fi
+
+          echo "::warning::Rebuilt $REPAIRED platform entries that the parallel build legs lost."
+          echo "::group::latest.json after repair"
+          cat latest.json
+          echo "::endgroup::"
+
+          # Same two-call replacement the rewrite step below uses, and the same reasoning:
+          # GitHub has no update-in-place for an asset. If this dies between the calls the
+          # manifest is missing, the verification refuses to publish, and the draft is deleted.
+          gh api "repos/$GITHUB_REPOSITORY/releases/assets/$ASSET_ID" --method DELETE
+          curl -sSf -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data-binary @latest.json \
+            "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?name=latest.json" \
+            > /dev/null
+
       # tauri-action v1 writes every latest.json url as an api.github.com asset url -
       # https://api.github.com/repos/<owner>/<repo>/releases/assets/<id> - and there is no input
       # to turn that off: it was added so private repos could update with a token
