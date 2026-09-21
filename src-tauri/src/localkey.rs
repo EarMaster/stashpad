@@ -400,7 +400,14 @@ pub fn initialize() -> LocalKeyStatus {
 
 /// The current state, for the UI.
 pub fn status() -> LocalKeyStatus {
-    if crate::keychain::keychain_status() == crate::keychain::KeychainStatus::Working {
+    // `NotNeeded` means "the credential store is holding the key", so it has to test that
+    // the key is actually in hand and not just that the probe passed. `initialize` can
+    // find a healthy store that then refuses to hold the key; reporting `NotNeeded` there
+    // told the interface everything was fine while every attempt to seal a secret failed,
+    // and offered no passphrase as a way out.
+    if crate::keychain::keychain_status() == crate::keychain::KeychainStatus::Working
+        && is_unlocked()
+    {
         return LocalKeyStatus::NotNeeded;
     }
     if is_unlocked() {

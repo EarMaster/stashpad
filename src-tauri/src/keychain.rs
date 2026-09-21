@@ -102,12 +102,28 @@ pub fn probe_keychain() -> KeychainStatus {
 /// wrongly falls back to the passphrase prompt is diagnosable only if the reason is visible.
 /// This runs once per launch and only says anything when something is wrong.
 fn run_probe() -> KeychainStatus {
-    const CANARY: &str = "stashpad-keychain-probe";
-    let entry = match keyring::Entry::new_with_target(
-        "stashpad.probe",
-        KEYCHAIN_SERVICE,
-        "keychain_probe",
-    ) {
+    // Unique per probe, because the probe deletes what it wrote.
+    //
+    // With a fixed name, two overlapping probes clobber each other: the updater restarts
+    // the app while the previous process is still exiting, so B writes its canary, A's
+    // delete removes it, and B's read-back finds nothing and concludes there is no
+    // credential store. The app then asks for a device passphrase on a machine whose
+    // keychain is fine - and the next ordinary start, with only one process, reports it as
+    // working. That is the "it says my key is in the keychain but it asked for the
+    // passphrase after an update" pair, and the two halves were from different runs.
+    //
+    // The cost is an orphaned credential if the process dies between the write and the
+    // delete. That is a narrow window and a tiny value with a recognisable name, which is
+    // a better trade than intermittently mistaking a working store for a missing one.
+    let unique = format!(
+        "{}-{:x}",
+        std::process::id(),
+        rand::random::<u64>()
+    );
+    let target = format!("stashpad.probe.{}", unique);
+    let canary = format!("stashpad-keychain-probe-{}", unique);
+
+    let entry = match keyring::Entry::new_with_target(&target, KEYCHAIN_SERVICE, "keychain_probe") {
         Ok(entry) => entry,
         Err(e) => {
             log::warn!("Credential store probe could not create an entry: {}", e);
@@ -115,24 +131,22 @@ fn run_probe() -> KeychainStatus {
         }
     };
 
-    if let Err(e) = entry.set_password(CANARY) {
+    if let Err(e) = entry.set_password(&canary) {
         log::warn!("Credential store probe could not write: {}", e);
         return KeychainStatus::Unavailable;
     }
 
     // A second `Entry` on purpose: the mock store keeps its value on the handle, so
     // reading back through the same one would pass against a store that persists nothing.
-    let readback = keyring::Entry::new_with_target(
-        "stashpad.probe",
-        KEYCHAIN_SERVICE,
-        "keychain_probe",
-    )
-    .and_then(|verify| verify.get_password());
+    // The value is unique per probe as well, so a stale entry cannot stand in for a live
+    // write either.
+    let readback = keyring::Entry::new_with_target(&target, KEYCHAIN_SERVICE, "keychain_probe")
+        .and_then(|verify| verify.get_password());
 
     let _ = entry.delete_credential();
 
     match readback {
-        Ok(value) if value == CANARY => KeychainStatus::Working,
+        Ok(value) if value == canary => KeychainStatus::Working,
         Ok(_) => {
             log::warn!("Credential store probe read back a different value");
             KeychainStatus::Unavailable

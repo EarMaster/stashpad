@@ -11,6 +11,19 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+### Fixed
+- **Updating no longer asks for your device passphrase on a machine that has a keychain.**
+  Installing an update restarts Stashpad while the previous copy is still shutting down, and
+  for a moment both were checking whether this machine has a credential store - using the
+  same scratch entry, which each one tidied up afterwards. Whichever got there second found
+  its own entry already deleted, concluded there was no keychain and asked for a passphrase,
+  and the next ordinary start reported the keychain as working again. Nothing was wrong with
+  your keychain and nothing was at risk; the check now uses a name of its own each time
+- **The encryption settings no longer claim the keychain is holding a key it is not.** The
+  line added in 1.8.3 went by whether the credential store answered at all, not by whether
+  your key was actually in it, so a machine where the store works but will not keep the key
+  was told everything was fine - with no passphrase offered as a way out
+
 ## [1.8.3] - 2026-09-21
 
 ### Added
