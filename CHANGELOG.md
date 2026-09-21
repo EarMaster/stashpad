@@ -11,6 +11,8 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+## [1.8.3] - 2026-09-21
+
 ### Added
 - **The encryption settings say where this installation's key is kept.** One line, under
   Verschlüsselung: your system keychain, or your device passphrase because no keychain could
