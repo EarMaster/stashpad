@@ -813,3 +813,32 @@ mod tests {
         assert!(crockford_decode("UUUU").is_err());
     }
 }
+
+/// Emit a recovery fixture for `cloud/src/recovery.rs`.
+///
+/// Run with `cargo test --lib print_recovery_fixture -- --ignored --nocapture`, then paste
+/// the output into that file's `a_wrap_made_by_the_app_opens_here`. The two sides derive the
+/// recovery key independently, and a drift is invisible until somebody exports an encrypted
+/// account and is told their correct code is wrong.
+///
+/// A fixed content key and user id, so the fixture is reproducible; the salt is random per
+/// run, which is why it has to be printed alongside the wrap rather than assumed.
+#[cfg(test)]
+#[test]
+#[ignore]
+fn print_recovery_fixture() {
+    let content_key: ContentKey = Zeroizing::new([11u8; 32]);
+    let user_id = "11111111-1111-4111-8111-111111111111";
+    let epoch: u32 = 1;
+
+    let code = new_recovery_code();
+    let (salt_b64, wrapped) =
+        wrap_to_recovery(&code, &content_key, user_id, epoch).expect("wrap");
+
+    println!("typed:       {}", code.printed);
+    println!("salt_b64:    {}", salt_b64);
+    println!("wrapped:     {}", wrapped);
+    println!("user_id:     {}", user_id);
+    println!("epoch:       {}", epoch);
+    println!("content_key: [11u8; 32]");
+}
