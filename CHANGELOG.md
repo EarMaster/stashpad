@@ -11,6 +11,8 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+## [1.8.4] - 2026-09-21
+
 ### Fixed
 - **Updating no longer asks for your device passphrase on a machine that has a keychain.**
   Installing an update restarts Stashpad while the previous copy is still shutting down, and
