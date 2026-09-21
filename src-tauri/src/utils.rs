@@ -25,14 +25,14 @@ use crate::state::{TrackerState, lock_or_recover};
 /// task that blocks its worker - so any command doing filesystem, registry,
 /// credential-store or subprocess work has to hand it to the blocking pool, or it starves
 /// the pool every other command needs and the whole app stops answering `invoke`.
-async fn run_blocking<T, F>(work: F) -> Result<T, String>
+async fn run_blocking<T, F>(work: F) -> Result<T, UiError>
 where
-    F: FnOnce() -> Result<T, String> + Send + 'static,
+    F: FnOnce() -> Result<T, UiError> + Send + 'static,
     T: Send + 'static,
 {
     match tauri::async_runtime::spawn_blocking(work).await {
         Ok(result) => result,
-        Err(e) => Err(format!("Background task failed: {}", e)),
+        Err(e) => Err(format!("Background task failed: {}", e).into()),
     }
 }
 
@@ -41,6 +41,7 @@ where
 use window_vibrancy::{apply_acrylic, apply_mica, clear_acrylic, clear_mica};
 #[cfg(target_os = "macos")]
 use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial};
+use crate::uierror::UiError;
 
 pub fn get_app_dir() -> PathBuf {
     dirs::home_dir()
@@ -433,7 +434,7 @@ fn looks_like_device_id(value: &str) -> bool {
 /// installation that predates this file keeps the identity it already has on the server
 /// instead of registering itself once more.
 #[tauri::command]
-pub async fn get_device_id(migrate_from: Option<String>) -> Result<String, String> {
+pub async fn get_device_id(migrate_from: Option<String>) -> Result<String, UiError> {
     run_blocking(move || {
         let path = device_id_path();
 
@@ -566,7 +567,7 @@ pub fn get_installation_source() -> String {
 /// `async` on purpose: a non-async command runs on the main thread, and opening the
 /// clipboard can block when another process is holding it.
 #[tauri::command]
-pub async fn copy_to_clipboard(text: String) -> Result<(), String> {
+pub async fn copy_to_clipboard(text: String) -> Result<(), UiError> {
     run_blocking(move || {
         let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
         clipboard.set_text(text).map_err(|e| e.to_string())?;
@@ -580,10 +581,10 @@ pub async fn copy_to_clipboard(text: String) -> Result<(), String> {
 /// Used by the Shift+Paste override on macOS where
 /// `navigator.clipboard.readText()` triggers a permission prompt.
 #[tauri::command]
-pub async fn read_clipboard_text() -> Result<String, String> {
+pub async fn read_clipboard_text() -> Result<String, UiError> {
     run_blocking(|| {
         let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
-        clipboard.get_text().map_err(|e| e.to_string())
+        clipboard.get_text().map_err(|e| e.to_string()).map_err(UiError::from)
     })
     .await
 }
@@ -596,7 +597,7 @@ pub async fn read_clipboard_text() -> Result<String, String> {
 /// a drag which never receives its mouse-up holds the UI thread, so the work done before
 /// the drag call is kept minimal.
 #[tauri::command]
-pub fn start_drag(window: tauri::Window, text: String, files: Vec<String>) -> Result<(), String> {
+pub fn start_drag(window: tauri::Window, text: String, files: Vec<String>) -> Result<(), UiError> {
     println!("Starting drag with {} files", files.len());
 
     let items = if !files.is_empty() {
@@ -797,7 +798,7 @@ fn detect_windows_10() -> bool {
 
 /// Enable or disable launch-at-login. Registry (or launch agent) I/O, so off-thread.
 #[tauri::command]
-pub async fn set_autostart(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+pub async fn set_autostart(app: tauri::AppHandle, enabled: bool) -> Result<(), UiError> {
     run_blocking(move || {
         use tauri_plugin_autostart::ManagerExt;
 
@@ -821,20 +822,21 @@ pub async fn set_autostart(app: tauri::AppHandle, enabled: bool) -> Result<(), S
 }
 
 #[tauri::command]
-pub async fn get_autostart_enabled(app: tauri::AppHandle) -> Result<bool, String> {
+pub async fn get_autostart_enabled(app: tauri::AppHandle) -> Result<bool, UiError> {
     run_blocking(move || {
         use tauri_plugin_autostart::ManagerExt;
 
         let autostart_manager = app.autolaunch();
         autostart_manager
             .is_enabled()
-            .map_err(|e| format!("Failed to check autostart status: {}", e))
+            .map_err(|e| format!("Failed to check autostart status: {}", e).into())
     })
     .await
+        .map_err(UiError::from)
 }
 
 #[tauri::command]
-pub fn check_apple_intelligence_available() -> Result<bool, String> {
+pub fn check_apple_intelligence_available() -> Result<bool, UiError> {
     #[cfg(all(target_os = "macos", feature = "macos-apple-intelligence"))]
     {
         use fm_rs::SystemLanguageModel;
@@ -851,7 +853,7 @@ pub fn check_apple_intelligence_available() -> Result<bool, String> {
 }
 
 #[tauri::command]
-pub async fn apple_intelligence_enhance(content: String, system_prompt: String) -> Result<String, String> {
+pub async fn apple_intelligence_enhance(content: String, system_prompt: String) -> Result<String, UiError> {
     #[cfg(all(target_os = "macos", feature = "macos-apple-intelligence"))]
     {
         use fm_rs::{SystemLanguageModel, Session, GenerationOptions};
@@ -889,7 +891,7 @@ pub fn check_system_prompt_exists() -> bool {
 }
 
 #[tauri::command]
-pub fn create_system_prompt_file() -> Result<(), String> {
+pub fn create_system_prompt_file() -> Result<(), UiError> {
     let path = get_system_prompt_path();
     if !path.exists() {
         fs::write(path, DEFAULT_SYSTEM_PROMPT).map_err(|e| e.to_string())?;

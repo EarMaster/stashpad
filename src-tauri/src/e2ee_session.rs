@@ -52,6 +52,7 @@ use crate::e2ee::{self, ContentKey, DeviceKeypair};
 use crate::envelope::{self, Binding, Field, Kind};
 use crate::state::lock_or_recover;
 use crate::utils::get_app_dir;
+use crate::uierror::UiError;
 
 /// The content key for this account, once something has unwrapped it.
 static CONTENT_KEY: Mutex<Option<ContentKey>> = Mutex::new(None);
@@ -71,14 +72,22 @@ fn device_key_path() -> PathBuf {
 /// store that is a key from the store; on one without, it is the device passphrase - and if
 /// the user declined a passphrase there is nowhere safe to keep it, so enrolment is refused
 /// rather than the key being written somewhere anyone could read.
-pub fn load_or_create_device_keypair() -> Result<DeviceKeypair, String> {
+pub fn load_or_create_device_keypair() -> Result<DeviceKeypair, UiError> {
     let path = device_key_path();
 
     if let Ok(sealed) = fs::read_to_string(&path) {
         let opened = open_local(sealed.trim())
-            .ok_or("This installation's key could not be opened on this machine")?;
+            .ok_or_else(|| {
+            UiError::new(
+                "e2ee.device_key_unopenable",
+                "This installation's key could not be opened on this machine",
+            )
+        })?;
         if opened.len() != 32 {
-            return Err("This installation's key is damaged".to_string());
+            return Err(UiError::new(
+            "e2ee.device_key_damaged",
+            "This installation's key is damaged",
+        ));
         }
         let mut bytes = [0u8; 32];
         bytes.copy_from_slice(&opened);
@@ -87,7 +96,12 @@ pub fn load_or_create_device_keypair() -> Result<DeviceKeypair, String> {
 
     let keypair = DeviceKeypair::generate();
     let sealed = seal_local(keypair.secret_bytes().as_slice())
-        .ok_or("There is nowhere safe on this machine to keep an encryption key")?;
+        .ok_or_else(|| {
+            UiError::new(
+                "e2ee.nowhere_safe",
+                "There is nowhere safe on this machine to keep an encryption key",
+            )
+        })?;
     fs::write(&path, sealed).map_err(|e| format!("Could not save the key: {}", e))?;
     Ok(keypair)
 }
@@ -160,7 +174,7 @@ pub struct UnreadableRecord {
 pub fn seal_stash_payload(
     payload: &mut serde_json::Value,
     user_id: &str,
-) -> Result<(), String> {
+) -> Result<(), UiError> {
     let guard = lock_or_recover(&CONTENT_KEY);
     let Some(key) = guard.as_ref() else {
         return Ok(());
@@ -230,7 +244,7 @@ pub fn open_stash_response(
                 open_field(stash, field, key, user_id, &id, Kind::Stash, which, epoch)
             {
                 log::warn!("Dropping stash {} from this sync: {}", id, reason);
-                unreadable.push(UnreadableRecord { id: id.clone(), reason });
+                unreadable.push(UnreadableRecord { id: id.clone(), reason: reason.message });
                 return false;
             }
         }
@@ -244,7 +258,7 @@ pub fn open_stash_response(
 pub fn seal_context_payload(
     payload: &mut serde_json::Value,
     user_id: &str,
-) -> Result<(), String> {
+) -> Result<(), UiError> {
     let guard = lock_or_recover(&CONTENT_KEY);
     let Some(key) = guard.as_ref() else {
         return Ok(());
@@ -324,7 +338,7 @@ pub fn open_context_response(
                 open_field(ctx, field, key, user_id, &id, Kind::Context, which, epoch)
             {
                 log::warn!("Dropping context {} from this sync: {}", id, reason);
-                unreadable.push(UnreadableRecord { id: id.clone(), reason });
+                unreadable.push(UnreadableRecord { id: id.clone(), reason: reason.message });
                 return false;
             }
         }
@@ -377,7 +391,7 @@ fn seal_field(
     kind: Kind,
     which: Field,
     epoch: u32,
-) -> Result<(), String> {
+) -> Result<(), UiError> {
     let Some(plaintext) = record[field].as_str() else {
         // Absent or null. A null description means "there is none", which is not the same
         // as an empty one and must not become a blob.
@@ -416,7 +430,7 @@ fn open_field(
     kind: Kind,
     which: Field,
     epoch: u32,
-) -> Result<(), String> {
+) -> Result<(), UiError> {
     let Some(value) = record[field].as_str() else {
         return Ok(());
     };
@@ -470,7 +484,7 @@ pub fn seal_attachment(
     syntax: Option<&str>,
     attachment_id: &str,
     user_id: &str,
-) -> Result<Option<SealedAttachment>, String> {
+) -> Result<Option<SealedAttachment>, UiError> {
     use chacha20poly1305::{
         aead::{Aead, KeyInit},
         XChaCha20Poly1305, XNonce,
@@ -534,7 +548,7 @@ pub fn open_attachment_metadata(
     sealed: &str,
     attachment_id: &str,
     user_id: &str,
-) -> Result<Option<AttachmentDetails>, String> {
+) -> Result<Option<AttachmentDetails>, UiError> {
     use base64::{engine::general_purpose::STANDARD, Engine as _};
 
     if !envelope::is_envelope(sealed) {
@@ -567,7 +581,7 @@ pub fn open_attachment_metadata(
         .decode(value["k"].as_str().unwrap_or_default())
         .map_err(|_| "damaged attachment key".to_string())?;
     if key_bytes.len() != 32 {
-        return Err("attachment key is the wrong size".to_string());
+        return Err("attachment key is the wrong size".into());
     }
     let mut file_key = Zeroizing::new([0u8; 32]);
     file_key.copy_from_slice(&key_bytes);
@@ -594,20 +608,28 @@ pub struct AttachmentDetails {
 pub fn open_attachment_bytes(
     details: &AttachmentDetails,
     stored: &[u8],
-) -> Result<Vec<u8>, String> {
+) -> Result<Vec<u8>, UiError> {
     use chacha20poly1305::{
         aead::{Aead, KeyInit},
         XChaCha20Poly1305, XNonce,
     };
 
     if stored.len() < 24 + 16 {
-        return Err("the stored file is too short to be intact".to_string());
+        return Err(UiError::new(
+            "e2ee.attachment_truncated",
+            "the stored file is too short to be intact",
+        ));
     }
     let cipher = XChaCha20Poly1305::new_from_slice(details.file_key.as_slice())
         .map_err(|_| "bad file key".to_string())?;
     cipher
         .decrypt(XNonce::from_slice(&stored[..24]), &stored[24..])
-        .map_err(|_| "this file could not be decrypted".to_string())
+        .map_err(|_| {
+            UiError::new(
+                "e2ee.attachment_undecryptable",
+                "this file could not be decrypted",
+            )
+        })
 }
 
 /// Unwrap the content key with this installation's key pair.
@@ -617,7 +639,7 @@ pub fn unlock_with_device(
     user_id: &str,
     epoch: u32,
     verifier: &str,
-) -> Result<(), String> {
+) -> Result<(), UiError> {
     let key = e2ee::unwrap_with_device(keypair, wrapped, user_id, epoch)?;
     confirm_and_hold(key, epoch, verifier)
 }
@@ -630,7 +652,7 @@ pub fn unlock_with_recovery(
     user_id: &str,
     epoch: u32,
     verifier: &str,
-) -> Result<(), String> {
+) -> Result<(), UiError> {
     let key = e2ee::unwrap_with_recovery(typed, salt, wrapped, user_id, epoch)?;
     confirm_and_hold(key, epoch, verifier)
 }
@@ -639,9 +661,12 @@ pub fn unlock_with_recovery(
 ///
 /// Without this, the wrong key surfaces later as a record that will not open, which reads
 /// as data loss rather than as "that was the wrong code".
-fn confirm_and_hold(key: ContentKey, epoch: u32, verifier: &str) -> Result<(), String> {
+fn confirm_and_hold(key: ContentKey, epoch: u32, verifier: &str) -> Result<(), UiError> {
     if !verifier.is_empty() && !e2ee::check_verifier(&key, verifier) {
-        return Err("That key does not belong to this account".to_string());
+        return Err(UiError::new(
+            "e2ee.wrong_account_key",
+            "That key does not belong to this account",
+        ));
     }
     set_content_key(key, epoch);
     Ok(())

@@ -275,6 +275,7 @@
   "encryption": {
     "title": "Encryption",
     "loading": "Checking…",
+    "retry": "Try again",
     "offExplainer": "Your stashes are stored on our server so your devices see the same thing. Turn this on and they are encrypted on this machine first, with a key we do not keep.",
     "costRecovery": "You get a recovery code. Lose every installation and that code, and nobody can get your stashes back — not you, and not us.",
     "costMcp": "An access key for AI tools carries its own copy of the key, so our server can read that account while such a request is being served. Create no access key and we cannot read it at all.",
@@ -524,5 +525,27 @@
     "remindLater": "Remind me in 7 days",
     "skipVersion": "Skip {version}",
     "updateExternally": "This copy of Stashpad is managed outside the app. Update it the way you installed it."
+  },
+  "errors": {
+    "e2ee": {
+      "nowhere_safe": "Stashpad has nowhere safe on this machine to keep an encryption key. Set a device passphrase under Settings, or use a machine with a system keychain.",
+      "device_key_unopenable": "This installation's key could not be opened on this machine.",
+      "device_key_damaged": "This installation's key is damaged. Approve this machine again from one that can already read your stashes, or use your recovery code.",
+      "device_key_wrong_size": "That installation published a key of the wrong size, so it was not approved.",
+      "fingerprint_mismatch": "The codes do not match. That installation shows {shown}, so do not approve it.",
+      "not_encrypted": "This account is not encrypted.",
+      "attachment_truncated": "This file is incomplete and cannot be opened.",
+      "attachment_undecryptable": "This file could not be decrypted.",
+      "wrong_account_key": "That key does not belong to this account.",
+      "recovery_code_malformed": "That does not look like a recovery code. One starts with SP1- and has thirteen groups after it.",
+      "recovery_code_typo": "That recovery code has a typo in it. Check it and try again.",
+      "recovery_code_length": "A recovery code has {expected} characters after SP1-, and this one has {actual}.",
+      "recovery_code_wrong_account": "That recovery code does not belong to this account."
+    },
+    "localkey": {
+      "passphrase_empty": "The passphrase cannot be empty.",
+      "no_passphrase": "No passphrase is set on this machine.",
+      "locked": "Enter your passphrase first."
+    }
   }
 }

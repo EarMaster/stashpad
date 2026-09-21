@@ -20,6 +20,7 @@ use crate::models::{StashItem, SaveOptions, Attachment, Context, Settings};
 use crate::state::{DbState, SettingsState};
 use crate::utils::get_app_dir;
 use crate::db::{DbManager, WriteOrigin};
+use crate::uierror::UiError;
 
 pub fn get_effective_position(invert: bool, default_pos: &str) -> &str {
     if invert {
@@ -81,7 +82,7 @@ pub async fn save_stash(
     state: State<'_, Arc<DbState>>, 
     settings_state: State<'_, Arc<SettingsState>>, 
     options: SaveOptions
-) -> Result<(), String> {
+) -> Result<(), UiError> {
     let stash = options.stash;
     let invert = options.invert_position;
     
@@ -131,23 +132,23 @@ pub async fn save_stash(
 }
 
 #[tauri::command]
-pub async fn load_stashes(state: State<'_, Arc<DbState>>) -> Result<Vec<StashItem>, String> {
+pub async fn load_stashes(state: State<'_, Arc<DbState>>) -> Result<Vec<StashItem>, UiError> {
     Ok(state.lock_db().get_stashes().unwrap_or_default())
 }
 
 #[tauri::command]
-pub async fn load_stashes_for_sync(state: State<'_, Arc<DbState>>) -> Result<Vec<StashItem>, String> {
+pub async fn load_stashes_for_sync(state: State<'_, Arc<DbState>>) -> Result<Vec<StashItem>, UiError> {
     Ok(state.lock_db().get_stashes_for_sync().unwrap_or_default())
 }
 
 #[tauri::command]
-pub async fn get_contexts_for_sync(state: State<'_, Arc<DbState>>) -> Result<Vec<Context>, String> {
+pub async fn get_contexts_for_sync(state: State<'_, Arc<DbState>>) -> Result<Vec<Context>, UiError> {
     Ok(state.lock_db().get_contexts_for_sync().unwrap_or_default())
 }
 
 #[tauri::command]
-pub async fn import_stashes(state: State<'_, Arc<DbState>>, stashes_list: Vec<StashItem>) -> Result<(), String> {
-    state.lock_db().import_stashes(&stashes_list).map_err(|e| e.to_string())
+pub async fn import_stashes(state: State<'_, Arc<DbState>>, stashes_list: Vec<StashItem>) -> Result<(), UiError> {
+    state.lock_db().import_stashes(&stashes_list).map_err(|e| e.to_string()).map_err(UiError::from)
 }
 
 pub fn get_stash_cache_path(id: &str, context_id: Option<&str>) -> std::path::PathBuf {
@@ -160,7 +161,7 @@ pub fn get_stash_cache_path(id: &str, context_id: Option<&str>) -> std::path::Pa
 }
 
 #[tauri::command]
-pub async fn delete_stash(state: State<'_, Arc<DbState>>, id: String) -> Result<(), String> {
+pub async fn delete_stash(state: State<'_, Arc<DbState>>, id: String) -> Result<(), UiError> {
     let mut db = state.lock_db();
     
     // File cleanup logic (requires querying stash first)
@@ -202,7 +203,7 @@ fn safe_component(value: &str) -> String {
 }
 
 #[tauri::command]
-pub async fn delete_completed_stashes(state: State<'_, Arc<DbState>>, context_id: Option<String>) -> Result<(), String> {
+pub async fn delete_completed_stashes(state: State<'_, Arc<DbState>>, context_id: Option<String>) -> Result<(), UiError> {
     // Collect under the lock, delete files with the lock released, then write back.
     //
     // This used to hold the global database mutex across a `remove_dir_all` per stash -
@@ -367,7 +368,7 @@ pub fn perform_startup_cleanup(db: &mut DbManager, settings: &Settings) -> usize
 }
 
 #[tauri::command]
-pub async fn save_stashes(state: State<'_, Arc<DbState>>, stashes_list: Vec<StashItem>) -> Result<(), String> {
+pub async fn save_stashes(state: State<'_, Arc<DbState>>, stashes_list: Vec<StashItem>) -> Result<(), UiError> {
     // This is used for REORDERING, which rewrites a row per visible stash.
     println!("Saving stash order ({} items)", stashes_list.len());
     let mut db = state.lock_db();
@@ -378,7 +379,7 @@ pub async fn save_stashes(state: State<'_, Arc<DbState>>, stashes_list: Vec<Stas
 }
  
 #[tauri::command]
-pub async fn trigger_auto_cleanup(state: State<'_, Arc<DbState>>, settings_state: State<'_, Arc<SettingsState>>) -> Result<u32, String> {
+pub async fn trigger_auto_cleanup(state: State<'_, Arc<DbState>>, settings_state: State<'_, Arc<SettingsState>>) -> Result<u32, UiError> {
     // Copy the settings out before taking the database lock. Holding both at once was
     // the only place in the codebase that established the reverse ordering, and this
     // command fires every five minutes from the frontend, so it was a standing
@@ -424,7 +425,7 @@ const ASSET_META_HEADER: &str = "x-stashpad-asset";
 pub async fn save_asset(
     state: State<'_, Arc<DbState>>,
     request: tauri::ipc::Request<'_>,
-) -> Result<Attachment, String> {
+) -> Result<Attachment, UiError> {
     let tauri::ipc::InvokeBody::Raw(data) = request.body() else {
         return Err("Asset upload must send a raw body".into());
     };
@@ -449,7 +450,7 @@ async fn write_asset(
     state: State<'_, Arc<DbState>>,
     meta: AssetMeta,
     data: Vec<u8>,
-) -> Result<Attachment, String> {
+) -> Result<Attachment, UiError> {
     let AssetMeta {
         name,
         context_id,
@@ -491,7 +492,7 @@ async fn write_asset(
     let write_dir = target_dir.clone();
     let desired_name = safe_name.clone();
     let (file_path, file_size) = tauri::async_runtime::spawn_blocking(
-        move || -> Result<(std::path::PathBuf, i64), String> {
+        move || -> Result<(std::path::PathBuf, i64), UiError> {
             // Reserve the name before writing. This used to be `target_dir.join(name)`,
             // so two attachments called `image.png` on one stash resolved to the same
             // path: the second write replaced the first file's bytes while both rows went
@@ -501,7 +502,7 @@ async fn write_asset(
             if let Err(e) = fs::write(&path, data) {
                 // Do not leave the reservation behind as a zero-byte file.
                 let _ = fs::remove_file(&path);
-                return Err(format!("Failed to write file: {}", e));
+                return Err(format!("Failed to write file: {}", e).into());
             }
             let size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0) as i64;
             Ok((path, size))
@@ -586,7 +587,7 @@ pub async fn save_asset_from_path(
     context_id: Option<String>, 
     stash_id: Option<String>,
     syntax: Option<String>
-) -> Result<Attachment, String> {
+) -> Result<Attachment, UiError> {
     println!(
         "Importing asset from path: {} context: {:?} stash: {:?}", 
         path, context_id, stash_id
@@ -625,7 +626,7 @@ pub async fn save_asset_from_path(
     let desired_name = file_name.clone();
     let copy_dir = target_dir.clone();
     let (dest_path, file_size) = tauri::async_runtime::spawn_blocking(
-        move || -> Result<(std::path::PathBuf, i64), String> {
+        move || -> Result<(std::path::PathBuf, i64), UiError> {
             // `fs::copy` truncates whatever is at the destination and has no
             // exclusive-create mode, so the destination has to be a name we already hold.
             // Reserving it both picks a free name and keeps it: testing `exists()` and
@@ -635,7 +636,7 @@ pub async fn save_asset_from_path(
                 .map_err(|e| format!("Failed to create file: {}", e))?;
             if let Err(e) = fs::copy(&source, &dest) {
                 let _ = fs::remove_file(&dest);
-                return Err(format!("Failed to copy file: {}", e));
+                return Err(format!("Failed to copy file: {}", e).into());
             }
             let size = fs::metadata(&dest).map(|m| m.len()).unwrap_or(0) as i64;
             Ok((dest, size))
@@ -717,7 +718,7 @@ pub async fn delete_asset(
     state: State<'_, Arc<DbState>>,
     id: Option<String>,
     path: String,
-) -> Result<(), String> {
+) -> Result<(), UiError> {
     println!("Deleting asset: {}", path);
 
     let file_path = std::path::Path::new(&path);
@@ -789,18 +790,18 @@ pub async fn delete_asset(
 /// - Text files: Returns first 10KB of content
 /// - Other: Returns unsupported type indicator
 #[tauri::command]
-pub async fn read_file_for_preview(path: String) -> Result<crate::models::FilePreviewData, String> {
+pub async fn read_file_for_preview(path: String) -> Result<crate::models::FilePreviewData, UiError> {
     // On the blocking pool, not the async worker: this canonicalizes a path, reads a
     // whole file, and base64-encodes it into a String. A large screenshot is tens of
     // megabytes of allocation and encoding, and Tokio does not move a task that blocks
     // its worker - so doing it inline starved the pool every other command shares.
     match tauri::async_runtime::spawn_blocking(move || read_file_for_preview_blocking(path)).await {
         Ok(result) => result,
-        Err(e) => Err(format!("Preview task failed: {}", e)),
+        Err(e) => Err(format!("Preview task failed: {}", e).into()),
     }
 }
 
-fn read_file_for_preview_blocking(path: String) -> Result<crate::models::FilePreviewData, String> {
+fn read_file_for_preview_blocking(path: String) -> Result<crate::models::FilePreviewData, UiError> {
     let file_path = std::path::Path::new(&path);
     
     // Security: validate that the path is within the cache directory
@@ -889,7 +890,7 @@ fn read_file_for_preview_blocking(path: String) -> Result<crate::models::FilePre
                     let b64 = general_purpose::STANDARD.encode(&data);
                     format!("data:{};base64,{}", mime_type, b64)
                 }
-                Err(e) => return Err(format!("Failed to read image: {}", e)),
+                Err(e) => return Err(format!("Failed to read image: {}", e).into()),
             }
         }
         "video" => {
@@ -908,7 +909,7 @@ fn read_file_for_preview_blocking(path: String) -> Result<crate::models::FilePre
                     };
                     String::from_utf8_lossy(truncated).into_owned()
                 }
-                Err(e) => return Err(format!("Failed to read file: {}", e)),
+                Err(e) => return Err(format!("Failed to read file: {}", e).into()),
             }
         }
         _ => String::new(),
@@ -928,7 +929,7 @@ fn read_file_for_preview_blocking(path: String) -> Result<crate::models::FilePre
 /// Sync pushes only these instead of the whole table: with a few hundred stashes a full
 /// push means a database round-trip per record on the server, on every local edit.
 #[tauri::command]
-pub async fn claim_pending_stashes(state: State<'_, Arc<DbState>>) -> Result<Vec<StashItem>, String> {
+pub async fn claim_pending_stashes(state: State<'_, Arc<DbState>>) -> Result<Vec<StashItem>, UiError> {
     Ok(state.lock_db().claim_pending_stashes().unwrap_or_default())
 }
 
@@ -940,11 +941,12 @@ pub async fn claim_pending_stashes(state: State<'_, Arc<DbState>>) -> Result<Vec
 pub async fn mark_stashes_synced(
     state: State<'_, Arc<DbState>>,
     ids: Vec<String>,
-) -> Result<(), String> {
+) -> Result<(), UiError> {
     state
         .lock_db()
         .mark_synced("stashes", &ids)
         .map_err(|e| e.to_string())
+        .map_err(UiError::from)
 }
 
 /// Orderings this device has changed and the server has not acknowledged.
@@ -954,7 +956,7 @@ pub async fn mark_stashes_synced(
 #[tauri::command]
 pub async fn claim_pending_positions(
     state: State<'_, Arc<DbState>>,
-) -> Result<Vec<crate::models::StashPosition>, String> {
+) -> Result<Vec<crate::models::StashPosition>, UiError> {
     Ok(state
         .lock_db()
         .claim_pending_positions()
@@ -966,11 +968,12 @@ pub async fn claim_pending_positions(
 pub async fn mark_positions_synced(
     state: State<'_, Arc<DbState>>,
     ids: Vec<String>,
-) -> Result<(), String> {
+) -> Result<(), UiError> {
     state
         .lock_db()
         .mark_positions_synced(&ids)
         .map_err(|e| e.to_string())
+        .map_err(UiError::from)
 }
 
 /// Apply orderings received from other devices; resolves to how many rows moved.
@@ -978,10 +981,11 @@ pub async fn mark_positions_synced(
 pub async fn import_positions(
     state: State<'_, Arc<DbState>>,
     positions: Vec<crate::models::StashPosition>,
-) -> Result<u32, String> {
+) -> Result<u32, UiError> {
     state
         .lock_db()
         .import_positions(&positions)
         .map(|n| n as u32)
         .map_err(|e| e.to_string())
+        .map_err(UiError::from)
 }

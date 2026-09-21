@@ -24,6 +24,7 @@ use crate::keychain::{
 };
 use crate::localkey;
 use crate::state::{SettingsState, lock_or_recover};
+use crate::uierror::UiError;
 
 pub fn get_settings_path() -> PathBuf {
     get_app_dir().join("settings.json")
@@ -364,7 +365,7 @@ pub async fn persist_settings_off_thread(settings: Settings) {
 }
 
 #[tauri::command]
-pub async fn get_settings(state: State<'_, Arc<SettingsState>>) -> Result<Settings, String> {
+pub async fn get_settings(state: State<'_, Arc<SettingsState>>) -> Result<Settings, UiError> {
     let mut settings = state.lock_settings().clone();
     if let Some(ref mut cloud_config) = settings.cloud_config {
         cloud_config.access_token = None;
@@ -373,7 +374,7 @@ pub async fn get_settings(state: State<'_, Arc<SettingsState>>) -> Result<Settin
 }
 
 #[tauri::command]
-pub async fn save_settings(app: tauri::AppHandle, state: State<'_, Arc<SettingsState>>, mut settings: Settings) -> Result<(), String> {
+pub async fn save_settings(app: tauri::AppHandle, state: State<'_, Arc<SettingsState>>, mut settings: Settings) -> Result<(), UiError> {
     // One critical section, not five. Each `lock_settings()` is a blocking acquire on
     // an async worker, and this command runs on every keystroke in the settings panel;
     // taking the lock five times per call multiplied that contention for no reason.
@@ -472,7 +473,7 @@ pub async fn save_settings(app: tauri::AppHandle, state: State<'_, Arc<SettingsS
 /// meant clearing the fields in the UI left the JWT alive in the keychain forever, so
 /// logout needs its own command that erases it explicitly.
 #[tauri::command]
-pub async fn cloud_logout(state: State<'_, Arc<SettingsState>>) -> Result<(), String> {
+pub async fn cloud_logout(state: State<'_, Arc<SettingsState>>) -> Result<(), UiError> {
     // Clear under the lock, then release it before touching the credential store. The
     // lock used to be held across a blocking delete and a full settings write, so every
     // other command that reads settings blocked its own worker waiting on it.

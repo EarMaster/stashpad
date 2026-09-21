@@ -40,6 +40,7 @@ use zeroize::Zeroizing;
 
 use crate::state::lock_or_recover;
 use crate::utils::get_app_dir;
+use crate::uierror::UiError;
 
 /// Proves a passphrase is the right one without storing anything that reveals it.
 const VERIFIER_PLAINTEXT: &[u8] = b"stashpad-device-key-v1";
@@ -109,12 +110,12 @@ fn read_key_file() -> Option<KeyFile> {
     serde_json::from_str(&text).ok()
 }
 
-fn write_key_file(file: &KeyFile) -> Result<(), String> {
+fn write_key_file(file: &KeyFile) -> Result<(), UiError> {
     let path = key_file_path();
     let temp = path.with_extension("json.tmp");
     let text = serde_json::to_string_pretty(file).map_err(|e| e.to_string())?;
     fs::write(&temp, text).map_err(|e| e.to_string())?;
-    fs::rename(&temp, &path).map_err(|e| e.to_string())
+    fs::rename(&temp, &path).map_err(|e| e.to_string().into())
 }
 
 /// Whether a passphrase has been configured on this machine.
@@ -123,7 +124,7 @@ pub fn is_configured() -> bool {
 }
 
 /// Stretch a passphrase into the 32-byte device-protection key.
-fn derive(passphrase: &str, salt: &[u8], m_cost: u32, t_cost: u32, p_cost: u32) -> Result<Zeroizing<[u8; 32]>, String> {
+fn derive(passphrase: &str, salt: &[u8], m_cost: u32, t_cost: u32, p_cost: u32) -> Result<Zeroizing<[u8; 32]>, UiError> {
     use argon2::{Algorithm, Argon2, Params, Version};
 
     let params = Params::new(m_cost, t_cost, p_cost, Some(32))
@@ -138,7 +139,7 @@ fn derive(passphrase: &str, salt: &[u8], m_cost: u32, t_cost: u32, p_cost: u32) 
 }
 
 /// Seal bytes under a 32-byte key: `nonce(12) || ciphertext||tag`, base64.
-fn seal_with(key: &[u8; 32], plaintext: &[u8]) -> Result<String, String> {
+fn seal_with(key: &[u8; 32], plaintext: &[u8]) -> Result<String, UiError> {
     use aes_gcm::{
         aead::{Aead, KeyInit},
         Aes256Gcm, Nonce,
@@ -200,9 +201,12 @@ pub fn is_unlocked() -> bool {
 ///
 /// `remember` writes the derived key to disk wrapped by the machine key, so later starts
 /// do not prompt - at the cost the checkbox describes.
-pub fn set_passphrase(passphrase: &str, remember: bool) -> Result<(), String> {
+pub fn set_passphrase(passphrase: &str, remember: bool) -> Result<(), UiError> {
     if passphrase.trim().is_empty() {
-        return Err("The passphrase cannot be empty".to_string());
+        return Err(UiError::new(
+            "localkey.passphrase_empty",
+            "The passphrase cannot be empty",
+        ));
     }
 
     let mut salt = [0u8; 16];
@@ -234,9 +238,12 @@ pub fn set_passphrase(passphrase: &str, remember: bool) -> Result<(), String> {
 }
 
 /// Enter an existing passphrase. `Ok(false)` means it was simply wrong.
-pub fn unlock(passphrase: &str) -> Result<bool, String> {
+pub fn unlock(passphrase: &str) -> Result<bool, UiError> {
     let Some(file) = read_key_file() else {
-        return Err("No passphrase is set on this machine".to_string());
+        return Err(UiError::new(
+            "localkey.no_passphrase",
+            "No passphrase is set on this machine",
+        ));
     };
     let salt = STANDARD
         .decode(&file.salt)
@@ -256,9 +263,9 @@ pub fn unlock(passphrase: &str) -> Result<bool, String> {
 /// Deliberately the **derived key and not the passphrase**. People reuse passphrases, so a
 /// leaked one can cost them something well outside Stashpad; a leaked device key costs
 /// this installation and nothing else, and revoking the installation settles it.
-fn remember_key(key: &[u8; 32]) -> Result<(), String> {
+fn remember_key(key: &[u8; 32]) -> Result<(), UiError> {
     let wrapped = seal_with(&crate::keychain::derive_machine_key(), key.as_slice())?;
-    fs::write(remembered_path(), wrapped).map_err(|e| e.to_string())
+    fs::write(remembered_path(), wrapped).map_err(|e| e.to_string().into())
 }
 
 /// Remove the remembered key. Called when the user unticks the box, on cloud logout, and
@@ -271,6 +278,55 @@ pub fn forget_remembered() {
             let _ = write_key_file(&file);
         }
     }
+}
+
+/// Put this installation's key in memory from the OS credential store.
+///
+/// The key is 32 random bytes generated once and kept in the store, base64 in the entry
+/// because a credential entry holds a string. It is not derived from anything about the
+/// machine: `derive_machine_key` exists for the one opt-in case where the user asked for a
+/// recoverable copy, and using it here would mean the device key file could be opened by
+/// anyone who could read the folder, which is the whole thing the credential store avoids.
+///
+/// Returns false if the store cannot be read or written, which the caller treats as an error
+/// rather than a reason to store the key less safely.
+fn load_or_create_machine_key() -> bool {
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
+
+    if let Some(existing) = crate::keychain::get_secret_from_keychain(
+        crate::keychain::create_local_key_entry,
+    ) {
+        if let Ok(bytes) = STANDARD.decode(existing.trim()) {
+            if bytes.len() == 32 {
+                let mut key = Zeroizing::new([0u8; 32]);
+                key.copy_from_slice(&bytes);
+                *lock_or_recover(&LOCAL_KEY) = Some(key);
+                return true;
+            }
+        }
+        // A malformed entry is not something to silently replace: the device key file was
+        // sealed with whatever the old value was, so overwriting it strands that file.
+        log::error!("The local key in the credential store is not 32 bytes; refusing to replace it");
+        return false;
+    }
+
+    let mut key = Zeroizing::new([0u8; 32]);
+    {
+        use rand::RngCore;
+        rand::thread_rng().fill_bytes(key.as_mut_slice());
+    }
+
+    if !crate::keychain::store_secret_in_keychain(
+        crate::keychain::create_local_key_entry,
+        || {},
+        &STANDARD.encode(key.as_slice()),
+    ) {
+        return false;
+    }
+
+    *lock_or_recover(&LOCAL_KEY) = Some(key);
+    log::info!("Created this installation's local key in the credential store");
+    true
 }
 
 /// Try to unlock from the remembered key, without prompting. Returns whether it worked.
@@ -316,7 +372,21 @@ pub fn decline() {
 /// Called once at startup, after the credential-store probe.
 pub fn initialize() -> LocalKeyStatus {
     if crate::keychain::keychain_status() == crate::keychain::KeychainStatus::Working {
-        return LocalKeyStatus::NotNeeded;
+        // Load this installation's key from the credential store, creating it on first run.
+        //
+        // Without this the store being healthy meant LOCAL_KEY was simply never populated,
+        // because the only other writers are the three passphrase paths. `seal_secret` then
+        // returned None and enrolment failed with "there is nowhere safe on this machine to
+        // keep an encryption key" - on precisely the machines that have somewhere safe.
+        // Encryption worked only where a passphrase had been set, the exact inverse of what
+        // was intended.
+        if load_or_create_machine_key() {
+            return LocalKeyStatus::NotNeeded;
+        }
+        // The probe said the store works, so a failure here is an error rather than a cue to
+        // write the key somewhere weaker. Fall through and let the passphrase path offer
+        // itself, which at least tells the user something is wrong.
+        log::error!("The credential store passed its probe but would not hold the local key");
     }
     if !is_configured() {
         return LocalKeyStatus::Unset;
@@ -370,7 +440,7 @@ pub fn local_key_is_remembered() -> bool {
 }
 
 #[tauri::command]
-pub async fn unlock_local_key(passphrase: String) -> Result<bool, String> {
+pub async fn unlock_local_key(passphrase: String) -> Result<bool, UiError> {
     tauri::async_runtime::spawn_blocking(move || unlock(&passphrase))
         .await
         .map_err(|e| format!("Could not run the key derivation: {}", e))?
@@ -383,7 +453,7 @@ pub async fn set_local_passphrase(
     passphrase: String,
     remember: bool,
     state: tauri::State<'_, std::sync::Arc<crate::state::SettingsState>>,
-) -> Result<(), String> {
+) -> Result<(), UiError> {
     tauri::async_runtime::spawn_blocking(move || set_passphrase(&passphrase, remember))
         .await
         .map_err(|e| format!("Could not run the key derivation: {}", e))??;
@@ -398,7 +468,7 @@ pub async fn set_local_passphrase(
 /// Turning it on needs the key, which means the session must already be unlocked - there
 /// is nothing to remember otherwise.
 #[tauri::command]
-pub fn set_local_key_remembered(remember: bool) -> Result<(), String> {
+pub fn set_local_key_remembered(remember: bool) -> Result<(), UiError> {
     if !remember {
         forget_remembered();
         return Ok(());
@@ -406,7 +476,10 @@ pub fn set_local_key_remembered(remember: bool) -> Result<(), String> {
 
     let guard = lock_or_recover(&LOCAL_KEY);
     let Some(key) = guard.as_ref() else {
-        return Err("Enter your passphrase first".to_string());
+        return Err(UiError::new(
+            "localkey.locked",
+            "Enter your passphrase first",
+        ));
     };
     remember_key(key)?;
     drop(guard);
@@ -422,7 +495,7 @@ pub fn set_local_key_remembered(remember: bool) -> Result<(), String> {
 #[tauri::command]
 pub async fn decline_local_key(
     state: tauri::State<'_, std::sync::Arc<crate::state::SettingsState>>,
-) -> Result<(), String> {
+) -> Result<(), UiError> {
     decline();
     // Rewrite settings so anything previously held under the machine key stops being
     // written back. The secrets stay usable in memory for this session.

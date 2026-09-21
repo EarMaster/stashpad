@@ -21,6 +21,7 @@ use crate::models::{CloudConfig, Attachment, default_cloud_endpoint};
 use crate::state::{SettingsState, DbState, WsState, lock_or_recover};
 use crate::settings::persist_settings_off_thread;
 use crate::utils::get_app_dir;
+use crate::uierror::UiError;
 
 /// How long a JSON API call may take before it is abandoned.
 ///
@@ -61,21 +62,23 @@ fn error_snippet(body: &str) -> String {
 }
 
 /// Client for JSON API calls.
-fn api_client() -> Result<reqwest::Client, String> {
+fn api_client() -> Result<reqwest::Client, UiError> {
     reqwest::Client::builder()
         .connect_timeout(CONNECT_TIMEOUT)
         .timeout(API_TIMEOUT)
         .build()
         .map_err(|e| format!("Failed to build HTTP client: {}", e))
+        .map_err(UiError::from)
 }
 
 /// Client for uploading and downloading attachment bytes.
-fn transfer_client() -> Result<reqwest::Client, String> {
+fn transfer_client() -> Result<reqwest::Client, UiError> {
     reqwest::Client::builder()
         .connect_timeout(CONNECT_TIMEOUT)
         .timeout(TRANSFER_TIMEOUT)
         .build()
         .map_err(|e| format!("Failed to build HTTP client: {}", e))
+        .map_err(UiError::from)
 }
 
 /// Header the server uses to hand back a replacement session token.
@@ -122,7 +125,7 @@ async fn absorb_refreshed_token(settings_state: &Arc<SettingsState>, response: &
 #[tauri::command]
 pub async fn fetch_cloud_account(
     settings_state: State<'_, Arc<SettingsState>>,
-) -> Result<CloudConfig, String> {
+) -> Result<CloudConfig, UiError> {
     let (endpoint, token) = {
         let settings = settings_state.lock_settings();
         let config = settings.cloud_config.as_ref().ok_or("Cloud config missing")?;
@@ -143,7 +146,7 @@ pub async fn fetch_cloud_account(
     }
 
     if !response.status().is_success() {
-        return Err(format!("Failed to fetch account: {}", response.status()));
+        return Err(format!("Failed to fetch account: {}", response.status()).into());
     }
 
     absorb_refreshed_token(&settings_state, &response).await;
@@ -179,7 +182,7 @@ pub async fn exchange_link_code_api(
     settings_state: State<'_, Arc<SettingsState>>,
     token: String,
     device_id: Option<String>,
-) -> Result<CloudConfig, String> {
+) -> Result<CloudConfig, UiError> {
     let endpoint = {
         let settings = settings_state.lock_settings();
         let config = settings.cloud_config.as_ref().ok_or("Cloud config missing")?;
@@ -213,7 +216,7 @@ pub async fn exchange_link_code_api(
             body
         };
 
-        return Err(message);
+        return Err(message.into());
     }
 
     let data: serde_json::Value = response
@@ -266,7 +269,7 @@ pub async fn exchange_link_code_api(
 pub async fn sync_stashes_api(
     settings_state: State<'_, Arc<SettingsState>>,
     mut payload: serde_json::Value,
-) -> Result<serde_json::Value, String> {
+) -> Result<serde_json::Value, UiError> {
     let (endpoint, token, user_id) = {
         let settings = settings_state.lock_settings();
         let config = settings.cloud_config.as_ref().ok_or("Cloud config missing")?;
@@ -302,7 +305,7 @@ pub async fn sync_stashes_api(
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
         let snippet = error_snippet(&body);
-        return Err(format!("Stash sync failed ({}): {}", status, snippet));
+        return Err(format!("Stash sync failed ({}): {}", status, snippet).into());
     }
 
     absorb_refreshed_token(&settings_state, &response).await;
@@ -335,7 +338,7 @@ pub async fn sync_stashes_api(
 pub async fn e2ee_get(
     settings_state: &State<'_, Arc<SettingsState>>,
     path: &str,
-) -> Result<serde_json::Value, String> {
+) -> Result<serde_json::Value, UiError> {
     let (endpoint, token) = {
         let settings = settings_state.lock_settings();
         let config = settings.cloud_config.as_ref().ok_or("Cloud config missing")?;
@@ -353,13 +356,14 @@ pub async fn e2ee_get(
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
-        return Err(format!("{} ({})", error_snippet(&body), status));
+        return Err(format!("{} ({})", error_snippet(&body), status).into());
     }
 
     response
         .json()
         .await
         .map_err(|e| format!("Could not read the response: {}", e))
+        .map_err(UiError::from)
 }
 
 /// POST JSON to the cloud API, with this account's session.
@@ -367,7 +371,7 @@ pub async fn e2ee_post(
     settings_state: &State<'_, Arc<SettingsState>>,
     path: &str,
     body: serde_json::Value,
-) -> Result<serde_json::Value, String> {
+) -> Result<serde_json::Value, UiError> {
     let (endpoint, token) = {
         let settings = settings_state.lock_settings();
         let config = settings.cloud_config.as_ref().ok_or("Cloud config missing")?;
@@ -386,13 +390,14 @@ pub async fn e2ee_post(
     if !response.status().is_success() {
         let status = response.status();
         let text = response.text().await.unwrap_or_default();
-        return Err(format!("{} ({})", error_snippet(&text), status));
+        return Err(format!("{} ({})", error_snippet(&text), status).into());
     }
 
     response
         .json()
         .await
         .map_err(|e| format!("Could not read the response: {}", e))
+        .map_err(UiError::from)
 }
 
 #[tauri::command]
@@ -406,7 +411,7 @@ pub async fn upload_attachment_to_cloud(
     state: State<'_, Arc<DbState>>,
     settings_state: State<'_, Arc<SettingsState>>,
     attachment_id: String,
-) -> Result<bool, String> {
+) -> Result<bool, UiError> {
     let (endpoint, token) = {
         let settings = settings_state.lock_settings();
         let config = settings.cloud_config.as_ref().ok_or("Cloud config missing")?;
@@ -588,7 +593,7 @@ pub async fn upload_attachment_to_cloud(
     if !status.is_success() {
         let msg = format!("Cloud rejected upload request for {}: {} - {}", attachment.id, status, resp_text);
         log::error!("[Attachment] {}", msg);
-        return Err(msg);
+        return Err(msg.into());
     }
 
     let upload_data: serde_json::Value = serde_json::from_str(&resp_text)
@@ -612,7 +617,7 @@ pub async fn upload_attachment_to_cloud(
     if !put_resp.status().is_success() {
         let msg = format!("Storage rejected the file for {}: {}", attachment.id, put_resp.status());
         log::error!("[Attachment] {}", msg);
-        return Err(msg);
+        return Err(msg.into());
     }
 
     // 4. Confirm the upload. Until this lands the server keeps the row invisible to
@@ -636,7 +641,7 @@ pub async fn upload_attachment_to_cloud(
             attachment.id, status, body
         );
         log::error!("[Attachment] {}", msg);
-        return Err(msg);
+        return Err(msg.into());
     }
 
     log::info!("[Attachment] Uploaded {} ({})", attachment.id, attachment.file_name);
@@ -665,7 +670,7 @@ pub async fn download_attachment_from_cloud(
     state: State<'_, Arc<DbState>>,
     settings_state: State<'_, Arc<SettingsState>>,
     attachment_id: String,
-) -> Result<String, String> {
+) -> Result<String, UiError> {
     let (endpoint, token) = {
         let settings = settings_state.lock_settings();
         let config = settings.cloud_config.as_ref().ok_or("Cloud config missing")?;
@@ -722,7 +727,7 @@ pub async fn download_attachment_from_cloud(
         .map_err(|e| format!("Failed to read download URL response: {}", e))?;
 
     if !status.is_success() {
-        return Err(format!("Cloud rejected download request: {} - {}", status, body));
+        return Err(format!("Cloud rejected download request: {} - {}", status, body).into());
     }
 
     let data: serde_json::Value =
@@ -738,7 +743,7 @@ pub async fn download_attachment_from_cloud(
         .map_err(|e| format!("Failed to download attachment: {}", e))?;
 
     if !file_resp.status().is_success() {
-        return Err(format!("Attachment download failed: {}", file_resp.status()));
+        return Err(format!("Attachment download failed: {}", file_resp.status()).into());
     }
 
     let bytes = file_resp
@@ -810,7 +815,7 @@ pub async fn download_attachment_from_cloud(
     let write_dir = dir.clone();
     let desired_name = file_name.clone();
     let target = tauri::async_runtime::spawn_blocking(
-        move || -> Result<std::path::PathBuf, String> {
+        move || -> Result<std::path::PathBuf, UiError> {
             fs::write(&write_temp, &bytes)
                 .map_err(|e| format!("Failed to write attachment: {}", e))?;
 
@@ -828,7 +833,7 @@ pub async fn download_attachment_from_cloud(
             if let Err(e) = fs::rename(&write_temp, &target) {
                 let _ = fs::remove_file(&write_temp);
                 let _ = fs::remove_file(&target);
-                return Err(format!("Failed to finalise attachment: {}", e));
+                return Err(format!("Failed to finalise attachment: {}", e).into());
             }
             Ok(target)
         },
@@ -857,7 +862,7 @@ pub async fn download_attachment_from_cloud(
 pub async fn sync_contexts_api(
     settings_state: State<'_, Arc<SettingsState>>,
     mut payload: serde_json::Value,
-) -> Result<serde_json::Value, String> {
+) -> Result<serde_json::Value, UiError> {
     let (endpoint, token, user_id) = {
         let settings = settings_state.lock_settings();
         let config = settings.cloud_config.as_ref().ok_or("Cloud config missing")?;
@@ -888,7 +893,7 @@ pub async fn sync_contexts_api(
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
         let snippet = error_snippet(&body);
-        return Err(format!("Context sync failed ({}): {}", status, snippet));
+        return Err(format!("Context sync failed ({}): {}", status, snippet).into());
     }
 
     absorb_refreshed_token(&settings_state, &response).await;
@@ -917,7 +922,7 @@ pub async fn connect_websocket(
     app: tauri::AppHandle,
     settings_state: State<'_, Arc<SettingsState>>,
     ws_state: State<'_, Arc<WsState>>,
-) -> Result<(), String> {
+) -> Result<(), UiError> {
     // End any existing connection
     disconnect_websocket(ws_state.clone()).await?;
 
@@ -1048,7 +1053,7 @@ pub async fn connect_websocket(
 }
 
 #[tauri::command]
-pub async fn disconnect_websocket(ws_state: State<'_, Arc<WsState>>) -> Result<(), String> {
+pub async fn disconnect_websocket(ws_state: State<'_, Arc<WsState>>) -> Result<(), UiError> {
     if let Some(handle) = lock_or_recover(&ws_state.task_handle).take() {
         log::info!("[WebSocket] Disconnecting client...");
         handle.abort();
@@ -1075,7 +1080,7 @@ pub struct CloudUsage {
 #[tauri::command]
 pub async fn fetch_cloud_usage(
     settings_state: State<'_, Arc<SettingsState>>,
-) -> Result<CloudUsage, String> {
+) -> Result<CloudUsage, UiError> {
     let (endpoint, token) = {
         let settings = settings_state.lock_settings();
         let config = settings.cloud_config.as_ref().ok_or("Cloud config missing")?;
@@ -1096,7 +1101,7 @@ pub async fn fetch_cloud_usage(
     }
 
     if !response.status().is_success() {
-        return Err(format!("Failed to fetch usage: {}", response.status()));
+        return Err(format!("Failed to fetch usage: {}", response.status()).into());
     }
 
     absorb_refreshed_token(&settings_state, &response).await;
@@ -1105,6 +1110,7 @@ pub async fn fetch_cloud_usage(
         .json()
         .await
         .map_err(|e| format!("Failed to parse usage: {}", e))
+        .map_err(UiError::from)
 }
 
 #[cfg(test)]

@@ -32,6 +32,9 @@ const KEYCHAIN_TARGET: &str = "stashpad.ai_api_key";
 const KEYCHAIN_CLOUD_USER: &str = "cloud_access_token";
 const KEYCHAIN_CLOUD_TARGET: &str = "stashpad.cloud_access_token";
 
+const KEYCHAIN_LOCAL_KEY_USER: &str = "local_key";
+const KEYCHAIN_LOCAL_KEY_TARGET: &str = "stashpad.local_key";
+
 /// Create a keychain entry with consistent target across platforms
 pub fn create_keychain_entry() -> Result<keyring::Entry, keyring::Error> {
     keyring::Entry::new_with_target(KEYCHAIN_TARGET, KEYCHAIN_SERVICE, KEYCHAIN_USER)
@@ -40,6 +43,15 @@ pub fn create_keychain_entry() -> Result<keyring::Entry, keyring::Error> {
 /// Create a keychain entry for the cloud access token
 pub fn create_cloud_keychain_entry() -> Result<keyring::Entry, keyring::Error> {
     keyring::Entry::new_with_target(KEYCHAIN_CLOUD_TARGET, KEYCHAIN_SERVICE, KEYCHAIN_CLOUD_USER)
+}
+
+/// The entry holding this installation's local key.
+///
+/// Separate from the two secrets above because it protects them rather than being one: it is
+/// what seals the device key file, and on a machine with a credential store it is the only
+/// thing standing between that file and anyone who can read the folder.
+pub fn create_local_key_entry() -> Result<keyring::Entry, keyring::Error> {
+    keyring::Entry::new_with_target(KEYCHAIN_LOCAL_KEY_TARGET, KEYCHAIN_SERVICE, KEYCHAIN_LOCAL_KEY_USER)
 }
 
 /// Whether this machine has a credential store that actually works.

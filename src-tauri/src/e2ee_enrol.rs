@@ -39,6 +39,7 @@ use tauri::State;
 use crate::e2ee;
 use crate::e2ee_session;
 use crate::state::{DbState, SettingsState};
+use crate::uierror::UiError;
 
 /// Where this account and this installation stand.
 #[derive(Debug, Clone, Serialize)]
@@ -98,7 +99,7 @@ struct ServerDevice {
 /// Read the account's key state, and unlock this session if there is a wrap waiting.
 async fn fetch_state(
     settings_state: &State<'_, Arc<SettingsState>>,
-) -> Result<(ServerState, String, String), String> {
+) -> Result<(ServerState, String, String), UiError> {
     let device_id = crate::utils::get_device_id(None).await?;
     let body = crate::sync::e2ee_get(settings_state, &format!("/e2ee/state?deviceId={}", device_id))
         .await?;
@@ -118,7 +119,7 @@ async fn fetch_state(
 #[tauri::command]
 pub async fn e2ee_status(
     settings_state: State<'_, Arc<SettingsState>>,
-) -> Result<EnrolmentStatus, String> {
+) -> Result<EnrolmentStatus, UiError> {
     let (server, user_id, device_id) = fetch_state(&settings_state).await?;
     let keypair = e2ee_session::load_or_create_device_keypair()?;
 
@@ -185,7 +186,7 @@ fn summarise(devices: &[ServerDevice], user_id: &str) -> Vec<DeviceSummary> {
 #[tauri::command]
 pub async fn e2ee_register_device(
     settings_state: State<'_, Arc<SettingsState>>,
-) -> Result<String, String> {
+) -> Result<String, UiError> {
     let keypair = e2ee_session::load_or_create_device_keypair()?;
     let device_id = crate::utils::get_device_id(None).await?;
     let user_id = {
@@ -228,7 +229,7 @@ pub struct EnableResult {
 #[tauri::command]
 pub async fn e2ee_enable(
     settings_state: State<'_, Arc<SettingsState>>,
-) -> Result<EnableResult, String> {
+) -> Result<EnableResult, UiError> {
     let keypair = e2ee_session::load_or_create_device_keypair()?;
     let device_id = crate::utils::get_device_id(None).await?;
     let user_id = {
@@ -296,7 +297,7 @@ pub async fn e2ee_approve_device(
     settings_state: State<'_, Arc<SettingsState>>,
     device_id: String,
     expected_fingerprint: String,
-) -> Result<(), String> {
+) -> Result<(), UiError> {
     use base64::{engine::general_purpose::STANDARD, Engine as _};
 
     let content_key =
@@ -313,14 +314,21 @@ pub async fn e2ee_approve_device(
         .decode(&target.public_key)
         .map_err(|_| "That installation published an unreadable key".to_string())?;
     if public_key.len() != 32 {
-        return Err("That installation published a key of the wrong size".to_string());
+        return Err(UiError::new(
+            "e2ee.device_key_wrong_size",
+            "That installation published a key of the wrong size",
+        ));
     }
 
     let actual = e2ee::fingerprint(&user_id, &public_key);
     if actual != expected_fingerprint.trim().to_ascii_uppercase() {
-        return Err(format!(
-            "The codes do not match. This installation shows {}, so do not approve it.",
-            actual
+        return Err(UiError::with_values(
+            "e2ee.fingerprint_mismatch",
+            format!(
+                "The codes do not match. This installation shows {}, so do not approve it.",
+                actual
+            ),
+            [("shown", actual.clone())],
         ));
     }
 
@@ -351,12 +359,15 @@ pub async fn e2ee_approve_device(
 pub async fn e2ee_recover(
     settings_state: State<'_, Arc<SettingsState>>,
     code: String,
-) -> Result<(), String> {
+) -> Result<(), UiError> {
     let keypair = e2ee_session::load_or_create_device_keypair()?;
     let (server, user_id, device_id) = fetch_state(&settings_state).await?;
 
     if server.epoch == 0 {
-        return Err("This account is not encrypted".to_string());
+        return Err(UiError::new(
+            "e2ee.not_encrypted",
+            "This account is not encrypted",
+        ));
     }
 
     let recovery = crate::sync::e2ee_get(&settings_state, "/e2ee/recovery").await?;
@@ -406,7 +417,7 @@ pub async fn e2ee_recover(
 #[tauri::command]
 pub async fn e2ee_acknowledge_recovery(
     settings_state: State<'_, Arc<SettingsState>>,
-) -> Result<(), String> {
+) -> Result<(), UiError> {
     let recovery = crate::sync::e2ee_get(&settings_state, "/e2ee/recovery").await?;
     let id = recovery["id"]
         .as_str()
@@ -428,7 +439,7 @@ pub async fn e2ee_acknowledge_recovery(
 /// edits arriving mid-flight. Resumable for the same reason - a record that made it keeps
 /// its marker and is not sent again.
 #[tauri::command]
-pub async fn e2ee_start_conversion(db_state: State<'_, Arc<DbState>>) -> Result<usize, String> {
+pub async fn e2ee_start_conversion(db_state: State<'_, Arc<DbState>>) -> Result<usize, UiError> {
     let db = db_state.lock_db();
     let marked = db
         .mark_everything_pending()
@@ -439,7 +450,7 @@ pub async fn e2ee_start_conversion(db_state: State<'_, Arc<DbState>>) -> Result<
 
 /// Tell the server the conversion is finished. It verifies before believing it.
 #[tauri::command]
-pub async fn e2ee_seal(settings_state: State<'_, Arc<SettingsState>>) -> Result<(), String> {
+pub async fn e2ee_seal(settings_state: State<'_, Arc<SettingsState>>) -> Result<(), UiError> {
     crate::sync::e2ee_post(&settings_state, "/e2ee/seal", serde_json::json!({})).await?;
     Ok(())
 }
@@ -524,7 +535,7 @@ pub async fn e2ee_create_access_key(
     name: String,
     scope: String,
     expires_in_days: Option<i64>,
-) -> Result<CreatedAccessKey, String> {
+) -> Result<CreatedAccessKey, UiError> {
     // Called in its own statement so the generator is dropped before the first await:
     // `thread_rng` is not Send, and a Tauri command's future has to be.
     let MintedAccessKey {

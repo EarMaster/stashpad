@@ -33,6 +33,7 @@ See the GNU Affero General Public License for more details.
     import { Loader2, ShieldCheck, ShieldAlert, KeyRound, Copy } from "lucide-svelte";
     import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
     import type { E2eeStatus } from "$lib/types";
+    import { errorText } from "$lib/errors";
 
     const adapter = new DesktopStorageAdapter();
 
@@ -60,11 +61,16 @@ See the GNU Affero General Public License for more details.
     onMount(refresh);
 
     async function refresh() {
+        // Sets `busy` itself so the retry button below can disable while it runs; `run()`
+        // calls this too, and setting the flag twice is harmless.
+        busy = true;
         try {
             status = await adapter.e2eeStatus();
             error = "";
         } catch (e) {
-            error = e instanceof Error ? e.message : String(e);
+            error = errorText(e);
+        } finally {
+            busy = false;
         }
     }
 
@@ -75,7 +81,7 @@ See the GNU Affero General Public License for more details.
             await action();
             await refresh();
         } catch (e) {
-            error = e instanceof Error ? e.message : String(e);
+            error = errorText(e);
         } finally {
             busy = false;
         }
@@ -128,7 +134,21 @@ See the GNU Affero General Public License for more details.
     {/if}
 
     {#if !status}
-        <p class="text-xs text-muted-foreground">{$_("encryption.loading")}</p>
+        <!-- A failed first load used to leave this branch showing "checking" for good:
+             `status` stays null when refresh() throws, so the panel reported that it was
+             still working while the error sat above it, and offered no way to try again. -->
+        {#if error}
+            <button
+                type="button"
+                onclick={refresh}
+                disabled={busy}
+                class="text-xs underline text-muted-foreground hover:text-foreground disabled:opacity-50"
+            >
+                {$_("encryption.retry")}
+            </button>
+        {:else}
+            <p class="text-xs text-muted-foreground">{$_("encryption.loading")}</p>
+        {/if}
 
     <!-- The recovery code, shown once. Nothing converts until it is acknowledged. -->
     {:else if freshCode}

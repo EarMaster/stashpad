@@ -25,6 +25,7 @@
 
 import type { Settings } from '../types';
 import { installKindFor, type InstallKind } from '../utils/installation';
+import { errorText } from "$lib/errors";
 
 /** How long a successful check is good for. */
 const CHECK_INTERVAL_MS = 48 * 60 * 60 * 1000;
@@ -280,7 +281,7 @@ export class UpdateChecker {
             // check. Recording it would lock a user who was briefly offline out of
             // updates for the next 48 hours.
             this.lastResult = 'error';
-            this.lastError = e instanceof Error ? e.message : String(e);
+            this.lastError = errorText(e);
             this.nextAttemptAt = deps.now() + RETRY_AFTER_ERROR_MS;
             console.error('Failed to check for updates:', e);
         } finally {
