@@ -12,7 +12,7 @@
 // See the GNU Affero General Public License for more details.
 
 import { invoke } from '@tauri-apps/api/core';
-import type { IStorageService, StashItem, AppContext, Settings, FilePreviewData, Context, Attachment, CloudConfig, ExportSummary, ImportPreview, CloudUsage, StashPosition, LocalKeyStatus, E2eeStatus, E2eeEnableResult, CreatedAccessKey } from '../types';
+import type { IStorageService, StashItem, AppContext, Settings, FilePreviewData, Context, Attachment, CloudConfig, ExportSummary, ImportPreview, CloudUsage, StashPosition, LocalKeyStatus, E2eeStatus, E2eeEnableResult, E2eeConversionProgress, CreatedAccessKey } from '../types';
 
 /** Called after any local write so cloud sync can be scheduled. */
 type MutationListener = () => void;
@@ -467,6 +467,10 @@ export class DesktopStorageAdapter implements IStorageService {
 
     async e2eeStartConversion(): Promise<number> {
         return await invoke('e2ee_start_conversion');
+    }
+
+    async e2eeConversionProgress(): Promise<E2eeConversionProgress> {
+        return await invoke<E2eeConversionProgress>('e2ee_conversion_progress');
     }
 
     async e2eeSeal(): Promise<void> {

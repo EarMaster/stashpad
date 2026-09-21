@@ -448,6 +448,31 @@ pub async fn e2ee_start_conversion(db_state: State<'_, Arc<DbState>>) -> Result<
     Ok(marked)
 }
 
+/// How far the conversion has got, for the progress the panel shows.
+///
+/// Cheap enough to poll: two counting queries over indexed columns. The panel asks every
+/// couple of seconds while the sweep is running, because the sweep is carried by ordinary
+/// syncs and so finishes at a moment nothing notifies the interface about.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversionProgress {
+    /// Live records not yet acknowledged by the server, in-flight ones included.
+    pub remaining: usize,
+    /// Every live record, so a restart still renders a meaningful bar.
+    pub total: usize,
+}
+
+#[tauri::command]
+pub async fn e2ee_conversion_progress(
+    db_state: State<'_, Arc<DbState>>,
+) -> Result<ConversionProgress, UiError> {
+    let db = db_state.lock_db();
+    let (remaining, total) = db
+        .conversion_progress()
+        .map_err(|e| format!("Could not read the conversion progress: {}", e))?;
+    Ok(ConversionProgress { remaining, total })
+}
+
 /// Tell the server the conversion is finished. It verifies before believing it.
 #[tauri::command]
 pub async fn e2ee_seal(settings_state: State<'_, Arc<SettingsState>>) -> Result<(), UiError> {

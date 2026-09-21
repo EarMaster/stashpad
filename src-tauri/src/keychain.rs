@@ -93,6 +93,14 @@ pub fn probe_keychain() -> KeychainStatus {
     status
 }
 
+/// Try a real write and read-back, because "is there a credential store" cannot be answered
+/// by asking the platform - only by using it.
+///
+/// The three failure paths log at `warn` rather than `debug` on purpose: the app ships
+/// `app_lib` at `Info`, so a `debug` line never reaches a user's log file, and the outcome
+/// alone ("no usable credential store") is not something anyone can act on. A machine that
+/// wrongly falls back to the passphrase prompt is diagnosable only if the reason is visible.
+/// This runs once per launch and only says anything when something is wrong.
 fn run_probe() -> KeychainStatus {
     const CANARY: &str = "stashpad-keychain-probe";
     let entry = match keyring::Entry::new_with_target(
@@ -102,13 +110,13 @@ fn run_probe() -> KeychainStatus {
     ) {
         Ok(entry) => entry,
         Err(e) => {
-            log::debug!("Credential store probe could not create an entry: {}", e);
+            log::warn!("Credential store probe could not create an entry: {}", e);
             return KeychainStatus::Unavailable;
         }
     };
 
     if let Err(e) = entry.set_password(CANARY) {
-        log::debug!("Credential store probe could not write: {}", e);
+        log::warn!("Credential store probe could not write: {}", e);
         return KeychainStatus::Unavailable;
     }
 
@@ -126,11 +134,11 @@ fn run_probe() -> KeychainStatus {
     match readback {
         Ok(value) if value == CANARY => KeychainStatus::Working,
         Ok(_) => {
-            log::debug!("Credential store probe read back a different value");
+            log::warn!("Credential store probe read back a different value");
             KeychainStatus::Unavailable
         }
         Err(e) => {
-            log::debug!("Credential store probe could not read back: {}", e);
+            log::warn!("Credential store probe could not read back: {}", e);
             KeychainStatus::Unavailable
         }
     }

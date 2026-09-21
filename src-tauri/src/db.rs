@@ -844,6 +844,38 @@ impl DbManager {
         Ok(stashes + contexts)
     }
 
+    /// How much of the conversion sweep is left, and how big the corpus is.
+    ///
+    /// Returns `(remaining, total)` over live stashes and contexts together. Records in
+    /// flight (`pending_sync = 2`) count as remaining: they have been claimed by a sync
+    /// that has not been acknowledged yet, and a failure puts them back to 1, so calling
+    /// them done would make the number walk backwards.
+    ///
+    /// `total` is every live record rather than the number the sweep started with, so the
+    /// figure survives a restart. The panel used to show the one-off return of
+    /// `mark_everything_pending`, which meant the count froze at whatever it was when the
+    /// conversion began and read 0 after a reload.
+    pub fn conversion_progress(&self) -> Result<(usize, usize)> {
+        let mut remaining = 0usize;
+        let mut total = 0usize;
+        for table in ["stashes", "contexts"] {
+            let (pending, all): (usize, usize) = self.conn.query_row(
+                &format!(
+                    "SELECT
+                       COALESCE(SUM(CASE WHEN pending_sync IN (1, 2) THEN 1 ELSE 0 END), 0),
+                       COUNT(*)
+                     FROM {} WHERE deleted = 0",
+                    table
+                ),
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )?;
+            remaining += pending;
+            total += all;
+        }
+        Ok((remaining, total))
+    }
+
     /// Stashes with local changes the server has not acknowledged, marked in flight.
     pub fn claim_pending_stashes(&mut self) -> Result<Vec<StashItem>> {
         // Claiming moves every pending row to the in-flight state, so selecting on it
@@ -2290,6 +2322,49 @@ mod tests {
             pending_flag(&db, "stashes", "s-dirty"),
             2,
             "claiming marks the record as in flight"
+        );
+    }
+
+    #[test]
+    fn conversion_progress_counts_a_claimed_record_as_still_outstanding() {
+        // A record in flight has been claimed by a sync the server has not acknowledged,
+        // and a failure puts it back to pending - so counting it as done would let the
+        // progress bar run ahead of the truth and then walk backwards.
+        let mut db = create_test_db();
+        let stash = stash_with_updated_at("s-inflight", "not yet acknowledged", None);
+        db.save_stash(&stash, None, WriteOrigin::LocalEdit)
+            .expect("save should succeed");
+
+        let (before, total) = db.conversion_progress().expect("progress should read");
+        assert!(total > 0, "a seeded database has records to convert");
+
+        db.claim_pending_stashes().expect("claim should succeed");
+
+        let (after, total_after) = db.conversion_progress().expect("progress should read");
+        assert_eq!(
+            before, after,
+            "claiming moves a record to in flight, which is not the same as converted"
+        );
+        assert_eq!(total, total_after, "claiming does not change the corpus size");
+    }
+
+    #[test]
+    fn conversion_progress_reaches_zero_once_the_server_has_everything() {
+        let mut db = create_test_db();
+        // Whatever the starter stashes left pending, acknowledge all of it.
+        db.conn
+            .execute("UPDATE stashes SET pending_sync = 0", [])
+            .expect("clear stashes");
+        db.conn
+            .execute("UPDATE contexts SET pending_sync = 0", [])
+            .expect("clear contexts");
+
+        let (remaining, total) = db.conversion_progress().expect("progress should read");
+        assert_eq!(remaining, 0, "nothing is outstanding");
+        assert!(
+            total > 0,
+            "total counts every live record, not what is left - otherwise the bar would \
+             have no denominator after a restart"
         );
     }
 
