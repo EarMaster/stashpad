@@ -47,6 +47,7 @@ use base64::{engine::general_purpose::STANDARD, Engine as _};
 use rand::RngCore;
 use sha2::{Digest, Sha256};
 use zeroize::Zeroizing;
+use crate::uierror::UiError;
 
 /// Crockford base32: no I, L, O or U, so nothing in a written code can be misread as
 /// something else. Decoding folds I and L to 1, and O to 0, which is what people actually
@@ -164,7 +165,7 @@ pub fn wrap_to_device(
     content_key: &ContentKey,
     user_id: &str,
     epoch: u32,
-) -> Result<String, String> {
+) -> Result<String, UiError> {
     use chacha20poly1305::{
         aead::{Aead, KeyInit},
         XChaCha20Poly1305, XNonce,
@@ -198,7 +199,7 @@ pub fn unwrap_with_device(
     wrapped: &str,
     user_id: &str,
     epoch: u32,
-) -> Result<ContentKey, String> {
+) -> Result<ContentKey, UiError> {
     use chacha20poly1305::{
         aead::{Aead, KeyInit},
         XChaCha20Poly1305, XNonce,
@@ -208,7 +209,7 @@ pub fn unwrap_with_device(
         .decode(wrapped)
         .map_err(|_| "the wrapped key is not base64".to_string())?;
     if raw.len() != 32 + 24 + 48 {
-        return Err(format!("the wrapped key is {} bytes, expected 104", raw.len()));
+        return Err(format!("the wrapped key is {} bytes, expected 104", raw.len()).into());
     }
 
     let mut ephemeral_public = [0u8; 32];
@@ -229,7 +230,7 @@ pub fn unwrap_with_device(
         .map_err(|_| "this wrapped key is not for this installation".to_string())?;
 
     if plaintext.len() != 32 {
-        return Err("the unwrapped content key is the wrong length".to_string());
+        return Err("the unwrapped content key is the wrong length".into());
     }
     let mut key = Zeroizing::new([0u8; 32]);
     key.copy_from_slice(&plaintext);
@@ -283,7 +284,7 @@ pub fn new_recovery_code() -> RecoveryCode {
 /// Case is folded, dashes and spaces ignored, and the Crockford substitutions applied, so
 /// `sp1 4k7q...` and `SP1-4K7Q-...` are the same code. A wrong checksum is reported as
 /// such rather than as a key that does not work.
-pub fn parse_recovery_code(input: &str) -> Result<Zeroizing<[u8; RECOVERY_SECRET_BYTES]>, String> {
+pub fn parse_recovery_code(input: &str) -> Result<Zeroizing<[u8; RECOVERY_SECRET_BYTES]>, UiError> {
     let cleaned: String = input
         .chars()
         .filter(|c| !c.is_whitespace() && *c != '-')
@@ -296,24 +297,37 @@ pub fn parse_recovery_code(input: &str) -> Result<Zeroizing<[u8; RECOVERY_SECRET
 
     let expected = RECOVERY_SECRET_BYTES * 8 / 5 + RECOVERY_CHECKSUM_CHARS;
     if body.len() != expected {
-        return Err(format!(
-            "a recovery code has {} characters after SP1, this one has {}",
-            expected,
-            body.len()
+        return Err(UiError::with_values(
+            "e2ee.recovery_code_length",
+            format!(
+                "a recovery code has {} characters after SP1, this one has {}",
+                expected,
+                body.len()
+            ),
+            [
+                ("expected", expected.to_string()),
+                ("actual", body.len().to_string()),
+            ],
         ));
     }
 
     let (payload, checksum) = body.split_at(expected - RECOVERY_CHECKSUM_CHARS);
     let decoded = crockford_decode(payload)?;
     if decoded.len() != RECOVERY_SECRET_BYTES {
-        return Err("this does not look like a recovery code".to_string());
+        return Err(UiError::new(
+            "e2ee.recovery_code_malformed",
+            "this does not look like a recovery code",
+        ));
     }
 
     let mut secret = Zeroizing::new([0u8; RECOVERY_SECRET_BYTES]);
     secret.copy_from_slice(&decoded);
 
     if recovery_checksum(secret.as_slice()) != checksum {
-        return Err("that recovery code has a typo in it".to_string());
+        return Err(UiError::new(
+            "e2ee.recovery_code_typo",
+            "that recovery code has a typo in it",
+        ));
     }
     Ok(secret)
 }
@@ -358,7 +372,7 @@ pub fn wrap_to_recovery(
     content_key: &ContentKey,
     user_id: &str,
     epoch: u32,
-) -> Result<(String, String), String> {
+) -> Result<(String, String), UiError> {
     let mut salt = [0u8; 16];
     rand::thread_rng().fill_bytes(&mut salt);
     let key = derive_recovery_key(code.secret.as_slice(), &salt, user_id, epoch);
@@ -373,14 +387,18 @@ pub fn unwrap_with_recovery(
     wrapped: &str,
     user_id: &str,
     epoch: u32,
-) -> Result<ContentKey, String> {
+) -> Result<ContentKey, UiError> {
     let secret = parse_recovery_code(typed)?;
     let salt = STANDARD
         .decode(salt_b64)
         .map_err(|_| "the stored recovery salt is damaged".to_string())?;
     let key = derive_recovery_key(secret.as_slice(), &salt, user_id, epoch);
-    open_key(&key, wrapped)
-        .ok_or_else(|| "that recovery code does not belong to this account".to_string())
+    open_key(&key, wrapped).ok_or_else(|| {
+        UiError::new(
+            "e2ee.recovery_code_wrong_account",
+            "that recovery code does not belong to this account",
+        )
+    })
 }
 
 // ---------------------------------------------------------------------------------------
@@ -398,7 +416,7 @@ pub fn wrap_to_api_key(
     content_key: &ContentKey,
     user_id: &str,
     epoch: u32,
-) -> Result<(String, String), String> {
+) -> Result<(String, String), UiError> {
     use hkdf::Hkdf;
 
     let mut salt = [0u8; 16];
@@ -428,7 +446,7 @@ const VERIFIER_PLAINTEXT: &[u8] = b"stashpad-content-key-v1";
 /// Lets a client that has just unwrapped a key confirm it is the right one, rather than
 /// discovering it later through a record that will not open. Useless to the server, which
 /// cannot open it either.
-pub fn make_verifier(content_key: &ContentKey) -> Result<String, String> {
+pub fn make_verifier(content_key: &ContentKey) -> Result<String, UiError> {
     let key = verifier_key(content_key);
     use chacha20poly1305::{
         aead::{Aead, KeyInit},
@@ -481,7 +499,7 @@ fn verifier_key(content_key: &ContentKey) -> Zeroizing<[u8; 32]> {
 // Shared helpers
 // ---------------------------------------------------------------------------------------
 
-fn seal_key(key: &[u8; 32], content_key: &ContentKey) -> Result<String, String> {
+fn seal_key(key: &[u8; 32], content_key: &ContentKey) -> Result<String, UiError> {
     use chacha20poly1305::{
         aead::{Aead, KeyInit},
         XChaCha20Poly1305, XNonce,
@@ -537,7 +555,7 @@ fn crockford_encode(bytes: &[u8]) -> String {
     out
 }
 
-fn crockford_decode(value: &str) -> Result<Vec<u8>, String> {
+fn crockford_decode(value: &str) -> Result<Vec<u8>, UiError> {
     let mut out = Vec::with_capacity(value.len() * 5 / 8);
     let mut buffer: u32 = 0;
     let mut bits = 0u32;
@@ -710,7 +728,9 @@ mod tests {
         assert_eq!(typo.len(), code.printed.len(), "and only the one character");
 
         match parse_recovery_code(&typo) {
-            Err(message) => assert!(message.contains("typo"), "got {:?}", message),
+            // Asserted on the code rather than the prose: the message is translated and
+            // reworded, the code is the part that is meant to be stable.
+            Err(err) => assert_eq!(err.code, "e2ee.recovery_code_typo", "got {:?}", err),
             Ok(_) => panic!("a changed character must not pass the checksum"),
         }
     }

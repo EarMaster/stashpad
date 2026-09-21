@@ -31,6 +31,7 @@
     import { attachmentSync } from "$lib/stores/attachment-sync.svelte";
     import { formatBytes } from "$lib/utils/format";
     import { getAttachmentKind } from "$lib/utils/files";
+    import { errorText } from "$lib/errors";
 
     let {
         filePath,
@@ -130,7 +131,7 @@
             } catch (e) {
                 console.error("Failed to load preview:", e);
                 error = $_(
-                    e instanceof Error ? e.message : "common.unknownError",
+                    errorText(e, "common.unknownError"),
                 );
             } finally {
                 isLoading = false;

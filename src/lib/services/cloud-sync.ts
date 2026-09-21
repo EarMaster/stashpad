@@ -29,6 +29,7 @@
 import type { IStorageService, StashItem, Context, CloudConfig, Settings, StashPosition } from '../types';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { attachmentSync } from '../stores/attachment-sync.svelte';
+import { errorText } from "$lib/errors";
 
 // Fallback polling interval, used when the WebSocket is unavailable.
 const FALLBACK_SYNC_INTERVAL_MS = 15 * 60 * 1000;
@@ -387,7 +388,7 @@ export class CloudSyncService {
             try {
                 this.deviceName = await this.adapter.getDeviceName();
             } catch (e) {
-                const msg = e instanceof Error ? e.message : String(e);
+                const msg = errorText(e);
                 console.error('Failed to get device name:', msg);
                 this.deviceName = 'Unknown Device';
             }
@@ -436,7 +437,7 @@ export class CloudSyncService {
                 await this.adapter.saveSettings(this.settings);
             }
         } catch (e) {
-            const msg = e instanceof Error ? e.message : String(e);
+            const msg = errorText(e);
             if (this.isAuthError(msg)) {
                 this.setStatus('auth-error', 'Authentication expired. Please log in again.');
                 return;
@@ -780,7 +781,7 @@ export class CloudSyncService {
 
             return true;
         } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
+            const message = errorText(error);
             console.error('[CloudSync] Sync failed:', message);
             this.setStatus(this.isAuthError(message) ? 'auth-error' : 'error', message);
             return false;
@@ -849,7 +850,7 @@ export class CloudSyncService {
             const response = await this.adapter.syncStashesApi(request);
             return response as SyncResponse;
         } catch (error) {
-            const msg = error instanceof Error ? error.message : String(error);
+            const msg = errorText(error);
             if (this.isAuthError(msg)) {
                 console.warn('[CloudSync] Stash sync rejected the credentials:', msg);
                 this.authRejected = true;
@@ -871,7 +872,7 @@ export class CloudSyncService {
             const response = await this.adapter.syncContextsApi(request);
             return response as ContextSyncResponse;
         } catch (error) {
-            const msg = error instanceof Error ? error.message : String(error);
+            const msg = errorText(error);
             if (this.isAuthError(msg)) {
                 console.warn('[CloudSync] Context sync rejected the credentials:', msg);
                 this.authRejected = true;
@@ -1163,7 +1164,7 @@ export class CloudSyncService {
             } catch (e) {
                 // A failed transfer cost the same bandwidth as a successful one.
                 attempted++;
-                const msg = e instanceof Error ? e.message : String(e);
+                const msg = errorText(e);
                 console.warn(`[CloudSync] Attachment upload failed for ${att.id}:`, msg);
 
                 const attempts = (this.attachmentFailures.get(att.id) ?? 0) + 1;

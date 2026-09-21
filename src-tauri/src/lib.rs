@@ -27,6 +27,7 @@ use active_win_pos_rs::get_active_window;
 
 mod models;
 mod state;
+mod uierror;
 mod utils;
 mod account_export;
 mod e2ee;

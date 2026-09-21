@@ -18,9 +18,10 @@ use rusqlite::params;
 use crate::models::Context;
 use crate::state::DbState;
 use crate::db::WriteOrigin;
+use crate::uierror::UiError;
 
 #[tauri::command]
-pub async fn get_contexts(state: State<'_, Arc<DbState>>) -> Result<Vec<Context>, String> {
+pub async fn get_contexts(state: State<'_, Arc<DbState>>) -> Result<Vec<Context>, UiError> {
     // A read failure still resolves to an empty list rather than rejecting: the callers
     // treat "no contexts" as a valid state, and surfacing an error here would break the
     // startup path. The Result is required because async commands that borrow State
@@ -35,7 +36,7 @@ pub async fn get_contexts(state: State<'_, Arc<DbState>>) -> Result<Vec<Context>
 }
 
 #[tauri::command]
-pub async fn save_contexts(state: State<'_, Arc<DbState>>, contexts: Vec<Context>) -> Result<(), String> {
+pub async fn save_contexts(state: State<'_, Arc<DbState>>, contexts: Vec<Context>) -> Result<(), UiError> {
     println!("Saving {} contexts", contexts.len());
     let mut db = state.lock_db();
     let tx_result = db.conn.transaction().and_then(|tx| {
@@ -67,7 +68,7 @@ pub async fn save_contexts(state: State<'_, Arc<DbState>>, contexts: Vec<Context
 }
 
 #[tauri::command]
-pub async fn save_context(state: State<'_, Arc<DbState>>, context: Context) -> Result<(), String> {
+pub async fn save_context(state: State<'_, Arc<DbState>>, context: Context) -> Result<(), UiError> {
     println!("Saving context: {} ({})", context.name, context.id);
     if let Err(e) = state
         .lock_db()
@@ -84,15 +85,16 @@ pub async fn save_context(state: State<'_, Arc<DbState>>, context: Context) -> R
 /// stamping it with the local clock here would make every pulled record look locally
 /// edited and push it straight back on the next sync.
 #[tauri::command]
-pub async fn import_contexts(state: State<'_, Arc<DbState>>, contexts: Vec<Context>) -> Result<(), String> {
+pub async fn import_contexts(state: State<'_, Arc<DbState>>, contexts: Vec<Context>) -> Result<(), UiError> {
     state
         .lock_db()
         .import_contexts(&contexts)
         .map_err(|e| e.to_string())
+        .map_err(UiError::from)
 }
 
 #[tauri::command]
-pub async fn delete_context(state: State<'_, Arc<DbState>>, id: String) -> Result<(), String> {
+pub async fn delete_context(state: State<'_, Arc<DbState>>, id: String) -> Result<(), UiError> {
     println!("Deleting context: {}", id);
     if let Err(e) = state.lock_db().delete_context(&id) {
         println!("Failed to delete context: {}", e);
@@ -102,7 +104,7 @@ pub async fn delete_context(state: State<'_, Arc<DbState>>, id: String) -> Resul
 
 /// Contexts with local changes the server has not acknowledged yet.
 #[tauri::command]
-pub async fn claim_pending_contexts(state: State<'_, Arc<DbState>>) -> Result<Vec<Context>, String> {
+pub async fn claim_pending_contexts(state: State<'_, Arc<DbState>>) -> Result<Vec<Context>, UiError> {
     Ok(state.lock_db().claim_pending_contexts().unwrap_or_default())
 }
 
@@ -111,9 +113,10 @@ pub async fn claim_pending_contexts(state: State<'_, Arc<DbState>>) -> Result<Ve
 pub async fn mark_contexts_synced(
     state: State<'_, Arc<DbState>>,
     ids: Vec<String>,
-) -> Result<(), String> {
+) -> Result<(), UiError> {
     state
         .lock_db()
         .mark_synced("contexts", &ids)
         .map_err(|e| e.to_string())
+        .map_err(UiError::from)
 }

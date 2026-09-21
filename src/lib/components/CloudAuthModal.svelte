@@ -29,6 +29,7 @@
         Check,
     } from "lucide-svelte";
     import type { Settings } from "$lib/types";
+    import { errorText } from "$lib/errors";
 
     let {
         open = $bindable(false),
@@ -149,7 +150,7 @@
                 onSuccess();
             }, 1200);
         } catch (e) {
-            const raw = e instanceof Error ? e.message : String(e);
+            const raw = errorText(e);
             linkCodeError = sanitizeError(raw);
             // Expand the manual entry panel so the user can retry
             showManualEntry = true;

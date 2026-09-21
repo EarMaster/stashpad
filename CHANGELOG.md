@@ -11,6 +11,26 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+### Fixed
+- **Encryption can be switched on now.** v1.8.1 made the panel appear, and then it refused
+  with "there is nowhere safe on this machine to keep an encryption key" on every machine
+  that *does* have somewhere safe - Windows, macOS and any Linux with a keyring service. The
+  app looked for this installation's key in memory but only ever put one there when a device
+  passphrase had been set, so the one case that was meant to be ordinary was the only one
+  that failed. It now keeps that key in the system credential store, creating it on first
+  launch, and nothing about your stashes or your account was affected while it did not work
+- **The encryption panel stops saying it is checking when it has stopped checking.** If that
+  first look-up failed, the panel showed the error and went on reporting "Checking…"
+  underneath it for as long as you left the window open, with nothing to click. It now offers
+  a Try again button instead
+- **Error messages are in German when the app is.** Anything that went wrong below the
+  surface reported itself in English, so a German window would suddenly say "There is nowhere
+  safe on this machine to keep an encryption key" in the middle of an otherwise translated
+  panel. The messages worth translating now are, starting with everything encryption and the
+  device passphrase can tell you. A message nobody has translated yet still appears in
+  English rather than as a blank or a code, so this improves from here without anything
+  breaking in between
+
 ## [1.8.1] - 2026-09-20
 
 ### Fixed

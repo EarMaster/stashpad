@@ -44,6 +44,7 @@
    import { updateChecker } from "$lib/stores/updater.svelte";
    import { APP_VERSION } from "$lib/utils/version";
    import UpdateNotice from "$lib/components/UpdateNotice.svelte";
+   import { errorText } from "$lib/errors";
 
    /**
     * Hand a caught render error to the reporter.
@@ -119,7 +120,7 @@
       } catch (e) {
          await message(
             $_("settings.updates.installFailed", {
-               values: { error: e instanceof Error ? e.message : String(e) },
+               values: { error: errorText(e) },
             }),
             { title: $_("settings.updates.updateAvailable"), kind: "error" },
          );

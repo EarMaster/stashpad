@@ -64,6 +64,7 @@
 
   import { getRelativeTime } from "$lib/utils/date";
   import { createSyncDisplay } from "$lib/utils/sync-display.svelte";
+  import { errorText } from "$lib/errors";
 
   let {
     settings = $bindable(),
@@ -429,7 +430,7 @@
         message: $_("settings.aiEnhancement.testSuccess"),
       };
     } catch (e) {
-      let errorMsg = e instanceof Error ? e.message : String(e);
+      let errorMsg = errorText(e);
 
       // Specifically handle "Load failed" which is the common error when fetch is blocked by CORS
       // or the local server is not allowing the origin.

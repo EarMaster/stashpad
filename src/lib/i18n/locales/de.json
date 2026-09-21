@@ -275,6 +275,7 @@
   "encryption": {
     "title": "Verschlüsselung",
     "loading": "Wird geprüft …",
+    "retry": "Erneut versuchen",
     "offExplainer": "Deine Stashes liegen auf unserem Server, damit deine Geräte denselben Stand sehen. Schaltest du das ein, werden sie vorher auf diesem Rechner verschlüsselt — mit einem Schlüssel, den wir nicht aufbewahren.",
     "costRecovery": "Du bekommst einen Wiederherstellungscode. Verlierst du alle Installationen und diesen Code, kommt niemand mehr an deine Stashes — weder du noch wir.",
     "costMcp": "Ein Zugriffsschlüssel für KI-Werkzeuge trägt eine eigene Kopie des Schlüssels, unser Server kann dieses Konto also lesen, solange er eine solche Anfrage bearbeitet. Legst du keinen Zugriffsschlüssel an, können wir es gar nicht lesen.",
@@ -524,5 +525,27 @@
     "remindLater": "In 7 Tagen erneut erinnern",
     "skipVersion": "{version} überspringen",
     "updateExternally": "Diese Stashpad-Installation wird außerhalb der App verwaltet. Aktualisiere sie so, wie du sie installiert hast."
+  },
+  "errors": {
+    "e2ee": {
+      "nowhere_safe": "Stashpad hat auf diesem Rechner keinen sicheren Ort für einen Verschlüsselungsschlüssel. Lege in den Einstellungen eine Passphrase für dieses Gerät fest oder nutze einen Rechner mit Systemschlüsselbund.",
+      "device_key_unopenable": "Der Schlüssel dieser Installation lässt sich auf diesem Rechner nicht öffnen.",
+      "device_key_damaged": "Der Schlüssel dieser Installation ist beschädigt. Gib diesen Rechner von einem aus frei, der deine Stashes schon lesen kann, oder nutze deinen Wiederherstellungscode.",
+      "device_key_wrong_size": "Diese Installation hat einen Schlüssel mit falscher Länge veröffentlicht und wurde nicht freigegeben.",
+      "fingerprint_mismatch": "Die Codes stimmen nicht überein. Diese Installation zeigt {shown} – gib sie nicht frei.",
+      "not_encrypted": "Dieses Konto ist nicht verschlüsselt.",
+      "attachment_truncated": "Diese Datei ist unvollständig und lässt sich nicht öffnen.",
+      "attachment_undecryptable": "Diese Datei konnte nicht entschlüsselt werden.",
+      "wrong_account_key": "Dieser Schlüssel gehört nicht zu diesem Konto.",
+      "recovery_code_malformed": "Das sieht nicht nach einem Wiederherstellungscode aus. Einer beginnt mit SP1- und hat danach dreizehn Gruppen.",
+      "recovery_code_typo": "In diesem Wiederherstellungscode steckt ein Tippfehler. Prüf ihn und versuch es noch einmal.",
+      "recovery_code_length": "Ein Wiederherstellungscode hat nach SP1- {expected} Zeichen, dieser hat {actual}.",
+      "recovery_code_wrong_account": "Dieser Wiederherstellungscode gehört nicht zu diesem Konto."
+    },
+    "localkey": {
+      "passphrase_empty": "Die Passphrase darf nicht leer sein.",
+      "no_passphrase": "Auf diesem Rechner ist keine Passphrase eingerichtet.",
+      "locked": "Gib zuerst deine Passphrase ein."
+    }
   }
 }

@@ -37,6 +37,7 @@ use crate::models::{Attachment, Context, StashItem};
 use crate::stashes::get_stash_cache_path;
 use crate::state::DbState;
 use crate::utils::get_app_dir;
+use crate::uierror::UiError;
 
 /// Name of the markdown document inside an archive.
 const MARKDOWN_ENTRY: &str = "export.md";
@@ -504,7 +505,7 @@ pub async fn export_context_archive(
     stash_ids: Vec<String>,
     include_attachments: bool,
     dest_path: String,
-) -> Result<ExportSummary, String> {
+) -> Result<ExportSummary, UiError> {
     let wanted: HashSet<String> = stash_ids.into_iter().collect();
 
     let (context, stashes) = {
@@ -594,7 +595,7 @@ pub async fn export_context_archive(
     // not migrate a task that blocks its worker, so exporting a large context inline
     // took a worker out of circulation for the whole compression pass.
     let write_dest = dest.clone();
-    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), UiError> {
         if let Some(parent) = write_dest.parent() {
             fs::create_dir_all(parent).map_err(|e| format!("Failed to create folder: {}", e))?;
         }
@@ -648,7 +649,7 @@ pub async fn read_import_archive(
     state: State<'_, Arc<DbState>>,
     path: String,
     context_id: String,
-) -> Result<ImportPreview, String> {
+) -> Result<ImportPreview, UiError> {
     let source = PathBuf::from(&path);
     if !source.exists() {
         return Err("File does not exist".into());
@@ -664,13 +665,13 @@ pub async fn read_import_archive(
 
     // Inflating the archive to disk is blocking work, so it runs on the blocking pool.
     let extract_dir = temp_dir.clone();
-    let markdown = tauri::async_runtime::spawn_blocking(move || -> Result<String, String> {
+    let markdown = tauri::async_runtime::spawn_blocking(move || -> Result<String, UiError> {
         fs::create_dir_all(&extract_dir)
             .map_err(|e| format!("Failed to prepare import: {}", e))?;
         if is_zip {
             extract_archive(&source, &extract_dir)
         } else {
-            fs::read_to_string(&source).map_err(|e| format!("Failed to read file: {}", e))
+            fs::read_to_string(&source).map_err(|e| format!("Failed to read file: {}", e)).map_err(UiError::from)
         }
     })
     .await
@@ -701,7 +702,7 @@ pub async fn read_import_archive(
 }
 
 /// Unpack a zip into `dest`, returning the markdown document it carried.
-fn extract_archive(source: &Path, dest: &Path) -> Result<String, String> {
+fn extract_archive(source: &Path, dest: &Path) -> Result<String, UiError> {
     let file = fs::File::open(source).map_err(|e| format!("Failed to open archive: {}", e))?;
     let mut zip =
         zip::ZipArchive::new(file).map_err(|e| format!("Not a readable archive: {}", e))?;
@@ -740,6 +741,7 @@ fn extract_archive(source: &Path, dest: &Path) -> Result<String, String> {
     }
 
     markdown.ok_or_else(|| "The archive contains no markdown document".to_string())
+        .map_err(UiError::from)
 }
 
 /// Write the selected stashes and their files into the context, in one transaction.
@@ -749,7 +751,7 @@ pub async fn commit_import(
     context_id: String,
     stashes: Vec<StashItem>,
     token: String,
-) -> Result<u32, String> {
+) -> Result<u32, UiError> {
     let temp_dir = transfer_temp_root().join(&token);
 
     // All the file copying happens on the blocking pool: an import can move hundreds of
@@ -757,7 +759,7 @@ pub async fn commit_import(
     let copy_context = context_id.clone();
     let copy_temp = temp_dir.clone();
     let prepared: Vec<StashItem> = tauri::async_runtime::spawn_blocking(
-        move || -> Result<Vec<StashItem>, String> {
+        move || -> Result<Vec<StashItem>, UiError> {
             let mut prepared: Vec<StashItem> = Vec::with_capacity(stashes.len());
 
             for mut stash in stashes {
@@ -842,7 +844,7 @@ pub async fn commit_import(
 
 /// Drop the files an aborted import had extracted.
 #[tauri::command]
-pub async fn discard_import(token: String) -> Result<(), String> {
+pub async fn discard_import(token: String) -> Result<(), UiError> {
     // Guard against a caller handing us something that is not one of our own tokens.
     if Uuid::parse_str(&token).is_err() {
         return Err("Invalid import token".into());

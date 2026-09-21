@@ -31,6 +31,7 @@ use tauri::State;
 use crate::e2ee_session;
 use crate::models::{Context, StashItem};
 use crate::state::DbState;
+use crate::uierror::UiError;
 
 /// What an import would do, so the user can see it before it happens.
 #[derive(Debug, Serialize)]
@@ -71,7 +72,7 @@ struct ExportProfile {
 /// their queue. An import that silently merged a stranger's archive would be very hard to
 /// undo by hand.
 #[tauri::command]
-pub async fn read_account_export(path: String) -> Result<ImportPlan, String> {
+pub async fn read_account_export(path: String) -> Result<ImportPlan, UiError> {
     let (contexts, stashes, unreadable, deleted) = parse_export(&path).await?;
     Ok(ImportPlan {
         contexts: contexts.len(),
@@ -89,7 +90,7 @@ pub async fn read_account_export(path: String) -> Result<ImportPlan, String> {
 pub async fn import_account_export(
     state: State<'_, Arc<DbState>>,
     path: String,
-) -> Result<ImportPlan, String> {
+) -> Result<ImportPlan, UiError> {
     let (contexts, stashes, unreadable, deleted) = parse_export(&path).await?;
 
     let plan = ImportPlan {
@@ -213,7 +214,7 @@ fn open(
     kind: &str,
     record_id: &str,
     field: &str,
-) -> Result<String, String> {
+) -> Result<String, UiError> {
     let Some(value) = value else {
         return Ok(String::new());
     };
@@ -232,7 +233,7 @@ fn open(
             crate::envelope::Kind::Context,
             crate::envelope::Field::Description,
         ),
-        _ => return Err(format!("unknown field {}/{}", kind, field)),
+        _ => return Err(format!("unknown field {}/{}", kind, field).into()),
     };
 
     let key = e2ee_session::content_key_bytes()
@@ -251,6 +252,7 @@ fn open(
         },
     )
     .map_err(|e| format!("{:?}", e))
+        .map_err(UiError::from)
 }
 
 /// Reduce a context name to something that can be a file name.
@@ -293,7 +295,7 @@ pub struct AccountExportSummary {
 pub async fn export_whole_account(
     state: State<'_, Arc<DbState>>,
     dest_dir: String,
-) -> Result<AccountExportSummary, String> {
+) -> Result<AccountExportSummary, UiError> {
     let (contexts, by_context) = {
         let db = state.lock_db();
         let contexts = db.get_contexts().map_err(|e| e.to_string())?;

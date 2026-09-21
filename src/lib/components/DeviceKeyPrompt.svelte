@@ -27,6 +27,7 @@ See the GNU Affero General Public License for more details.
     import { Loader2, KeyRound, ShieldAlert } from "lucide-svelte";
     import type { LocalKeyStatus } from "$lib/types";
     import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
+    import { errorText } from "$lib/errors";
 
     interface Props {
         status: LocalKeyStatus;
@@ -74,7 +75,7 @@ See the GNU Affero General Public License for more details.
                 onResolved();
             }
         } catch (e) {
-            error = e instanceof Error ? e.message : String(e);
+            error = errorText(e);
         } finally {
             busy = false;
             passphrase = "";
@@ -89,7 +90,7 @@ See the GNU Affero General Public License for more details.
             await adapter.declineLocalKey();
             onResolved();
         } catch (e) {
-            error = e instanceof Error ? e.message : String(e);
+            error = errorText(e);
         } finally {
             busy = false;
         }
