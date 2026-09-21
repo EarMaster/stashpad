@@ -284,6 +284,11 @@ export interface IStorageService {
     e2eeAcknowledgeRecovery(): Promise<void>;
     /** Queues every local record for re-encryption. Returns how many. */
     e2eeStartConversion(): Promise<number>;
+    /**
+     * How much of that queue is left. Safe to poll — the sweep is carried by ordinary
+     * syncs, so nothing notifies the interface when it advances or finishes.
+     */
+    e2eeConversionProgress(): Promise<E2eeConversionProgress>;
     e2eeSeal(): Promise<void>;
     /**
      * Mints an MCP access key on this machine and seals the content key to it. The secret
@@ -305,6 +310,16 @@ export interface CreatedAccessKey {
 }
 
 /** Where an account and this installation stand on encryption. */
+export interface E2eeConversionProgress {
+    /** Records the server has not acknowledged yet, in-flight ones included. */
+    remaining: number;
+    /**
+     * Every live record. Counted fresh rather than remembered from when the sweep began,
+     * so the figure is still right after the window is closed and reopened.
+     */
+    total: number;
+}
+
 export interface E2eeStatus {
     /** 0 when encryption has never been turned on. */
     epoch: number;

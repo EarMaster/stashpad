@@ -482,6 +482,7 @@ pub fn run() {
             e2ee_enrol::e2ee_recover,
             e2ee_enrol::e2ee_acknowledge_recovery,
             e2ee_enrol::e2ee_start_conversion,
+            e2ee_enrol::e2ee_conversion_progress,
             e2ee_enrol::e2ee_seal,
             e2ee_enrol::e2ee_create_access_key,
             account_export::read_account_export,

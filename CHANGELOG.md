@@ -11,6 +11,25 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+### Added
+- **The encryption settings say where this installation's key is kept.** One line, under
+  Verschlüsselung: your system keychain, or your device passphrase because no keychain could
+  be used here, or neither - in which case nothing is saved on this machine at all. Until now
+  the only clue was whether you had once been asked for a passphrase, which made a machine
+  that has a keychain but failed to use it look exactly like one that has none
+
+### Fixed
+- **The encryption progress counts down on its own, with a bar.** It showed the number of
+  stashes left over from the moment conversion started and then never moved, so the only way
+  to see any progress was to leave the settings page and come back - and reopening it showed
+  nothing left to do at all. The figure is now read from your own database a few times a
+  minute, with a bar and a "x of y done", and it is still right after you close and reopen
+  the window
+- **The Finish button no longer looks switched off while encryption is running.** It was
+  drawn as a faint outline for the whole sweep, which on a dark panel is exactly what a dead
+  button looks like. It is now the panel's main button, greyed with a reason while stashes
+  are still outstanding and plainly clickable the moment they are not
+
 ## [1.8.2] - 2026-09-21
 
 ### Fixed
