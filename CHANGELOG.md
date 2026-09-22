@@ -11,6 +11,8 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+## [1.8.5] - 2026-09-22
+
 ### Fixed
 - **Encryption stops asking for your recovery code every time you open the app.** The key
   that reads your stashes is held in memory only and has to be unlocked again on each start,
