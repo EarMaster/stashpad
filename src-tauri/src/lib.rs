@@ -554,9 +554,15 @@ pub fn run() {
             utils::log_frontend_error
         ])
         .plugin(tauri_plugin_deep_link::init())
-        .setup(|_app| {
-            Ok(())
-        })
+        // There is no `.setup()` here on purpose.
+        //
+        // `Builder::setup` keeps one boxed closure and a second call silently replaces the
+        // first. An empty `.setup(|_app| Ok(()))` used to sit on this line, so the real
+        // setup registered further up - window effects, the theme, and later the credential
+        // store diagnostics and the startup unlock - never ran at all. Nothing warns about
+        // it: the build succeeds and the hook is simply gone.
+        //
+        // Anything that needs to happen at startup belongs in that one hook.
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| {

@@ -11,6 +11,21 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+## [1.8.6] - 2026-09-22
+
+### Fixed
+- **Encryption really does unlock itself on startup now.** 1.8.5 said it had fixed this and
+  had not: the code that reopens your key as the app starts was added to a startup hook that
+  never ran, because a second, empty one further down the file had been quietly replacing it
+  since long before any of this. So the app still came up unable to read your synced stashes
+  until you opened the encryption settings, and still asked for the recovery code you should
+  never have needed. Your keys were correct the whole time and nothing needed re-approving -
+  they were simply never opened
+- **Your window transparency setting applies when the app starts, not only when you change
+  it.** It was set from the same hook, so a fresh start ignored what you had saved and the
+  window only looked right again after you touched the setting. On macOS the menu took the
+  app's language the same way, and had the same problem
+
 ## [1.8.5] - 2026-09-22
 
 ### Fixed
