@@ -404,8 +404,22 @@ fn legacy_deobfuscate(encoded: &str) -> String {
 mod tests {
     use super::*;
 
+    /// Serialises the two tests below, which share one process-global buffer.
+    ///
+    /// Cargo runs tests on parallel threads in a single process, so without this they
+    /// clear and push to the same `EARLY_DIAGNOSTICS` and each sees the other's lines: the
+    /// count test read 5 where it expected 2, and the bound test had its accumulation wiped
+    /// mid-loop. It passed twice and failed on the third run of the same commit, which is
+    /// what a race looks like from the outside.
+    ///
+    /// `lock_or_recover` rather than `.lock().unwrap()`, matching `e2ee_session`: one
+    /// failing test would otherwise poison the mutex and every later one would panic on
+    /// the lock instead of running.
+    static EARLY_TEST_LOCK: Mutex<()> = Mutex::new(());
+
     #[test]
     fn early_diagnostics_are_held_and_then_handed_over_once() {
+        let _guard = crate::state::lock_or_recover(&EARLY_TEST_LOCK);
         // The whole point of the buffer is that these lines survive being emitted before
         // the log plugin exists. If draining stopped working they would go quiet again,
         // which is exactly the failure that made the credential store undiagnosable.
@@ -428,6 +442,7 @@ mod tests {
 
     #[test]
     fn the_early_buffer_does_not_grow_without_bound() {
+        let _guard = crate::state::lock_or_recover(&EARLY_TEST_LOCK);
         EARLY_DIAGNOSTICS.lock().expect("lock").clear();
         for i in 0..200 {
             early_log(log::Level::Warn, format!("line {}", i));
