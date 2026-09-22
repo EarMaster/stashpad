@@ -11,6 +11,18 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+### Fixed
+- **Encryption stops asking for your recovery code every time you open the app.** The key
+  that reads your stashes is held in memory only and has to be unlocked again on each start,
+  from the installation key already sitting in your system keychain - but nothing did that
+  unless you happened to open the encryption settings. Until you did, the app was locked:
+  syncing was refused with a message telling you to update Stashpad when you were already on
+  the newest version, and the settings page offered the recovery code, asking you to type
+  thirteen groups to get out of a lock that need never have happened. It now unlocks as the
+  app starts, again when a connection comes back, and once more before any sync, so a
+  machine that was offline or slow to get online is not left locked either. Nothing was ever
+  sent to the server unencrypted - it refused those syncs rather than storing anything
+
 ## [1.8.4] - 2026-09-21
 
 ### Fixed
