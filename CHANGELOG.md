@@ -11,6 +11,8 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+## [1.8.6] - 2026-09-22
+
 ### Fixed
 - **Encryption really does unlock itself on startup now.** 1.8.5 said it had fixed this and
   had not: the code that reopens your key as the app starts was added to a startup hook that
