@@ -33,6 +33,7 @@ See the GNU Affero General Public License for more details.
     import { Loader2, ShieldCheck, ShieldAlert, KeyRound, Copy } from "lucide-svelte";
     import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
     import type { E2eeStatus, LocalKeyStatus } from "$lib/types";
+    import DeviceKeyPrompt from "./DeviceKeyPrompt.svelte";
     import { errorText } from "$lib/errors";
 
     const adapter = new DesktopStorageAdapter();
@@ -57,6 +58,18 @@ See the GNU Affero General Public License for more details.
     // it has no credential store looks identical to one that genuinely has none, and the
     // only visible difference was a prompt appearing at some earlier point.
     let keyStore = $state<LocalKeyStatus | null>(null);
+
+    /// Whether the passphrase dialog is open, asked for from this panel.
+    let askForPassphrase = $state(false);
+
+    /// What to open the dialog as.
+    ///
+    /// It only understands `unset` (choose one) and `locked` (type the one you have), so
+    /// `declined` maps to `unset`: someone who waved it away and wants it after all is
+    /// setting one for the first time.
+    const passphraseMode = $derived<"unset" | "locked">(
+        keyStore === "locked" ? "locked" : "unset",
+    );
     let progressTimer: ReturnType<typeof setInterval> | null = null;
 
     const POLL_MS = 2000;
@@ -207,14 +220,34 @@ See the GNU Affero General Public License for more details.
                 <KeyRound size={14} class="mt-px shrink-0" aria-hidden="true" />
                 {$_("encryption.keptUnderPassphrase")}
             {:else}
-                <ShieldAlert size={14} class="mt-px shrink-0 text-destructive" aria-hidden="true" />
+                <ShieldAlert size={14} class="mt-px shrink-0 text-red-500" aria-hidden="true" />
                 {$_("encryption.keptNowhere")}
             {/if}
         </p>
+
+        <!-- A way to actually set one.
+             The error above tells people to set a device passphrase, and until now there
+             was nowhere to do it: the dialog is rendered from App.svelte only while the
+             status is `unset` or `locked`, so anyone who chose "work locally without one"
+             moved to `declined` and could never get back to it. Offered here whenever a
+             passphrase would help, which on a machine with no usable credential store is
+             the only thing standing between the app and being unable to keep a secret. -->
+        {#if keyStore === "unset" || keyStore === "locked" || keyStore === "declined"}
+            <button
+                type="button"
+                onclick={() => (askForPassphrase = true)}
+                class="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs text-primary-foreground hover:bg-primary/90"
+            >
+                <KeyRound size={12} aria-hidden="true" />
+                {keyStore === "locked"
+                    ? $_("encryption.unlockPassphrase")
+                    : $_("encryption.setPassphrase")}
+            </button>
+        {/if}
     {/if}
 
     {#if error}
-        <p class="flex items-start gap-1.5 text-xs text-destructive" role="alert">
+        <p class="flex items-start gap-1.5 text-xs text-red-500" role="alert">
             <ShieldAlert size={14} class="mt-px shrink-0" aria-hidden="true" />
             {error}
         </p>
@@ -257,7 +290,7 @@ See the GNU Affero General Public License for more details.
                 </button>
             </div>
 
-            <p class="text-xs font-medium text-destructive">
+            <p class="text-xs font-medium text-red-500">
                 {$_("encryption.recoveryWarning")}
             </p>
 
@@ -436,3 +469,15 @@ See the GNU Affero General Public License for more details.
         </div>
     {/if}
 </div>
+
+{#if askForPassphrase}
+    <DeviceKeyPrompt
+        status={passphraseMode}
+        onResolved={() => {
+            askForPassphrase = false;
+            // Re-reads keyStore and the encryption status: setting a passphrase is what
+            // makes sealing possible, so the whole panel can change shape.
+            void refresh();
+        }}
+    />
+{/if}

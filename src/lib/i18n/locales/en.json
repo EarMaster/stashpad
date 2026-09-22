@@ -279,6 +279,8 @@
     "keptNowhere": "No system keychain and no device passphrase, so nothing is saved on this machine.",
     "loading": "Checking…",
     "retry": "Try again",
+    "setPassphrase": "Set a device passphrase",
+    "unlockPassphrase": "Enter your device passphrase",
     "offExplainer": "Your stashes are stored on our server so your devices see the same thing. Turn this on and they are encrypted on this machine first, with a key we do not keep.",
     "costRecovery": "You get a recovery code. Lose every installation and that code, and nobody can get your stashes back — not you, and not us.",
     "costMcp": "An access key for AI tools carries its own copy of the key, so our server can read that account while such a request is being served. Create no access key and we cannot read it at all.",
