@@ -98,7 +98,7 @@ struct ServerDevice {
 
 /// Read the account's key state, and unlock this session if there is a wrap waiting.
 async fn fetch_state(
-    settings_state: &State<'_, Arc<SettingsState>>,
+    settings_state: &Arc<SettingsState>,
 ) -> Result<(ServerState, String, String), UiError> {
     let device_id = crate::utils::get_device_id(None).await?;
     let body = crate::sync::e2ee_get(settings_state, &format!("/e2ee/state?deviceId={}", device_id))
@@ -116,6 +116,45 @@ async fn fetch_state(
     Ok((state, user_id, device_id))
 }
 
+/// Open this installation's copy of the content key, if the server is holding one.
+///
+/// The content key is never written to disk, so it has to be recovered on every start from
+/// the device key plus the wrap the server keeps for this installation. Nothing about that
+/// needs the user: the device key is already sealed under the credential store.
+///
+/// This used to live inside [`e2ee_status`], which is reached from exactly one place - the
+/// encryption panel in Settings. So an encrypted account came up locked after every restart
+/// and stayed locked until the panel happened to be opened. While locked,
+/// `seal_stash_payload` sends records unsealed, the server refuses the whole sync with
+/// "Update Stashpad: this account is now encrypted and this version cannot read it", and the
+/// panel offers the recovery code - asking the user to type thirteen groups to recover from
+/// a lock that only existed because nothing had tried the key already on the machine.
+///
+/// `Ok(false)` means there is nothing to unlock with: the account is not encrypted, or this
+/// installation has not been approved yet. Only a genuine failure is an error.
+pub async fn unlock_this_installation(
+    settings_state: &Arc<SettingsState>,
+) -> Result<bool, UiError> {
+    if e2ee_session::is_unlocked() {
+        return Ok(true);
+    }
+
+    let (server, user_id, _device_id) = fetch_state(settings_state).await?;
+    let Some(wrapped) = server.wrapped_key_for_device.as_deref() else {
+        return Ok(false);
+    };
+
+    let keypair = e2ee_session::load_or_create_device_keypair()?;
+    e2ee_session::unlock_with_device(
+        &keypair,
+        wrapped,
+        &user_id,
+        server.epoch,
+        server.verifier.as_deref().unwrap_or_default(),
+    )?;
+    Ok(true)
+}
+
 #[tauri::command]
 pub async fn e2ee_status(
     settings_state: State<'_, Arc<SettingsState>>,
@@ -125,6 +164,8 @@ pub async fn e2ee_status(
 
     // Unlock opportunistically: if the server is holding a wrap for this installation and
     // the session has not opened it yet, do it now rather than waiting for a ceremony.
+    // Startup does this too - see `unlock_this_installation` - so by the time anyone opens
+    // this panel it is usually already done.
     if !e2ee_session::is_unlocked() {
         if let Some(wrapped) = server.wrapped_key_for_device.as_deref() {
             if let Err(e) = e2ee_session::unlock_with_device(

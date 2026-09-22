@@ -306,7 +306,10 @@ fn load_or_create_machine_key() -> bool {
         }
         // A malformed entry is not something to silently replace: the device key file was
         // sealed with whatever the old value was, so overwriting it strands that file.
-        log::error!("The local key in the credential store is not 32 bytes; refusing to replace it");
+        crate::keychain::early_log(
+            log::Level::Error,
+            "The local key in the credential store is not 32 bytes; refusing to replace it".to_string(),
+        );
         return false;
     }
 
@@ -325,7 +328,10 @@ fn load_or_create_machine_key() -> bool {
     }
 
     *lock_or_recover(&LOCAL_KEY) = Some(key);
-    log::info!("Created this installation's local key in the credential store");
+    crate::keychain::early_log(
+        log::Level::Info,
+        "Created this installation's local key in the credential store".to_string(),
+    );
     true
 }
 
@@ -337,7 +343,10 @@ fn try_remembered() -> bool {
     let Some(bytes) = open_with(&crate::keychain::derive_machine_key(), wrapped.trim()) else {
         // Usually means the folder moved or the machine was renamed, which changes the
         // machine key. The passphrase still works, so ask for it rather than failing.
-        log::warn!("The remembered device key could not be opened; asking for the passphrase");
+        crate::keychain::early_log(
+            log::Level::Warn,
+            "The remembered device key could not be opened; asking for the passphrase".to_string(),
+        );
         return false;
     };
     if bytes.len() != 32 {
@@ -386,13 +395,19 @@ pub fn initialize() -> LocalKeyStatus {
         // The probe said the store works, so a failure here is an error rather than a cue to
         // write the key somewhere weaker. Fall through and let the passphrase path offer
         // itself, which at least tells the user something is wrong.
-        log::error!("The credential store passed its probe but would not hold the local key");
+        crate::keychain::early_log(
+            log::Level::Error,
+            "The credential store passed its probe but would not hold the local key".to_string(),
+        );
     }
     if !is_configured() {
         return LocalKeyStatus::Unset;
     }
     if try_remembered() {
-        log::info!("Device key restored from the remembered copy on this machine");
+        crate::keychain::early_log(
+            log::Level::Info,
+            "Device key restored from the remembered copy on this machine".to_string(),
+        );
         return LocalKeyStatus::Unlocked;
     }
     LocalKeyStatus::Locked

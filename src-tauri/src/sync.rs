@@ -284,6 +284,23 @@ pub async fn sync_stashes_api(
     // Encrypt here rather than in the webview, so everything above the adapter goes on
     // handling plaintext and no key crosses the IPC boundary. A no-op when this account
     // has no content key.
+    // Last line of defence against syncing while locked.
+    //
+    // Startup opens the content key, and a reconnect retries it, but neither covers a
+    // network where the websocket is blocked and HTTP is not. Without this, such a machine
+    // sends every record unsealed, the server refuses the whole request with "Update
+    // Stashpad: this account is now encrypted and this version cannot read it", and sync
+    // stays broken with nothing on screen to explain it.
+    //
+    // Free once unlocked - the call returns without touching the network - so this costs
+    // nothing on the ordinary path. A failure is left to `seal_*` below, which is where
+    // being locked is already handled.
+    if !crate::e2ee_session::is_unlocked() {
+        if let Err(e) = crate::e2ee_enrol::unlock_this_installation(&settings_state).await {
+            log::warn!("Could not open the content key before syncing: {}", e);
+        }
+    }
+
     crate::e2ee_session::seal_stash_payload(&mut payload, &user_id)?;
 
     let client = api_client()?;
@@ -336,7 +353,7 @@ pub async fn sync_stashes_api(
 /// authentication and their habit of returning the server's own sentence on failure -
 /// which for these is the only thing the user will have to go on.
 pub async fn e2ee_get(
-    settings_state: &State<'_, Arc<SettingsState>>,
+    settings_state: &Arc<SettingsState>,
     path: &str,
 ) -> Result<serde_json::Value, UiError> {
     let (endpoint, token) = {
@@ -368,7 +385,7 @@ pub async fn e2ee_get(
 
 /// POST JSON to the cloud API, with this account's session.
 pub async fn e2ee_post(
-    settings_state: &State<'_, Arc<SettingsState>>,
+    settings_state: &Arc<SettingsState>,
     path: &str,
     body: serde_json::Value,
 ) -> Result<serde_json::Value, UiError> {
@@ -874,6 +891,23 @@ pub async fn sync_contexts_api(
         )
     };
 
+    // Last line of defence against syncing while locked.
+    //
+    // Startup opens the content key, and a reconnect retries it, but neither covers a
+    // network where the websocket is blocked and HTTP is not. Without this, such a machine
+    // sends every record unsealed, the server refuses the whole request with "Update
+    // Stashpad: this account is now encrypted and this version cannot read it", and sync
+    // stays broken with nothing on screen to explain it.
+    //
+    // Free once unlocked - the call returns without touching the network - so this costs
+    // nothing on the ordinary path. A failure is left to `seal_*` below, which is where
+    // being locked is already handled.
+    if !crate::e2ee_session::is_unlocked() {
+        if let Err(e) = crate::e2ee_enrol::unlock_this_installation(&settings_state).await {
+            log::warn!("Could not open the content key before syncing: {}", e);
+        }
+    }
+
     crate::e2ee_session::seal_context_payload(&mut payload, &user_id)?;
 
     let client = api_client()?;
@@ -947,6 +981,10 @@ pub async fn connect_websocket(
 
     // Spawn a persistent task for the WebSocket connection with reconnect logic
     let task_app = app.clone();
+    // The socket coming up is the app's own definition of "the network is back", so it is
+    // also the moment to retry anything that needed the network at startup and did not get
+    // it - see the unlock below.
+    let task_settings: Arc<SettingsState> = (*settings_state).clone();
     let handle = tauri::async_runtime::spawn(async move {
         use futures_util::{SinkExt, StreamExt};
         use tokio_tungstenite::connect_async;
@@ -981,6 +1019,34 @@ pub async fn connect_websocket(
             }) {
                 Ok((ws_stream, _)) => {
                     log::info!("[WebSocket] Connected successfully");
+
+                    // Open the content key now if startup could not.
+                    //
+                    // The startup attempt needs the network, so a machine that was offline
+                    // when it launched - or was simply quicker to start than its wifi - came
+                    // up locked and stayed that way until Settings was opened. This socket
+                    // coming up is the first reliable sign the server is reachable again.
+                    //
+                    // A no-op once unlocked: the call returns immediately without touching
+                    // the network, so the ordinary reconnect costs nothing. Spawned so a slow
+                    // response cannot hold up the read loop below.
+                    if !crate::e2ee_session::is_unlocked() {
+                        let unlock_settings = task_settings.clone();
+                        tauri::async_runtime::spawn(async move {
+                            match crate::e2ee_enrol::unlock_this_installation(&unlock_settings)
+                                .await
+                            {
+                                Ok(true) => log::info!(
+                                    "Content key opened after the connection came back"
+                                ),
+                                Ok(false) => {}
+                                Err(e) => log::warn!(
+                                    "Could not open the content key after reconnecting: {}",
+                                    e
+                                ),
+                            }
+                        });
+                    }
                     let connected_at = std::time::Instant::now();
 
                     // Split so the ping timer can write while the reader is parked on

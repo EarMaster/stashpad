@@ -250,6 +250,7 @@ pub fn run() {
 
     // Clone for setup hook
     let settings_state_for_setup = settings_state.clone();
+    let settings_state_for_unlock = settings_state.clone();
 
     let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
@@ -261,6 +262,39 @@ pub fn run() {
             }
         }))
         .setup(move |app| {
+            // Everything the credential store and the device key had to say happened before
+            // the log plugin existed, so it went nowhere. Replayed here, where it lands in
+            // the file people can actually send.
+            crate::keychain::flush_early_diagnostics();
+
+            // Open this installation's copy of the content key, if there is one.
+            //
+            // The key is memory-only by design and has to be recovered on every start. Until
+            // this existed the only thing that did it was `e2ee_status`, reached from the
+            // encryption panel alone - so an encrypted account came up locked, every sync was
+            // refused with "Update Stashpad: this account is now encrypted and this version
+            // cannot read it", and the panel's answer was to type the recovery code. None of
+            // that was needed: the device key was sitting in the credential store the whole
+            // time.
+            //
+            // Spawned rather than awaited because it makes a network call, and a slow or
+            // absent connection must not hold up the window. A failure is logged and left:
+            // the panel still offers the recovery code for the cases this cannot cover, such
+            // as an installation that has never been approved.
+            {
+                let settings_for_unlock = settings_state_for_unlock.clone();
+                tauri::async_runtime::spawn(async move {
+                    match e2ee_enrol::unlock_this_installation(&settings_for_unlock).await {
+                        Ok(true) => log::info!("Content key opened from this installation's key"),
+                        Ok(false) => log::debug!(
+                            "No wrap for this installation - either the account is not \
+                             encrypted or this machine has not been approved"
+                        ),
+                        Err(e) => log::warn!("Could not open the content key at startup: {}", e),
+                    }
+                });
+            }
+
             // Apply initial window effects based on saved settings
             let settings = settings_state_for_setup.lock_settings();
             let visual_effects_enabled = settings.visual_effects_enabled;
