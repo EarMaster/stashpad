@@ -35,14 +35,48 @@ const KEYCHAIN_CLOUD_TARGET: &str = "stashpad.cloud_access_token";
 const KEYCHAIN_LOCAL_KEY_USER: &str = "local_key";
 const KEYCHAIN_LOCAL_KEY_TARGET: &str = "stashpad.local_key";
 
+/// Build an entry, passing the target only where it means what we think it means.
+///
+/// **macOS does not take a label here.** `keyring` parses `target` as a keychain *domain*
+/// and accepts nothing but User, System, Common or Dynamic - keyring-3.6.3,
+/// `src/macos.rs:226`, which returns `Invalid("target", "'{s}' is not User, System, Common,
+/// or Dynamic")` for anything else. Every target in this file is a label, so
+/// `Entry::new_with_target` failed before the keychain was touched and every secret fell
+/// through to the device passphrase. That is the "Failed to create keychain entry" in the
+/// logs, and it means the macOS keychain has never worked here for any secret - not the
+/// provider key, not the cloud token, not the encryption key.
+///
+/// `Entry::new` uses the User (login) keychain, which is what the label was reaching for.
+/// Nothing is orphaned by dropping it, because nothing was ever stored.
+///
+/// It stays everywhere else, and deliberately:
+/// * **Windows** - it is the credential's TargetName, and secrets exist under it.
+/// * **Linux** - it is one of the lookup attributes (`src/secret_service.rs:237`), so
+///   dropping it would silently hide every secret already stored under it.
+fn build_entry(
+    target: &str,
+    service: &str,
+    user: &str,
+) -> Result<keyring::Entry, keyring::Error> {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = target;
+        keyring::Entry::new(service, user)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        keyring::Entry::new_with_target(target, service, user)
+    }
+}
+
 /// Create a keychain entry with consistent target across platforms
 pub fn create_keychain_entry() -> Result<keyring::Entry, keyring::Error> {
-    keyring::Entry::new_with_target(KEYCHAIN_TARGET, KEYCHAIN_SERVICE, KEYCHAIN_USER)
+    build_entry(KEYCHAIN_TARGET, KEYCHAIN_SERVICE, KEYCHAIN_USER)
 }
 
 /// Create a keychain entry for the cloud access token
 pub fn create_cloud_keychain_entry() -> Result<keyring::Entry, keyring::Error> {
-    keyring::Entry::new_with_target(KEYCHAIN_CLOUD_TARGET, KEYCHAIN_SERVICE, KEYCHAIN_CLOUD_USER)
+    build_entry(KEYCHAIN_CLOUD_TARGET, KEYCHAIN_SERVICE, KEYCHAIN_CLOUD_USER)
 }
 
 /// The entry holding this installation's local key.
@@ -51,7 +85,7 @@ pub fn create_cloud_keychain_entry() -> Result<keyring::Entry, keyring::Error> {
 /// what seals the device key file, and on a machine with a credential store it is the only
 /// thing standing between that file and anyone who can read the folder.
 pub fn create_local_key_entry() -> Result<keyring::Entry, keyring::Error> {
-    keyring::Entry::new_with_target(KEYCHAIN_LOCAL_KEY_TARGET, KEYCHAIN_SERVICE, KEYCHAIN_LOCAL_KEY_USER)
+    build_entry(KEYCHAIN_LOCAL_KEY_TARGET, KEYCHAIN_SERVICE, KEYCHAIN_LOCAL_KEY_USER)
 }
 
 /// Whether this machine has a credential store that actually works.
@@ -161,8 +195,13 @@ fn run_probe() -> KeychainStatus {
     );
     let target = format!("stashpad.probe.{}", unique);
     let canary = format!("stashpad-keychain-probe-{}", unique);
+    // The uniqueness has to be in the user as well as the target, because macOS ignores the
+    // target entirely (see `build_entry`). With it only in the target, two overlapping
+    // probes on a Mac would share one entry and delete each other's canary - the same race
+    // this suffix exists to prevent on Windows.
+    let probe_user = format!("keychain_probe.{}", unique);
 
-    let entry = match keyring::Entry::new_with_target(&target, KEYCHAIN_SERVICE, "keychain_probe") {
+    let entry = match build_entry(&target, KEYCHAIN_SERVICE, &probe_user) {
         Ok(entry) => entry,
         Err(e) => {
             early_log(log::Level::Warn, format!("Credential store probe could not create an entry: {}", e));
@@ -179,8 +218,8 @@ fn run_probe() -> KeychainStatus {
     // reading back through the same one would pass against a store that persists nothing.
     // The value is unique per probe as well, so a stale entry cannot stand in for a live
     // write either.
-    let readback = keyring::Entry::new_with_target(&target, KEYCHAIN_SERVICE, "keychain_probe")
-        .and_then(|verify| verify.get_password());
+    let readback =
+        build_entry(&target, KEYCHAIN_SERVICE, &probe_user).and_then(|verify| verify.get_password());
 
     let _ = entry.delete_credential();
 
@@ -404,8 +443,22 @@ fn legacy_deobfuscate(encoded: &str) -> String {
 mod tests {
     use super::*;
 
+    /// Serialises the two tests below, which share one process-global buffer.
+    ///
+    /// Cargo runs tests on parallel threads in a single process, so without this they
+    /// clear and push to the same `EARLY_DIAGNOSTICS` and each sees the other's lines: the
+    /// count test read 5 where it expected 2, and the bound test had its accumulation wiped
+    /// mid-loop. It passed twice and failed on the third run of the same commit, which is
+    /// what a race looks like from the outside.
+    ///
+    /// `lock_or_recover` rather than `.lock().unwrap()`, matching `e2ee_session`: one
+    /// failing test would otherwise poison the mutex and every later one would panic on
+    /// the lock instead of running.
+    static EARLY_TEST_LOCK: Mutex<()> = Mutex::new(());
+
     #[test]
     fn early_diagnostics_are_held_and_then_handed_over_once() {
+        let _guard = crate::state::lock_or_recover(&EARLY_TEST_LOCK);
         // The whole point of the buffer is that these lines survive being emitted before
         // the log plugin exists. If draining stopped working they would go quiet again,
         // which is exactly the failure that made the credential store undiagnosable.
@@ -428,6 +481,7 @@ mod tests {
 
     #[test]
     fn the_early_buffer_does_not_grow_without_bound() {
+        let _guard = crate::state::lock_or_recover(&EARLY_TEST_LOCK);
         EARLY_DIAGNOSTICS.lock().expect("lock").clear();
         for i in 0..200 {
             early_log(log::Level::Warn, format!("line {}", i));

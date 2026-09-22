@@ -14,6 +14,22 @@ popover, not for the person who wrote the commit.
 ## [1.8.6] - 2026-09-22
 
 ### Fixed
+- **Stashpad can use the keychain on macOS at all now.** It never could. Every secret - the
+  AI provider key, the cloud sign-in, the encryption key - was stored under a label that
+  macOS does not accept in that position, so the request was refused before the keychain was
+  ever reached and Stashpad quietly fell back to asking for a device passphrase. With no
+  passphrase set, nothing could be saved: the cloud token was dropped on every start, which
+  is why a Mac kept signing itself out and syncing kept failing with an authorisation error.
+  Linux and Windows were never affected and their stored secrets are untouched
+- **The encryption error is legible again.** It was drawn in a red meant for use *behind*
+  white text, so on the dark settings page it came out almost black on near-black - the
+  message was there and could not be read. It now matches the red the sync panel already
+  used
+- **You can set a device passphrase from the encryption settings.** The error asks for one,
+  and there was nowhere to do it: the dialog only ever appeared on its own at startup, and
+  choosing "work locally without one" put it permanently out of reach while the message kept
+  telling you to set it. There is a button for it now, and it still works after you have
+  said no once
 - **Encryption really does unlock itself on startup now.** 1.8.5 said it had fixed this and
   had not: the code that reopens your key as the app starts was added to a startup hook that
   never ran, because a second, empty one further down the file had been quietly replacing it

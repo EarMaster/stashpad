@@ -279,6 +279,8 @@
     "keptNowhere": "Kein Systemschlüsselbund und keine Geräte-Passphrase – auf diesem Rechner wird nichts gespeichert.",
     "loading": "Wird geprüft …",
     "retry": "Erneut versuchen",
+    "setPassphrase": "Geräte-Passphrase festlegen",
+    "unlockPassphrase": "Geräte-Passphrase eingeben",
     "offExplainer": "Deine Stashes liegen auf unserem Server, damit deine Geräte denselben Stand sehen. Schaltest du das ein, werden sie vorher auf diesem Rechner verschlüsselt — mit einem Schlüssel, den wir nicht aufbewahren.",
     "costRecovery": "Du bekommst einen Wiederherstellungscode. Verlierst du alle Installationen und diesen Code, kommt niemand mehr an deine Stashes — weder du noch wir.",
     "costMcp": "Ein Zugriffsschlüssel für KI-Werkzeuge trägt eine eigene Kopie des Schlüssels, unser Server kann dieses Konto also lesen, solange er eine solche Anfrage bearbeitet. Legst du keinen Zugriffsschlüssel an, können wir es gar nicht lesen.",
