@@ -237,20 +237,32 @@ jobs:
       # succeeds and `cleanup` deletes the draft otherwise, so two more legs are two more ways
       # for a release to fail wholesale. That is the intended trade - a release that ships half
       # the platforms it announces is worse than one that does not ship.
+      #
+      # `cache_key` names each leg's Rust cache. rust-cache keys on the job name, the runner's
+      # os and arch, the rustc version and the lockfile - and on none of the matrix values, so
+      # the two macOS legs would otherwise compute one key between them and each would restore
+      # the other architecture's artifacts. The other four are already distinguished by arch,
+      # and are named here anyway so no leg's cache identity is implicit.
       matrix:
         include:
           - platform: 'macos-latest' # for Arm64
             args: '--target aarch64-apple-darwin'
+            cache_key: 'darwin-aarch64'
           - platform: 'macos-latest' # for Intel
             args: '--target x86_64-apple-darwin'
+            cache_key: 'darwin-x86_64'
           - platform: 'ubuntu-22.04' # for Linux x86_64
             args: ''
+            cache_key: 'linux-x86_64'
           - platform: 'ubuntu-22.04-arm' # for Linux arm64
             args: ''
+            cache_key: 'linux-aarch64'
           - platform: 'windows-latest' # for Windows x86_64
             args: ''
+            cache_key: 'windows-x86_64'
           - platform: 'windows-11-arm' # for Windows arm64
             args: ''
+            cache_key: 'windows-aarch64'
 
     runs-on: ${{ matrix.platform }}
     # A hung step otherwise runs to GitHub's 6 hour default before anyone notices. The slowest
@@ -262,22 +274,23 @@ jobs:
         with:
           fetch-depth: 0
 
-      # Must run *before* setup-node: this deletes $AGENT_TOOLSDIRECTORY, which is the tool
-      # cache setup-node installs Node into. Running it afterwards removes the very toolchain
-      # the next steps depend on.
+      # Backgrounded, and no longer ordered against setup-node. It used to delete
+      # $AGENT_TOOLSDIRECTORY, which is where setup-node installs Node - so it had to run
+      # first, and it blocked for fifty seconds doing it. Dropping that one path retires the
+      # ordering constraint, and the rm can then run alongside apt and npm ci instead of in
+      # front of them.
+      #
+      # What is left still frees ~15 GB. A release build needs nowhere near it: apt adds
+      # 216 MB and the release target directory is a few gigabytes against ~21 GB free.
       #
       # `startsWith`, not `==`: ubuntu-22.04-arm is a different runner label and an exact
       # match would quietly skip this on the arm64 leg.
-      - name: Free Disk Space (Ubuntu)
+      - name: Reclaim disk in the background
         if: startsWith(matrix.platform, 'ubuntu-')
         run: |
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-          sudo rm -rf "/usr/local/share/boost"
-          if [ -n "${AGENT_TOOLSDIRECTORY:-}" ]; then
-            sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-          fi
+          df -h /
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet >/dev/null 2>&1 &
+          sudo rm -rf /opt/ghc /usr/local/share/boost >/dev/null 2>&1 &
 
       - name: setup node
         uses: actions/setup-node@v7
@@ -290,6 +303,30 @@ jobs:
         with:
           # Those targets are only used on macos runners so it's skip on linux and windows
           targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      # This workflow had no Rust cache at all, so every release compiled all 799 crates from
+      # scratch on six platforms - 408 of the Linux leg's 568 seconds inside tauri-action, and
+      # roughly 600 of windows-latest's 694. test.yml has cached since it was written; the
+      # build matrix simply never got one.
+      - name: Cache Rust dependencies
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+          # One key per leg - see the note on `cache_key` in the matrix above. Spelled as its
+          # own matrix field rather than derived from `args`, which is empty on four legs and
+          # contains a space on the other two, and a cache key is a poor place for either.
+          key: ${{ matrix.cache_key }}
+
+          # `main` because it is the default branch, which is the one scope every run can
+          # read: a cache written from any other ref is invisible to everything but that ref.
+          # A workflow_dispatch rehearsal also runs on `main` and so writes too, which is
+          # wanted - it warms the same six keys a real release would, at no extra footprint.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+          # Left at its default, said out loud: a leg that dies mid-build must not persist a
+          # half-written target directory into the next release.
+          cache-on-failure: false
 
       # Same widening as above, and it matters more here: skipping this step does not fail
       # the leg, it fails the build twenty minutes later with a missing webkit2gtk.
@@ -330,8 +367,11 @@ jobs:
           echo "::error::Could not install Linux build dependencies after 3 attempts."
           exit 1
 
+      # The flags are worth their noise on the arm64 legs: windows-11-arm spent 123 seconds
+      # here, where x86_64 takes 19. An audit and a funding lookup are two network round
+      # trips a release build has no use for.
       - name: install frontend dependencies
-        run: npm ci
+        run: npm ci --prefer-offline --no-audit --fund=false
 
       # Signing is enabled by exporting secrets into $GITHUB_ENV only when they are actually
       # configured. Setting them directly on the build step would not work: a secret that does
