@@ -1443,19 +1443,20 @@ dependencies = [
 
 [[package]]
 name = "drag"
-version = "2.1.0"
-source = "git+https://github.com/crabnebula-dev/drag-rs#8c88ba0084615f2b1e7796d9ff7611b37f5ea31b"
+version = "2.1.1"
+source = "git+https://github.com/crabnebula-dev/drag-rs#ab4cdea07b775e337fc3a41e7fb143cadf23eda8"
 dependencies = [
- "cocoa",
  "core-graphics 0.24.0",
  "dunce",
  "gdk",
  "gdkx11",
  "gtk",
  "log",
- "objc",
+ "objc2 0.6.4",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
  "raw-window-handle",
- "thiserror 1.0.69",
+ "thiserror 2.0.18",
  "windows 0.52.0",
  "windows-core 0.58.0",
 ]
