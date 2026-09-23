@@ -1,0 +1,76 @@
+name: CodeQL
+
+# Static analysis, deliberately kept off the release path.
+#
+# This is a separate workflow, not a job in test.yml and not called by release.yml, and it
+# must stay that way. test.yml is the gate that decides whether a merge to main ships a
+# binary; a finding from a scanner that updates its query pack on its own schedule is not a
+# reason to refuse to release. The same argument the clippy and fmt steps already make in
+# test.yml, for the same reason - so do not add these jobs to the repository's required
+# status checks.
+#
+# All three languages analyse without a build. Rust analysis went generally available in
+# October 2025 as a buildless extractor, which is what makes this affordable here: it reads
+# src-tauri without compiling any of its 799 crates.
+on:
+  pull_request:
+    branches: [main, develop]
+  # The default branch needs analysing on its own for the Security tab to have a baseline to
+  # compare pull requests against, and nothing pushes to main except a release. A schedule
+  # runs against the default branch, which covers it without putting a second workflow in
+  # front of every merge.
+  schedule:
+    - cron: '41 4 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      # The only one that is not read-only: this is what lets the run upload its results to
+      # the Security tab. Everything else is narrowed to read.
+      security-events: write
+      actions: read
+      contents: read
+
+    strategy:
+      # One language failing should still leave the other two reporting.
+      fail-fast: false
+      matrix:
+        include:
+          # The workflows themselves, and the most interesting of the three in this
+          # repository: release.yml interpolates ${{ }} expressions directly into `run:`
+          # shell blocks in several places, which is exactly the shape this pack looks at.
+          - language: actions
+            build-mode: none
+
+          # Covers src/lib/**/*.ts, which is where the logic lives. Note what it does *not*
+          # cover: CodeQL's extractor does not parse .svelte files, so the script blocks
+          # inside components are invisible to it. Worth remembering before reading a clean
+          # result as "the frontend is clean".
+          - language: javascript-typescript
+            build-mode: none
+
+          - language: rust
+            build-mode: none
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:${{ matrix.language }}"

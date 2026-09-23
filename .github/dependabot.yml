@@ -1,0 +1,57 @@
+# Version updates. Alerts and security updates are repository settings and need nothing
+# here; this file is only the scheduled "bump things that are behind" pull requests.
+#
+# Two settings below are load-bearing rather than taste, and both are explained where they
+# appear: `target-branch`, because the default would aim at the release branch, and the
+# `groups` blocks, because an ungrouped cargo update is expensive in a way that is not
+# obvious from the diff.
+version: 2
+
+updates:
+  # The workflows themselves. This is the cheapest of the three and arguably the most
+  # useful: it is what would have flagged actions-rs/toolchain being archived in 2023,
+  # which test.yml had to notice by hand.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    # Dependabot aims at the default branch unless told otherwise, and the default branch
+    # here is `main` - where a merge *is* the release decision. A dependency pull request
+    # merged there would start release.yml. It would not actually release (the tag for the
+    # current version already exists, so `prepare` decides should_release=false and stops),
+    # but it would run the whole suite to reach that conclusion, and it is the wrong branch
+    # for how this repository works. Everything lands on `develop` and is promoted.
+    target-branch: "develop"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 3
+    groups:
+      # One pull request for everything routine. Majors stay individual - those are the
+      # ones that need reading.
+      actions-minor-and-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "npm"
+    directory: "/"
+    target-branch: "develop"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 3
+    groups:
+      npm-minor-and-patch:
+        update-types: ["minor", "patch"]
+
+  # The Rust crate. Grouping matters most here, and the reason is the Rust cache: its key
+  # includes a hash of Cargo.lock, so *any* crate bump is a cache miss, and the pull request
+  # then compiles all 799 crates cold on three operating systems. One grouped pull request a
+  # month pays that once; a pull request per crate would pay it over and over.
+  #
+  # The `drag` dependency is a git dependency (crabnebula-dev/drag-rs) and Dependabot does
+  # not update cargo git sources, so that one stays manual.
+  - package-ecosystem: "cargo"
+    directory: "/src-tauri"
+    target-branch: "develop"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 3
+    groups:
+      cargo-minor-and-patch:
+        update-types: ["minor", "patch"]
