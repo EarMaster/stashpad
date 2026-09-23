@@ -40,6 +40,11 @@ jobs:
   changelog:
     name: Changelog
     runs-on: ubuntu-latest
+    # Bounded because these are required contexts: a job that hangs, or sits in a runner
+    # queue, blocks a merge with no signal at all. One Tests run waited thirteen minutes for
+    # a windows-latest runner and nothing anywhere would have stopped it short of GitHub's
+    # six-hour default.
+    timeout-minutes: 20
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -56,6 +61,7 @@ jobs:
   frontend-tests:
     name: Frontend Tests
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -74,10 +80,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Split by OS rather than run both: `test:coverage` is `vitest run --coverage`, the
+      # same fourteen files end to end, so ubuntu was running the whole suite twice.
       - name: Run tests
+        if: matrix.os != 'ubuntu-latest'
         run: npm run test
 
-      - name: Generate coverage report
+      - name: Run tests with coverage
         if: matrix.os == 'ubuntu-latest'
         run: npm run test:coverage
 
@@ -94,6 +103,7 @@ jobs:
   backend-tests:
     name: Backend Tests (Rust)
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -103,16 +113,22 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
 
-      - name: Free Disk Space (Ubuntu)
+      # Backgrounded, because as a blocking step this cost 91 seconds in a job whose actual
+      # work - `cargo test` - takes 24. Almost all of it is /usr/local/lib/android, nine
+      # gigabytes of small files. What matters is that the disk is free before the build
+      # needs it, not before the next step starts, so apt and cargo now run alongside it.
+      #
+      # $AGENT_TOOLSDIRECTORY is deliberately no longer deleted. Removing it is what forced
+      # this step to run before any setup-node, and a backgrounded rm would race whatever
+      # installs there. What is left still frees ~15 GB, against a debug target directory
+      # that is under a gigabyte since `[profile.dev.package."*"] debug = false` landed in
+      # Cargo.toml - the 37 GB build this step was written for cannot happen any more.
+      - name: Reclaim disk in the background
         if: matrix.os == 'ubuntu-latest'
         run: |
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-          sudo rm -rf "/usr/local/share/boost"
-          if [ -n "${AGENT_TOOLSDIRECTORY:-}" ]; then
-            sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-          fi
+          df -h /
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet >/dev/null 2>&1 &
+          sudo rm -rf /opt/ghc /usr/local/share/boost >/dev/null 2>&1 &
 
       - name: Install dependencies (Ubuntu only)
         if: matrix.os == 'ubuntu-latest'
@@ -128,10 +144,27 @@ jobs:
         with:
           components: rustfmt, clippy
 
+      # `save-if` is what keeps this affordable. Every push and every pull_request run used to
+      # write a fresh entry per OS - ~800 MiB each - and twelve of them had grown to fill
+      # 8.6 GB of GitHub's 10 GB per-repository budget, at which point the cache evicts itself
+      # and nothing stays warm. Four of the twelve were scoped to a pull request that had long
+      # since merged, and could never be read again by anything.
+      #
+      # `main`, not `develop`, and that is the whole point of the line. A run may restore only
+      # caches scoped to its own ref or to the default branch, and the default branch here is
+      # `main` - so a cache written from `develop` is invisible to a release, and one written
+      # from a PR is invisible to everything. Saving from `main` is the only scope every run
+      # can read: develop pushes, PRs and releases alike restore from it.
+      #
+      # This suite does reach `main`: release.yml calls it through `workflow_call`, where
+      # `github.ref` is the caller's ref. So the cache refreshes once per release, which is
+      # roughly daily. A `Cargo.lock` or rustc change between releases means develop runs cold
+      # until the next one - the honest cost of three entries instead of nine.
       - name: Cache Rust dependencies
         uses: swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Run Rust tests
         working-directory: src-tauri
@@ -149,12 +182,18 @@ jobs:
       # over ten lint families - but it is a tree-wide reformat that would bury `git blame`, so
       # it belongs in its own commit rather than riding along with a CI change. When that lands,
       # drop the `continue-on-error` and the "(advisory)" from both names.
+      #
+      # One OS, not three. Neither lint is platform-dependent, and clippy's check-mode
+      # artifacts carry different fingerprints from the test build's - so on every leg it
+      # was a second near-full compile, for a result the other two legs had already given.
       - name: Run Clippy (advisory, non-gating)
+        if: matrix.os == 'ubuntu-latest'
         working-directory: src-tauri
         run: cargo clippy -- -D warnings
         continue-on-error: true
 
       - name: Check formatting (advisory, non-gating)
+        if: matrix.os == 'ubuntu-latest'
         working-directory: src-tauri
         run: cargo fmt --check
         continue-on-error: true
@@ -162,6 +201,7 @@ jobs:
   type-check:
     name: TypeScript Type Check
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
       - name: Checkout code
