@@ -64,6 +64,24 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
 
+      # Buildless still touches disk: the extractor resolves the full dependency graph
+      # before it can read a single signature, against the same 799 crates in
+      # src-tauri/Cargo.lock that made release.yml's own rust-cache entry worth adding.
+      # Untested whether this actually warms anything the extractor reads rather than
+      # something it derives standalone - worth confirming against a run before trusting
+      # this comment over the numbers.
+      #
+      # `save-if` mirrors release.yml's for the same reason: a cache scoped to a PR or to
+      # develop is invisible to everything else and just spends the repository's shared
+      # 10 GB budget. This workflow's only run against main is the weekly schedule, so
+      # that is the only run that refreshes it.
+      - name: Cache Rust dependencies
+        if: matrix.language == 'rust'
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
         with:
