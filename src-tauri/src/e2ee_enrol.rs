@@ -71,7 +71,25 @@ pub struct DeviceSummary {
     pub enrolled_at: String,
 }
 
+/// The server's `/e2ee/state`, which is camelCase on the wire.
+///
+/// **The rename is load-bearing, and its absence was invisible.** `cloud`'s `E2eeState` is
+/// `rename_all = "camelCase"`, so it sends `wrappedKeyForDevice`, `hasRecovery` and
+/// `recoveryAcknowledged`. Without the matching attribute here those three never matched a
+/// field, and `#[serde(default)]` turned every one of them into its default rather than an
+/// error: the wrap read as `None` on every machine, at every start, for every account.
+///
+/// Nothing looked wrong. `epoch`, `state`, `verifier` and `devices` are single words, so
+/// they arrived intact - the panel showed the right epoch, the right state and the right
+/// device list while insisting the installation had no key. The only symptom was being
+/// asked for the recovery code forever, which read as a keychain problem and was not one.
+///
+/// Recovery kept working throughout because `e2ee_recover` reads `kdfSalt` and `wrappedKey`
+/// straight off the JSON rather than through a struct.
+///
+/// Anything added here must be camelCase on the wire or carry its own `rename`.
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct ServerState {
     epoch: u32,
     state: String,
@@ -139,8 +157,36 @@ pub async fn unlock_this_installation(
         return Ok(true);
     }
 
-    let (server, user_id, _device_id) = fetch_state(settings_state).await?;
+    let (server, user_id, device_id) = fetch_state(settings_state).await?;
     let Some(wrapped) = server.wrapped_key_for_device.as_deref() else {
+        // Nothing to unlock with. If the account is encrypted, say so to the server, so the
+        // machine that *can* read the stashes has something to approve.
+        //
+        // Without this the second installation stayed invisible: it never published its
+        // public key, so it never appeared in anyone's pending list, and "approve it from an
+        // installation that has the key" asked the user to act on a request that was never
+        // sent. The recovery code was the only way in on every machine, every time.
+        //
+        // Only when this installation is absent from the list, so the ordinary case - a
+        // machine already waiting, or already approved - costs no request at all.
+        if server.epoch > 0 && !server.devices.iter().any(|d| d.device_id == device_id) {
+            match register_this_installation(settings_state).await {
+                // The fingerprint is deliberately not logged. It is not secret - it is
+                // a truncated hash over the account id and the *public* key, and the
+                // panel shows it precisely so two screens can be compared. But it is
+                // derived from the keypair this function loads, so CodeQL traces it back
+                // through open_secret/seal_secret to the device secret and reports
+                // cleartext logging of sensitive information (rust/cleartext-logging,
+                // high). Dismissing that on a crypto path to keep a value a log file has
+                // no use for is the wrong trade - the comparison happens in the interface.
+                Ok(_fingerprint) => log::info!(
+                    "Published this installation's key - approve it from an \
+                     installation that can already read your stashes"
+                ),
+                // Not fatal: the recovery code still works, and the next start tries again.
+                Err(e) => log::warn!("Could not publish this installation's key: {}", e),
+            }
+        }
         return Ok(false);
     };
 
@@ -228,6 +274,25 @@ fn summarise(devices: &[ServerDevice], user_id: &str) -> Vec<DeviceSummary> {
 pub async fn e2ee_register_device(
     settings_state: State<'_, Arc<SettingsState>>,
 ) -> Result<String, UiError> {
+    register_this_installation(&settings_state).await
+}
+
+/// Publish this installation's public key, so another one can approve it.
+///
+/// **Nothing used to call this except the bootstrap**, which runs only on the machine that
+/// turns encryption on. A second installation therefore never announced itself, never
+/// appeared in anyone's pending list, and the approval flow the panel points at could not
+/// begin - "approve it from an installation that has the key" described a request that was
+/// never going to arrive. The recovery code was the only way in, on every machine.
+///
+/// Safe to call repeatedly: the server treats a registration carrying the same public key as
+/// a client confirming it is still enrolled and leaves an existing approval alone
+/// (`cloud/src/routes/e2ee.rs`, `register_device`). Only a *changed* key - a reinstall, or a
+/// device key that could not be opened - revokes the old wraps and asks for approval again,
+/// which is what should happen.
+pub async fn register_this_installation(
+    settings_state: &Arc<SettingsState>,
+) -> Result<String, UiError> {
     let keypair = e2ee_session::load_or_create_device_keypair()?;
     let device_id = crate::utils::get_device_id(None).await?;
     let user_id = {
@@ -241,7 +306,7 @@ pub async fn e2ee_register_device(
     let fingerprint = e2ee::fingerprint(&user_id, &keypair.public_bytes());
 
     crate::sync::e2ee_post(
-        &settings_state,
+        settings_state,
         "/e2ee/devices",
         serde_json::json!({
             "deviceId": device_id,
