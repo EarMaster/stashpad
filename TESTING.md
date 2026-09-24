@@ -30,12 +30,6 @@ npm run test:ui
 
 # Run tests with coverage report
 npm run test:coverage
-
-# Run only unit tests
-npm run test:unit
-
-# Run only integration tests
-npm run test:integration
 ```
 
 ### Backend Tests
