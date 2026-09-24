@@ -180,8 +180,14 @@ pub async fn unlock_this_installation(
                 // high). Dismissing that on a crypto path to keep a value a log file has
                 // no use for is the wrong trade - the comparison happens in the interface.
                 Ok(_fingerprint) => log::info!(
-                    "Published this installation's key - approve it from an \
-                     installation that can already read your stashes"
+                    // concat! rather than a `\` line continuation. The continuation left
+                    // the indentation inside the string here, so the sentence reached the
+                    // log with a run of spaces in the middle of it. concat! has no such
+                    // ambiguity, whatever the cause was.
+                    concat!(
+                        "Published this installation's key - approve it from an ",
+                        "installation that can already read your stashes",
+                    )
                 ),
                 // Not fatal: the recovery code still works, and the next start tries again.
                 Err(e) => log::warn!("Could not publish this installation's key: {}", e),
