@@ -171,10 +171,17 @@ pub async fn unlock_this_installation(
         // machine already waiting, or already approved - costs no request at all.
         if server.epoch > 0 && !server.devices.iter().any(|d| d.device_id == device_id) {
             match register_this_installation(settings_state).await {
-                Ok(fingerprint) => log::info!(
-                    "Published this installation's key as {} - approve it from an \
-                     installation that can already read your stashes",
-                    fingerprint
+                // The fingerprint is deliberately not logged. It is not secret - it is
+                // a truncated hash over the account id and the *public* key, and the
+                // panel shows it precisely so two screens can be compared. But it is
+                // derived from the keypair this function loads, so CodeQL traces it back
+                // through open_secret/seal_secret to the device secret and reports
+                // cleartext logging of sensitive information (rust/cleartext-logging,
+                // high). Dismissing that on a crypto path to keep a value a log file has
+                // no use for is the wrong trade - the comparison happens in the interface.
+                Ok(_fingerprint) => log::info!(
+                    "Published this installation's key - approve it from an \
+                     installation that can already read your stashes"
                 ),
                 // Not fatal: the recovery code still works, and the next start tries again.
                 Err(e) => log::warn!("Could not publish this installation's key: {}", e),
