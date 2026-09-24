@@ -80,7 +80,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          save-if: "true"
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
