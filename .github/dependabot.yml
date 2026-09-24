@@ -1,16 +1,28 @@
-# Version updates. Alerts and security updates are repository settings and need nothing
-# here; this file is only the scheduled "bump things that are behind" pull requests.
+# Version updates. Alerts are a repository setting and need nothing here; this file is only
+# the scheduled "bump things that are behind" pull requests.
 #
-# Two settings below are load-bearing rather than taste, and both are explained where they
-# appear: `target-branch`, because the default would aim at the release branch, and the
-# `groups` blocks, because an ungrouped cargo update is expensive in a way that is not
-# obvious from the diff.
+# Only the workflows are covered. npm and cargo were here once and were taken out on purpose,
+# so do not add them back without reading why:
+#
+# - Version updates only move what package.json and Cargo.toml name directly. Every alert
+#   the repository actually had was in a transitive crate (openssl, rustls-webpki, tar...),
+#   which these pull requests never touch - the grouped cargo one fixed none of the 20 open
+#   alerts it sat next to.
+# - Each major arrives as its own pull request that fails CI until someone does the
+#   migration, and each cargo one rewrites Cargo.lock, which busts the Rust cache and
+#   compiles all 799 crates cold on three operating systems.
+# - Security updates would target the alerts, but they always aim at the default branch,
+#   `main`, where a merge is the release decision. `target-branch` does not apply to them,
+#   so they stay switched off in the repository settings.
+#
+# Instead, dependencies are refreshed by hand on `develop` before a release (`cargo update`,
+# `npm update`, then check the open alerts). Alerts read the lockfiles on `main`, so they
+# close when that release is promoted.
 version: 2
 
 updates:
-  # The workflows themselves. This is the cheapest of the three and arguably the most
-  # useful: it is what would have flagged actions-rs/toolchain being archived in 2023,
-  # which test.yml had to notice by hand.
+  # The workflows themselves. This is cheap and useful: it is what would have flagged
+  # actions-rs/toolchain being archived in 2023, which test.yml had to notice by hand.
   - package-ecosystem: "github-actions"
     directory: "/"
     # Dependabot aims at the default branch unless told otherwise, and the default branch
@@ -27,31 +39,4 @@ updates:
       # One pull request for everything routine. Majors stay individual - those are the
       # ones that need reading.
       actions-minor-and-patch:
-        update-types: ["minor", "patch"]
-
-  - package-ecosystem: "npm"
-    directory: "/"
-    target-branch: "develop"
-    schedule:
-      interval: "monthly"
-    open-pull-requests-limit: 3
-    groups:
-      npm-minor-and-patch:
-        update-types: ["minor", "patch"]
-
-  # The Rust crate. Grouping matters most here, and the reason is the Rust cache: its key
-  # includes a hash of Cargo.lock, so *any* crate bump is a cache miss, and the pull request
-  # then compiles all 799 crates cold on three operating systems. One grouped pull request a
-  # month pays that once; a pull request per crate would pay it over and over.
-  #
-  # The `drag` dependency is a git dependency (crabnebula-dev/drag-rs) and Dependabot does
-  # not update cargo git sources, so that one stays manual.
-  - package-ecosystem: "cargo"
-    directory: "/src-tauri"
-    target-branch: "develop"
-    schedule:
-      interval: "monthly"
-    open-pull-requests-limit: 3
-    groups:
-      cargo-minor-and-patch:
         update-types: ["minor", "patch"]

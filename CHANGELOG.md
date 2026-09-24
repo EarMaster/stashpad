@@ -29,6 +29,14 @@ popover, not for the person who wrote the commit.
   find out it had worked was to close the settings and open them again, which reads as the
   approval having failed. It now picks the key up on its own, within a few seconds
 
+### Security
+- **The libraries built into the app are brought up to date with their security fixes.** This
+  covers the framework that hosts the app's window, the updater's archive unpacking, and the
+  TLS and certificate checks behind every connection to the sync server. None of the fixed
+  problems could be reached through anything Stashpad does today; this closes them before a
+  future change could make one reachable. The Linux build keeps one older GTK component with
+  a minor warning against it, until the framework moves off it
+
 ## [1.8.7] - 2026-09-24
 
 ### Fixed
