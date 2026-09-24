@@ -436,6 +436,8 @@
     "stashAdded": "Stash hinzugefügt"
   },
   "stashCard": {
+    "showMore": "Mehr anzeigen",
+    "showLess": "Weniger anzeigen",
     "emptyStash": "-- leer --",
     "copied": "Kopiert!",
     "attachment": "{count} Anhang ({size})",

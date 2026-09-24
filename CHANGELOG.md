@@ -17,6 +17,11 @@ popover, not for the person who wrote the commit.
   appear. Your eyes had already done the comparing; the typing only added a chance to
   mistype it and be told the codes did not match when they did. The code is shown large
   enough to read across a desk, and you confirm it matches with a checkbox
+- **Long stashes fold up in the queue.** A plan an agent filed through the MCP server, or a
+  stash after AI enhancement, could run to several screens, and scrolling past one to reach
+  the next item was most of the work of using the queue. A stash that is clearly taller
+  than the cap now stops at a fixed height with a fade, and Show more opens it, Show less
+  folds it back. Short stashes look exactly as before
 
 ### Fixed
 - **A computer waiting to be let in notices when it has been.** After approving it from the

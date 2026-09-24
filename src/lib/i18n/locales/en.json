@@ -436,6 +436,8 @@
     }
   },
   "stashCard": {
+    "showMore": "Show more",
+    "showLess": "Show less",
     "emptyStash": "-- empty --",
     "attachment": "{count} attachment ({size})",
     "attachments": "{count} attachments ({size})",

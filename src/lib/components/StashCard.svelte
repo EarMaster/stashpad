@@ -49,6 +49,8 @@
     ArrowLeftRight,
     X,
     Tags,
+    ChevronDown,
+    ChevronUp,
   } from "lucide-svelte";
   import Editor from "./Editor.svelte";
   import FilePreviewTooltip from "./FilePreviewTooltip.svelte";
@@ -156,6 +158,35 @@
   let displayContent = $derived(
     showEnhanced && hasEnhancedVersion ? item.enhancedContent! : item.content,
   );
+
+  // Long stashes (agent plans, AI-enhanced text) are clamped to a maximum
+  // height so the queue stays navigable. A stash only collapses when it is
+  // clearly longer than the cap, so nobody expands a card to reveal one line.
+  const COLLAPSED_MAX_PX = 192;
+  const COLLAPSE_SLACK_PX = 48;
+  let contentRef = $state<HTMLElement>();
+  let contentHeight = $state(0);
+  let expanded = $state(false);
+  let isLong = $derived(contentHeight > COLLAPSED_MAX_PX + COLLAPSE_SLACK_PX);
+  let isClamped = $derived(isLong && !expanded);
+
+  $effect(() => {
+    if (!contentRef) return;
+    const el = contentRef;
+    const observer = new ResizeObserver(() => {
+      contentHeight = el.scrollHeight;
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  });
+
+  function toggleExpanded() {
+    expanded = !expanded;
+    // Collapsing a stash read to its end would leave the reader far below it.
+    if (!expanded && cardRef && cardRef.getBoundingClientRect().top < 0) {
+      cardRef.scrollIntoView({ block: "start" });
+    }
+  }
 
   let stashData = $derived(extractTagsAndColors(item.content));
   let stashTags = $derived(() => stashData.tags);
@@ -552,15 +583,48 @@
           </div>
         {/if}
         <div
-          class="prose dark:prose-invert prose-xs max-w-none text-sm text-foreground/90 leading-relaxed font-sans break-words {item.completed
-            ? 'line-through text-muted-foreground/70'
-            : ''}"
-          use:externalLinks
-          ondblclick={handleDoubleClick}
-          role="presentation"
+          id="stash-content-{item.id}"
+          class="relative {isClamped ? 'overflow-hidden' : ''}"
+          style:max-height={isClamped ? `${COLLAPSED_MAX_PX}px` : undefined}
         >
-          {@html safeParse(displayContent)}
+          <div
+            bind:this={contentRef}
+            class="prose dark:prose-invert prose-xs max-w-none text-sm text-foreground/90 leading-relaxed font-sans break-words {item.completed
+              ? 'line-through text-muted-foreground/70'
+              : ''}"
+            use:externalLinks
+            ondblclick={handleDoubleClick}
+            role="presentation"
+          >
+            {@html safeParse(displayContent)}
+          </div>
+          {#if isClamped}
+            <div
+              class="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-card to-transparent"
+            ></div>
+          {/if}
         </div>
+        {#if isLong}
+          <button
+            type="button"
+            class="mt-1 inline-flex items-center gap-1 rounded px-1 py-0.5 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+            aria-expanded={expanded}
+            aria-controls="stash-content-{item.id}"
+            onclick={(e) => {
+              e.stopPropagation();
+              toggleExpanded();
+            }}
+            onkeydown={(e) => e.stopPropagation()}
+          >
+            {#if expanded}
+              <ChevronUp size={12} />
+              {$_("stashCard.showLess")}
+            {:else}
+              <ChevronDown size={12} />
+              {$_("stashCard.showMore")}
+            {/if}
+          </button>
+        {/if}
       {:else}
         <div class="text-xs text-muted-foreground/50 italic text-center">
           {$_("stashCard.emptyStash")}
