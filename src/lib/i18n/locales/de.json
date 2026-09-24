@@ -303,9 +303,10 @@
     "lockedApproveAlternative": "Oder gib diese Installation von einer frei, die sie schon lesen kann – dann brauchst du den Code nicht.",
     "useRecoveryCode": "Wiederherstellungscode verwenden",
     "pendingTitle": "Wartet auf Freigabe",
-    "compareInstruction": "Prüfe, ob das mit dem übereinstimmt, was die andere Installation anzeigt. Wenn nicht, gib sie nicht frei.",
-    "letItIn": "Freigeben",
-    "approve": "Die Codes stimmen überein, freigeben",
+    "compareInstruction": "Öffne auf dem anderen Rechner die Verschlüsselungs-Einstellungen und vergleiche den dort angezeigten Code mit diesem.",
+    "confirmMatch": "Ich habe beide Codes verglichen und sie sind identisch.",
+    "confirmMatchHint": "Wenn sie sich unterscheiden, gib nicht frei — dann versucht möglicherweise jemand anderes hereinzukommen.",
+    "approve": "Diese Installation freigeben",
     "thisInstallation": "Diese Installation",
     "activeCount": "{count} Installation(en) können deine Stashes lesen."
   },
@@ -435,6 +436,8 @@
     "stashAdded": "Stash hinzugefügt"
   },
   "stashCard": {
+    "showMore": "Mehr anzeigen",
+    "showLess": "Weniger anzeigen",
     "emptyStash": "-- leer --",
     "copied": "Kopiert!",
     "attachment": "{count} Anhang ({size})",

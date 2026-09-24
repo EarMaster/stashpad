@@ -28,8 +28,52 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # The rust leg is the whole length of this workflow: six to eight minutes against about one
+  # for each of the other two, and caching the cargo registry was measured to save nothing.
+  # Almost none of that time is this repository's code. The extractor spends it resolving the
+  # 799 crates in Cargo.lock and reading their signatures, and the queries spend it on one
+  # shared pass over the database that builds - which is why all 37 finish together, and why
+  # dropping queries would not help. So a pull request that touches no Rust skips it.
+  #
+  # Only pull requests. The weekly schedule and a manual dispatch always analyse everything,
+  # which is what keeps the Security tab's baseline for main complete. A skipped PR shows a
+  # warning in the Code scanning check that the rust configuration was not found; that is the
+  # expected cost of skipping, not a failure.
+  rust-changes:
+    name: Rust changed?
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      analyze: ${{ steps.check.outputs.analyze }}
+    steps:
+      - name: Look for changes the rust analysis would see
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          analyze=true
+          # Every doubt resolves to analysing. A failed lookup reads as "no files", which
+          # would otherwise mean "no Rust" and skip the one thing this workflow is slow for.
+          if [ "$EVENT" = pull_request ] \
+            && files=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --paginate --jq '.[].filename'); then
+            count=$(printf '%s\n' "$files" | grep -c . || true)
+            # The files endpoint stops at 3000. Past that the list is incomplete.
+            if [ "$count" -gt 0 ] && [ "$count" -lt 3000 ] \
+              && ! printf '%s\n' "$files" | grep -qE '^(src-tauri/|\.github/workflows/codeql\.yml$)'; then
+              analyze=false
+            fi
+            echo "$count files changed; rust analysis: $analyze"
+          fi
+          echo "analyze=$analyze" >> "$GITHUB_OUTPUT"
+
   analyze:
     name: Analyze (${{ matrix.language }})
+    needs: rust-changes
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -60,17 +104,30 @@ jobs:
           - language: rust
             build-mode: none
 
+    # Decided per step rather than per job, because a job-level `if` is evaluated before the
+    # matrix expands and cannot see `matrix.language`. The skipped rust leg still reports, as a
+    # green job with a note in its summary, rather than vanishing from the PR.
+    env:
+      SKIP: ${{ matrix.language == 'rust' && needs.rust-changes.outputs.analyze != 'true' }}
+
     steps:
+      - name: Note the skip
+        if: env.SKIP == 'true'
+        run: echo "No Rust changed in this pull request, so the rust analysis was skipped. The weekly scheduled run still covers it." >> "$GITHUB_STEP_SUMMARY"
+
       - name: Checkout code
+        if: env.SKIP != 'true'
         uses: actions/checkout@v7
 
       - name: Initialize CodeQL
+        if: env.SKIP != 'true'
         uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
 
       - name: Analyze
+        if: env.SKIP != 'true'
         uses: github/codeql-action/analyze@v4
         with:
           category: "/language:${{ matrix.language }}"

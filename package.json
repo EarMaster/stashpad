@@ -1,6 +1,6 @@
 {
   "name": "stashpad",
-  "version": "1.8.7",
+  "version": "1.8.8",
   "description": "The staging area for your AI context.",
   "author": {
     "name": "Nico Wiedemann",
@@ -39,15 +39,13 @@
     "test": "vitest run",
     "test:ui": "vitest --ui",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage",
-    "test:unit": "vitest run --testPathPattern=\\.test\\.",
-    "test:integration": "vitest run --testPathPattern=\\.integration\\."
+    "test:coverage": "vitest run --coverage"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^6.2.1",
     "@tailwindcss/postcss": "^4.1.17",
-    "@tauri-apps/api": "^2.10.1",
-    "@tauri-apps/cli": "^2.10.0",
+    "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/cli": "^2.11.5",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/svelte": "^5.3.1",
     "@testing-library/user-event": "^14.6.1",

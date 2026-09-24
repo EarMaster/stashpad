@@ -11,6 +11,34 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+## [1.8.8] - 2026-09-25
+
+### Changed
+- **Approving a new computer is a tick, not a retyped code.** You had to read the sixteen
+  characters off one screen and type them into the other before the approve button would
+  appear. Your eyes had already done the comparing; the typing only added a chance to
+  mistype it and be told the codes did not match when they did. The code is shown large
+  enough to read across a desk, and you confirm it matches with a checkbox
+- **Long stashes fold up in the queue.** A plan an agent filed through the MCP server, or a
+  stash after AI enhancement, could run to several screens, and scrolling past one to reach
+  the next item was most of the work of using the queue. A stash that is clearly taller
+  than the cap now stops at a fixed height with a fade, and Show more opens it, Show less
+  folds it back. Short stashes look exactly as before
+
+### Fixed
+- **A computer waiting to be let in notices when it has been.** After approving it from the
+  other machine, the one that was waiting went on saying it was waiting - the only way to
+  find out it had worked was to close the settings and open them again, which reads as the
+  approval having failed. It now picks the key up on its own, within a few seconds
+
+### Security
+- **The libraries built into the app are brought up to date with their security fixes.** This
+  covers the framework that hosts the app's window, the updater's archive unpacking, and the
+  TLS and certificate checks behind every connection to the sync server. None of the fixed
+  problems could be reached through anything Stashpad does today; this closes them before a
+  future change could make one reachable. The Linux build keeps one older GTK component with
+  a minor warning against it, until the framework moves off it
+
 ## [1.8.7] - 2026-09-24
 
 ### Fixed

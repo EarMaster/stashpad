@@ -303,9 +303,10 @@
     "lockedApproveAlternative": "Or approve this installation from one that can already read them, without typing the code.",
     "useRecoveryCode": "Use recovery code",
     "pendingTitle": "Waiting to be let in",
-    "compareInstruction": "Check this matches what the other installation shows. If it does not, do not approve it.",
-    "letItIn": "Let it in",
-    "approve": "The codes match, approve",
+    "compareInstruction": "Open the encryption settings on the other computer and compare the code it shows with this one.",
+    "confirmMatch": "I have compared both codes and they are identical.",
+    "confirmMatchHint": "If they differ, do not approve — someone else may be trying to get in.",
+    "approve": "Approve this installation",
     "thisInstallation": "This installation",
     "activeCount": "{count} installation(s) can read your stashes."
   },
@@ -435,6 +436,8 @@
     }
   },
   "stashCard": {
+    "showMore": "Show more",
+    "showLess": "Show less",
     "emptyStash": "-- empty --",
     "attachment": "{count} attachment ({size})",
     "attachments": "{count} attachments ({size})",
