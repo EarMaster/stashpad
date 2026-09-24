@@ -391,6 +391,17 @@ See the GNU Affero General Public License for more details.
         {#if !status.unlocked}
             <div class="space-y-2 rounded-lg border border-border bg-card p-3">
                 <p class="text-xs">{$_("encryption.lockedHere")}</p>
+                <!-- Only when there is actually another installation to approve from.
+                     Adding a machine usually happens *because* the other one is not to
+                     hand - a new work laptop, or one that broke - so offering approval as
+                     the headline was advice for the rarer case, and unusable advice for
+                     the common one. The recovery code leads; this appears only when it is
+                     something the person can really do. -->
+                {#if active.length > 0}
+                    <p class="text-xs text-muted-foreground">
+                        {$_("encryption.lockedApproveAlternative")}
+                    </p>
+                {/if}
                 <input
                     bind:value={recoveryInput}
                     placeholder="SP1-…"

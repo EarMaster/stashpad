@@ -11,6 +11,20 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+### Fixed
+- **A second computer can actually be approved now.** The settings said to approve a new
+  installation from one that already has the key, and that request was never going to
+  arrive: a new installation never told the server it existed, so it never appeared on the
+  other machine's list and there was nothing to approve. Typing the recovery code was the
+  only way in, on every machine, every time. An installation that cannot read your stashes
+  now announces itself, and the machine that can read them offers it for approval with the
+  two fingerprints to compare
+- **The encryption settings no longer say your key is here and missing in the same breath.**
+  One line reported that this machine's own key was in the system keychain, and the next said
+  the installation did not have the key yet. Two different keys, both called "the key": one
+  protects what is stored on this computer, the other is what decrypts your stashes. They are
+  named apart now
+
 ## [1.8.6] - 2026-09-22
 
 ### Fixed

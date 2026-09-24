@@ -286,9 +286,17 @@ pub fn run() {
                 tauri::async_runtime::spawn(async move {
                     match e2ee_enrol::unlock_this_installation(&settings_for_unlock).await {
                         Ok(true) => log::info!("Content key opened from this installation's key"),
-                        Ok(false) => log::debug!(
-                            "No wrap for this installation - either the account is not \
-                             encrypted or this machine has not been approved"
+                        // At `info`, not `debug`. The app ships `app_lib` at `Info`, so as
+                        // `debug` this branch said nothing at all - and it is the branch
+                        // that fires whenever the panel goes on to ask for a recovery code.
+                        // A startup that logs neither this nor an error is then the only
+                        // way to tell that the task did not run, which is a distinction
+                        // worth being able to make.
+                        Ok(false) => log::info!(
+                            "The server holds no key for this installation, so it cannot \
+                             read encrypted stashes yet - approve it from an installation \
+                             that can, or use the recovery code. (Expected when the account \
+                             is not encrypted.)"
                         ),
                         Err(e) => log::warn!("Could not open the content key at startup: {}", e),
                     }
