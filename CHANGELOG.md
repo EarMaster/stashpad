@@ -11,6 +11,19 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+### Changed
+- **Approving a new computer is a tick, not a retyped code.** You had to read the sixteen
+  characters off one screen and type them into the other before the approve button would
+  appear. Your eyes had already done the comparing; the typing only added a chance to
+  mistype it and be told the codes did not match when they did. The code is shown large
+  enough to read across a desk, and you confirm it matches with a checkbox
+
+### Fixed
+- **A computer waiting to be let in notices when it has been.** After approving it from the
+  other machine, the one that was waiting went on saying it was waiting - the only way to
+  find out it had worked was to close the settings and open them again, which reads as the
+  approval having failed. It now picks the key up on its own, within a few seconds
+
 ## [1.8.7] - 2026-09-24
 
 ### Fixed

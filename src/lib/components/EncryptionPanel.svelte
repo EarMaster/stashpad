@@ -38,6 +38,9 @@ See the GNU Affero General Public License for more details.
 
     const adapter = new DesktopStorageAdapter();
 
+    /// What the panel is polling for, when it is polling at all.
+    type Waiting = "progress" | "approval" | null;
+
     let status = $state<E2eeStatus | null>(null);
     let busy = $state(false);
     let error = $state("");
@@ -70,17 +73,24 @@ See the GNU Affero General Public License for more details.
     const passphraseMode = $derived<"unset" | "locked">(
         keyStore === "locked" ? "locked" : "unset",
     );
-    let progressTimer: ReturnType<typeof setInterval> | null = null;
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
+    let pollingFor = $state<Waiting>(null);
 
-    const POLL_MS = 2000;
+    /// The progress count is a local database query, so it can be asked for often. The
+    /// approval check is a request to the server, so it is not.
+    const PROGRESS_POLL_MS = 2000;
+    const APPROVAL_POLL_MS = 4000;
 
     /// Records already through, for the bar. Clamped because `total` is counted fresh and
     /// a record deleted mid-sweep can otherwise make this exceed `total`.
     const done = $derived(Math.max(0, Math.min(total, total - remaining)));
     const percent = $derived(total > 0 ? Math.round((done / total) * 100) : 0);
 
-    let approving = $state<string | null>(null);
-    let approvalFingerprint = $state("");
+    /// The installation whose codes the user has ticked off as matching.
+    ///
+    /// One at a time: approving is a deliberate act per machine, and a tick that survived
+    /// from the previous card would be the wrong kind of convenience.
+    let confirmedDevice = $state<string | null>(null);
     let recoveryInput = $state("");
 
     const pending = $derived(status?.devices.filter((d) => d.status === "pending") ?? []);
@@ -94,22 +104,46 @@ See the GNU Affero General Public License for more details.
 
     onDestroy(stopPolling);
 
-    /// Poll only while there is something to watch, and stop as soon as there is not:
-    /// an interval left running behind a closed settings page would query the database
-    /// every two seconds for the life of the process.
-    function syncPolling(state: string | undefined) {
-        if (state === "migrating" && !progressTimer) {
-            progressTimer = setInterval(readProgress, POLL_MS);
-        } else if (state !== "migrating") {
-            stopPolling();
+    /// What the panel is waiting on, if anything.
+    ///
+    /// Both of these move somewhere the panel cannot see. The sweep is carried by ordinary
+    /// syncs, and approval happens on another machine entirely - so nothing tells this
+    /// panel when either has happened and it has to look. An installation that had just
+    /// been let in used to go on saying it was waiting until Settings was closed and
+    /// reopened, which reads as the approval not having worked.
+    /// Waiting to be let in comes first. An installation that cannot open the key can do
+    /// nothing about the sweep either, so polling its progress would watch the one number
+    /// that cannot change for it while missing the one that can.
+    function waitingOn(next: E2eeStatus | null): Waiting {
+        if (!next || next.state === "off") return null;
+        if (!next.unlocked) return "approval";
+        if (next.state === "migrating") return "progress";
+        return null;
+    }
+
+    /// Poll only while there is something to watch, and stop as soon as there is not: an
+    /// interval left running behind a closed settings page would keep asking for the life
+    /// of the process. Re-entering with the same answer leaves the existing timer alone,
+    /// so a poll that refreshes cannot reset its own interval.
+    function syncPolling(next: Waiting) {
+        if (next === pollingFor) return;
+        stopPolling();
+        pollingFor = next;
+        if (next === "progress") {
+            pollTimer = setInterval(readProgress, PROGRESS_POLL_MS);
+        } else if (next === "approval") {
+            // e2ee_status opens this installation's wrap if the server is holding one, so
+            // asking is also the act of picking the key up the moment it is granted.
+            pollTimer = setInterval(() => void refresh({ quiet: true }), APPROVAL_POLL_MS);
         }
     }
 
     function stopPolling() {
-        if (progressTimer) {
-            clearInterval(progressTimer);
-            progressTimer = null;
+        if (pollTimer) {
+            clearInterval(pollTimer);
+            pollTimer = null;
         }
+        pollingFor = null;
     }
 
     async function readProgress() {
@@ -128,13 +162,21 @@ See the GNU Affero General Public License for more details.
         }
     }
 
-    async function refresh() {
+    /// Read the whole panel back.
+    ///
+    /// `quiet` is for the poll, and must touch neither `busy` nor `error`: flipping `busy`
+    /// every few seconds would grey out the buttons under the person's cursor, and
+    /// clearing `error` would wipe a message they are still reading. A failed poll says
+    /// nothing the next one will not say again.
+    async function refresh(options: { quiet?: boolean } = {}) {
+        const quiet = options.quiet === true;
         // Sets `busy` itself so the retry button below can disable while it runs; `run()`
         // calls this too, and setting the flag twice is harmless.
-        busy = true;
+        if (!quiet) busy = true;
         try {
-            status = await adapter.e2eeStatus();
-            error = "";
+            const next = await adapter.e2eeStatus();
+            status = next;
+            if (!quiet) error = "";
             try {
                 keyStore = await adapter.localKeyStatus();
             } catch {
@@ -143,14 +185,14 @@ See the GNU Affero General Public License for more details.
             }
             // Read the count straight away rather than waiting a poll interval, so
             // reopening the page mid-sweep shows the real figure instead of a zero.
-            if (status.state === "migrating") {
+            if (next.state === "migrating") {
                 await readProgress();
             }
-            syncPolling(status.state);
+            syncPolling(waitingOn(next));
         } catch (e) {
-            error = errorText(e);
+            if (!quiet) error = errorText(e);
         } finally {
-            busy = false;
+            if (!quiet) busy = false;
         }
     }
 
@@ -260,7 +302,7 @@ See the GNU Affero General Public License for more details.
         {#if error}
             <button
                 type="button"
-                onclick={refresh}
+                onclick={() => refresh()}
                 disabled={busy}
                 class="text-xs underline text-muted-foreground hover:text-foreground disabled:opacity-50"
             >
@@ -423,47 +465,80 @@ See the GNU Affero General Public License for more details.
             </div>
         {/if}
 
-        <!-- Installations waiting to be let in. -->
+        <!--
+            Installations waiting to be let in.
+
+            The code used to be typed back into a field before the button appeared, which
+            was two steps and a keyboard for something the eye has already done. A tick is
+            the same assertion: the person either compared the two screens or decided not
+            to, and retyping sixteen characters does not make the first more likely. What
+            it did make more likely was a typo being read as a mismatch.
+
+            The fingerprint still travels to the backend, which recomputes it from the key
+            it fetches at that moment - so a key swapped between this card being drawn and
+            the button being pressed is still caught. That check is not the typing; it
+            never was.
+        -->
         {#if pending.length > 0 && status.unlocked}
             <div class="space-y-2">
-                <p class="text-xs font-medium">{$_("encryption.pendingTitle")}</p>
+                <p class="flex items-center gap-1.5 text-xs font-medium">
+                    <ShieldAlert size={14} class="shrink-0 text-primary" aria-hidden="true" />
+                    {$_("encryption.pendingTitle")}
+                </p>
                 {#each pending as device (device.deviceId)}
-                    <div class="space-y-2 rounded-lg border border-border bg-card p-3">
+                    <div class="space-y-3 rounded-lg border border-border bg-card p-3">
                         <p class="text-xs text-muted-foreground">
                             {$_("encryption.compareInstruction")}
                         </p>
-                        <code class="block font-mono text-sm">{device.fingerprint}</code>
-                        {#if approving === device.deviceId}
+
+                        <code
+                            class="block select-all rounded bg-background p-2 text-center font-mono text-sm tracking-widest"
+                            >{device.fingerprint}</code
+                        >
+
+                        <label
+                            class="flex items-start gap-2 rounded-md border border-border/60 p-3 text-xs"
+                        >
                             <input
-                                bind:value={approvalFingerprint}
-                                placeholder="XXXX-XXXX-XXXX-XXXX"
-                                class="w-full rounded-md border border-border bg-background px-2 py-1 font-mono text-xs uppercase outline-none focus:ring-1 focus:ring-primary"
-                            />
-                            <button
-                                type="button"
-                                class="rounded-md bg-primary px-3 py-1.5 text-xs text-primary-foreground disabled:opacity-50"
+                                type="checkbox"
+                                checked={confirmedDevice === device.deviceId}
                                 disabled={busy}
-                                onclick={() =>
-                                    run(async () => {
-                                        await adapter.e2eeApproveDevice(
-                                            device.deviceId,
-                                            approvalFingerprint,
-                                        );
-                                        approving = null;
-                                        approvalFingerprint = "";
-                                    })}
-                            >
-                                {$_("encryption.approve")}
-                            </button>
-                        {:else}
-                            <button
-                                type="button"
-                                class="rounded-md border border-border px-3 py-1.5 text-xs"
-                                onclick={() => (approving = device.deviceId)}
-                            >
-                                {$_("encryption.letItIn")}
-                            </button>
-                        {/if}
+                                onchange={(e) =>
+                                    (confirmedDevice = e.currentTarget.checked
+                                        ? device.deviceId
+                                        : null)}
+                                class="mt-0.5"
+                            />
+                            <span>
+                                <span class="block font-medium"
+                                    >{$_("encryption.confirmMatch")}</span
+                                >
+                                <span class="text-muted-foreground"
+                                    >{$_("encryption.confirmMatchHint")}</span
+                                >
+                            </span>
+                        </label>
+
+                        <button
+                            type="button"
+                            class="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-1.5 text-xs text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+                            disabled={busy || confirmedDevice !== device.deviceId}
+                            onclick={() =>
+                                run(async () => {
+                                    await adapter.e2eeApproveDevice(
+                                        device.deviceId,
+                                        device.fingerprint,
+                                    );
+                                    confirmedDevice = null;
+                                })}
+                        >
+                            {#if busy}<Loader2
+                                    size={12}
+                                    class="animate-spin"
+                                    aria-hidden="true"
+                                />{/if}
+                            {$_("encryption.approve")}
+                        </button>
                     </div>
                 {/each}
             </div>
