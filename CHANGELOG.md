@@ -11,6 +11,8 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+## [1.8.7] - 2026-09-24
+
 ### Fixed
 - **A second computer can actually be approved now.** The settings said to approve a new
   installation from one that already has the key, and that request was never going to
