@@ -11,6 +11,8 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+## [1.8.8] - 2026-09-25
+
 ### Changed
 - **Approving a new computer is a tick, not a retyped code.** You had to read the sixteen
   characters off one screen and type them into the other before the approve button would
