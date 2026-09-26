@@ -111,7 +111,7 @@ interface SyncAttachmentInput {
 /** Stash format expected by the cloud API */
 interface SyncStashInput {
     id: string;
-    contextId: string | null;
+    contextId: string;
     content: string;
     enhancedContent: string | null;
     completed: boolean;
@@ -634,7 +634,9 @@ export class CloudSyncService {
                 lastSyncAt: config.lastSyncAt || null,
                 stashes: pushStashes.map(stash => ({
                     id: stash.id,
-                    contextId: stash.contextId || null,
+                    // Never null: every stash belongs to a context, and the cloud files a
+                    // missing one under the default context just as the backend here does.
+                    contextId: stash.contextId || 'default',
                     content: stash.content,
                     enhancedContent: stash.enhancedContent || null,
                     completed: !!stash.completed,

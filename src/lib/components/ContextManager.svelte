@@ -148,12 +148,24 @@
         await saveContext(newContext);
     }
 
+    /** What the confirmation says goes with the context - its stashes, done ones included. */
+    function deleteDescription(count: number): string {
+        if (count === 0) return $_("contexts.deleteConfirmEmpty");
+        if (count === 1) return $_("contexts.deleteConfirmOne");
+        return $_("contexts.deleteConfirmMany", { values: { count } });
+    }
+
     async function removeContext(id: string) {
-        // Delete from database (marks as deleted = 1)
+        // Deletes the context and every stash in it - the backend applies the same rule
+        // the cloud does, so the stashes go on every device.
         try {
             await adapter.deleteContext(id);
             // Remove from local array after successful DB deletion
             contexts = contexts.filter((c) => c.id !== id);
+            allStashes = allStashes.filter((s) => s.contextId !== id);
+            delete stashCounts[id];
+            delete stashTotals[id];
+            delete contextSizes[id];
         } catch (e) {
             console.error("Failed to delete context:", e);
         }
@@ -333,7 +345,7 @@
         <ConfirmationDialog
             bind:open={deleteConfirmationOpen}
             title={$_("contexts.deleteConfirm")}
-            description=""
+            description={deleteDescription(stashTotals[contextToDelete] || 0)}
             confirmText={$_("common.delete")}
             variant="destructive"
             onConfirm={() => {

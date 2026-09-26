@@ -39,6 +39,7 @@ describe('DesktopStorageAdapter', () => {
                 content: 'test content',
                 attachments: [],
                 createdAt: '2026-01-08T00:00:00Z',
+                contextId: 'default',
             };
 
             mockInvoke.mockResolvedValue(undefined);
@@ -55,6 +56,7 @@ describe('DesktopStorageAdapter', () => {
                 content: 'test content',
                 attachments: [],
                 createdAt: '2026-01-08T00:00:00Z',
+                contextId: 'default',
             };
 
             mockInvoke.mockResolvedValue(undefined);
@@ -74,12 +76,14 @@ describe('DesktopStorageAdapter', () => {
                     content: 'stash 1',
                     attachments: [],
                     createdAt: '2026-01-08T00:00:00Z',
+                    contextId: 'default',
                 },
                 {
                     id: '2',
                     content: 'stash 2',
                     attachments: [],
                     createdAt: '2026-01-08T01:00:00Z',
+                    contextId: 'default',
                 },
             ];
 

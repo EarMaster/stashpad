@@ -343,7 +343,7 @@ fn parse_markdown(content: &str, context_id: &str) -> ParsedDocument {
                 files: Vec::new(),
                 attachments: Vec::new(),
                 created_at,
-                context_id: Some(context_id.to_string()),
+                context_id: context_id.to_string(),
                 completed: section_completed,
                 completed_at: if section_completed {
                     Some(Utc::now().to_rfc3339())
@@ -517,8 +517,7 @@ pub async fn export_context_archive(
         let selected: Vec<StashItem> = all
             .into_iter()
             .filter(|s| {
-                let owner = s.context_id.clone().unwrap_or_else(|| "default".to_string());
-                owner == context_id && wanted.contains(&s.id)
+                s.context_id == context_id && wanted.contains(&s.id)
             })
             .collect();
 
@@ -684,9 +683,7 @@ pub async fn read_import_archive(
         db.get_stashes()
             .map_err(|e| e.to_string())?
             .into_iter()
-            .filter(|s| {
-                s.context_id.clone().unwrap_or_else(|| "default".to_string()) == context_id
-            })
+            .filter(|s| s.context_id == context_id)
             .collect::<Vec<_>>()
     };
 
@@ -763,7 +760,7 @@ pub async fn commit_import(
             let mut prepared: Vec<StashItem> = Vec::with_capacity(stashes.len());
 
             for mut stash in stashes {
-                stash.context_id = Some(copy_context.clone());
+                stash.context_id = copy_context.clone();
 
                 // Copy each referenced file out of the extraction directory and into the
                 // stash's own cache folder, building the attachment rows as we go.
@@ -865,7 +862,7 @@ mod tests {
             files: Vec::new(),
             attachments: Vec::new(),
             created_at: created_at.to_string(),
-            context_id: Some("ctx".to_string()),
+            context_id: "ctx".to_string(),
             completed,
             completed_at: None,
             updated_at: None,

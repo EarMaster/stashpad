@@ -225,6 +225,27 @@ describe('CloudSyncService', () => {
             expect(payload.stashes[0].updatedAt).toBe(new Date(1755512000 * 1000).toISOString());
         });
 
+        it('never sends a stash without a context', async () => {
+            // It used to send null, and the server stored the stash with no context at all -
+            // where the queue here showed it under Default and the server filed it nowhere.
+            const stash = {
+                id: 's1',
+                content: 'from an older row',
+                createdAt: '2026-08-18T10:00:00Z',
+                attachments: [],
+            } as unknown as StashItem;
+
+            const adapter = createAdapter({
+                loadStashesForSync: vi.fn().mockResolvedValue([stash]),
+            });
+            const service = new CloudSyncService(adapter);
+            await service.initialize(settingsWith(cloudConfig()));
+            await flushPromises();
+
+            const payload = (adapter.syncStashesApi as any).mock.calls[0][0];
+            expect(payload.stashes[0].contextId).toBe('default');
+        });
+
         it('includes the context description so the server can store it', async () => {
             // Without this the server had nothing to return and every pull blanked the
             // local description via INSERT OR REPLACE.

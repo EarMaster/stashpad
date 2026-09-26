@@ -11,6 +11,22 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+### Changed
+- **Deleting a context now deletes the stashes in it, and the confirmation says how many.**
+  They used to stay behind, filed under a context that no longer existed: no view showed
+  them, yet they were still stored, counted and synced. Deleted stashes stay recoverable on
+  the cloud for about 30 days. The Default context still cannot be deleted
+
+### Fixed
+- **Stashes left behind by an earlier context deletion are cleaned up.** After this update,
+  any stash still filed under a deleted context - on this device or in the cloud - is deleted
+  like its context was. You could not see these stashes anyway
+- **Every stash now belongs to a context, the same way here and in the cloud.** A stash
+  saved by an older version, imported from an older export, or created by an AI agent could
+  end up with no context at all. The queue showed it under Default, but clearing completed
+  stashes there, exporting, and the cloud all missed it. Such a stash is now filed under
+  Default everywhere
+
 ## [1.8.9] - 2026-09-26
 
 ### Security

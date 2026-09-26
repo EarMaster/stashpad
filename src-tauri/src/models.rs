@@ -11,6 +11,24 @@
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 // See the GNU Affero General Public License for more details.
 
+/// The context every installation has and cannot delete, and the home of any stash that
+/// has no other. The cloud uses the same id and the same rules.
+pub const DEFAULT_CONTEXT_ID: &str = "default";
+
+fn default_context_id() -> String {
+    DEFAULT_CONTEXT_ID.to_string()
+}
+
+fn context_or_default<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value: Option<String> = serde::Deserialize::deserialize(deserializer)?;
+    Ok(value
+        .filter(|id| !id.is_empty())
+        .unwrap_or_else(default_context_id))
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Attachment {
@@ -51,8 +69,12 @@ pub struct StashItem {
     #[serde(default)]
     pub attachments: Vec<Attachment>,
     pub created_at: String,
-    #[serde(default)]
-    pub context_id: Option<String>,
+    /// Never absent: every stash belongs to a context, and [`DEFAULT_CONTEXT_ID`] is where
+    /// it goes when there is no other. A missing, `null` or empty value - from an older
+    /// build, an older export, or a server that still stored NULL - reads as that one,
+    /// which is also where the queue always showed such a stash.
+    #[serde(default = "default_context_id", deserialize_with = "context_or_default")]
+    pub context_id: String,
     #[serde(default)]
     pub completed: bool,
     #[serde(default)]

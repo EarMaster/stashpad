@@ -292,10 +292,72 @@ impl DbManager {
         // Ensure default context exists
         self.ensure_default_context()?;
 
+        // Every stash belongs to a context. Bring old rows into line, then refuse new ones
+        // that are not: the column has been nullable since it was created, and adding NOT
+        // NULL would mean rebuilding the table under attachments' ON DELETE CASCADE.
+        self.enforce_context_rules()?;
+        self.conn.execute_batch(
+            "CREATE TRIGGER IF NOT EXISTS stashes_context_required_on_insert
+             BEFORE INSERT ON stashes WHEN NEW.context_id IS NULL
+             BEGIN SELECT RAISE(ABORT, 'every stash belongs to a context'); END;
+             CREATE TRIGGER IF NOT EXISTS stashes_context_required_on_update
+             BEFORE UPDATE OF context_id ON stashes WHEN NEW.context_id IS NULL
+             BEGIN SELECT RAISE(ABORT, 'every stash belongs to a context'); END;",
+        )?;
+
         // Repair rows left behind by the name-collision bug.
         self.reconcile_colliding_attachment_sizes();
 
         Ok(())
+    }
+
+    /// Apply the rules that decide where a stash lives, and return the stashes it deleted.
+    ///
+    /// The cloud applies the same two rules to everything it stores, so a stash ends up in
+    /// the same place on every side:
+    ///
+    /// * **No context, or one this device does not have, means the default context.** Older
+    ///   builds, older exports and an older server all wrote NULL, and the queue already
+    ///   showed those stashes under Default - but deleting completed stashes there, exporting
+    ///   the account, or filing attachments all looked for `'default'` and missed them.
+    /// * **A deleted context means a deleted stash.** Deleting a context used to leave its
+    ///   stashes pointing at it, where no view shows them, while they were still counted,
+    ///   synced and kept. The same holds when the deletion arrives from another device.
+    ///
+    /// Safe to run at any time and as often as needed: it only touches rows that break a
+    /// rule. The rows it deletes are stamped and queued like any other local deletion, and
+    /// the caller removes their files.
+    pub fn enforce_context_rules(&self) -> Result<Vec<(String, String)>> {
+        self.conn.execute(
+            "UPDATE stashes SET context_id = 'default' \
+             WHERE context_id IS NULL OR context_id = '' \
+                OR context_id NOT IN (SELECT id FROM contexts)",
+            [],
+        )?;
+
+        const IN_A_DELETED_CONTEXT: &str = "deleted = 0 AND context_id IN \
+             (SELECT id FROM contexts WHERE deleted = 1 AND id != 'default')";
+
+        let doomed: Vec<(String, String)> = {
+            let mut stmt = self.conn.prepare(&format!(
+                "SELECT id, context_id FROM stashes WHERE {}",
+                IN_A_DELETED_CONTEXT
+            ))?;
+            let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+            rows.collect::<Result<_>>()?
+        };
+
+        if !doomed.is_empty() {
+            self.conn.execute(
+                &format!(
+                    "UPDATE stashes SET deleted = 1, updated_at = ?1, pending_sync = 1 WHERE {}",
+                    IN_A_DELETED_CONTEXT
+                ),
+                params![now_ts()],
+            )?;
+        }
+
+        Ok(doomed)
     }
 
     /// Correct the recorded size of attachments that share a file with another row.
@@ -587,9 +649,18 @@ impl DbManager {
 
     /// Apply contexts received from the server in one transaction, preserving their
     /// timestamps so last-write-wins stays stable across devices.
-    pub fn import_contexts(&mut self, contexts: &[Context]) -> Result<()> {
+    ///
+    /// Returns the stashes a deletion took with it - see
+    /// [`enforce_context_rules`](Self::enforce_context_rules) - so the caller can remove
+    /// their files.
+    pub fn import_contexts(&mut self, contexts: &[Context]) -> Result<Vec<(String, String)>> {
         let tx = self.conn.transaction()?;
         for ctx in contexts {
+            // Nothing deletes the default context, so a tombstone for it is dropped rather
+            // than allowed to take every unfiled stash with it.
+            if ctx.id == "default" && ctx.deleted {
+                continue;
+            }
             // The default context keeps its name and rules on every device.
             let (name, rules_json) = if ctx.id == "default" {
                 ("Default".to_string(), "[]".to_string())
@@ -614,20 +685,22 @@ impl DbManager {
             )?;
         }
         tx.commit()?;
-        Ok(())
+        self.enforce_context_rules()
     }
 
-    pub fn delete_context(&mut self, id: &str) -> Result<()> {
+    /// Delete a context and every stash in it, returning those stashes so the caller can
+    /// remove their files.
+    pub fn delete_context(&mut self, id: &str) -> Result<Vec<(String, String)>> {
         // Protect default context from being deleted
         if id == "default" {
-            return Ok(()); // Silently ignore deletion attempts
+            return Ok(Vec::new()); // Silently ignore deletion attempts
         }
 
         self.conn.execute(
             "UPDATE contexts SET deleted = 1, updated_at = ?2, pending_sync = 1 WHERE id = ?1",
             params![id, now_ts()],
         )?;
-        Ok(())
+        self.enforce_context_rules()
     }
 
     // --- Stash CRUD ---
@@ -1091,6 +1164,8 @@ impl DbManager {
             }
         }
         tx.commit()?;
+        // A pulled stash can name a context this device has deleted, or never had.
+        self.enforce_context_rules()?;
         Ok(())
     }
 
@@ -1400,6 +1475,132 @@ mod tests {
         assert!(default_ctx.is_some(), "Default context should exist");
         assert_eq!(default_ctx.unwrap().name, "Default");
     }
+
+    fn plain_context(id: &str, deleted: bool) -> Context {
+        Context {
+            id: id.to_string(),
+            name: id.to_string(),
+            description: None,
+            rules: vec![],
+            last_used: None,
+            updated_at: Some(1),
+            deleted,
+        }
+    }
+
+    fn insert_raw_stash(db: &DbManager, id: &str, context_id: Option<&str>) {
+        db.conn
+            .execute(
+                "INSERT INTO stashes (id, context_id, content, files, created_at, completed, deleted) \
+                 VALUES (?1, ?2, 'x', '[]', '2026-09-27T00:00:00Z', 0, 0)",
+                params![id, context_id],
+            )
+            .unwrap();
+    }
+
+    /// (context_id, deleted) as stored.
+    fn stored(db: &DbManager, id: &str) -> (String, bool) {
+        db.conn
+            .query_row(
+                "SELECT context_id, deleted FROM stashes WHERE id = ?1",
+                params![id],
+                |row| Ok((row.get(0)?, row.get::<_, i32>(1)? != 0)),
+            )
+            .unwrap()
+    }
+
+    #[test]
+    fn a_stash_without_a_known_context_lands_in_the_default_one() {
+        let db = create_test_db();
+        // Planted the way older builds wrote them, with the guard lifted.
+        db.conn
+            .execute_batch(
+                "DROP TRIGGER stashes_context_required_on_insert; \
+                 DROP TRIGGER stashes_context_required_on_update;",
+            )
+            .unwrap();
+        insert_raw_stash(&db, "s-null", None);
+        insert_raw_stash(&db, "s-empty", Some(""));
+        insert_raw_stash(&db, "s-unknown", Some("never-synced"));
+
+        let deleted = db.enforce_context_rules().unwrap();
+
+        assert!(deleted.is_empty(), "nothing here is in a deleted context");
+        for id in ["s-null", "s-empty", "s-unknown"] {
+            assert_eq!(stored(&db, id), ("default".to_string(), false), "{}", id);
+        }
+    }
+
+    #[test]
+    fn deleting_a_context_deletes_its_stashes() {
+        let mut db = create_test_db();
+        db.save_context(&plain_context("work", false), WriteOrigin::LocalEdit).unwrap();
+        insert_raw_stash(&db, "s-work", Some("work"));
+        insert_raw_stash(&db, "s-default", Some("default"));
+
+        let deleted = db.delete_context("work").unwrap();
+
+        assert_eq!(deleted, vec![("s-work".to_string(), "work".to_string())]);
+        assert_eq!(stored(&db, "s-work"), ("work".to_string(), true));
+        assert_eq!(stored(&db, "s-default"), ("default".to_string(), false));
+        let pending: i32 = db
+            .conn
+            .query_row("SELECT pending_sync FROM stashes WHERE id = 's-work'", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(pending, 1, "the deletion has to reach the cloud");
+    }
+
+    #[test]
+    fn a_context_deleted_on_another_device_takes_its_stashes_here_too() {
+        let mut db = create_test_db();
+        db.import_contexts(&[plain_context("work", false)]).unwrap();
+        insert_raw_stash(&db, "s-work", Some("work"));
+
+        let deleted = db.import_contexts(&[plain_context("work", true)]).unwrap();
+
+        assert_eq!(deleted.len(), 1);
+        assert!(stored(&db, "s-work").1, "a stash in a deleted context is deleted");
+    }
+
+    #[test]
+    fn the_default_context_survives_a_tombstone_from_the_server() {
+        let mut db = create_test_db();
+        insert_raw_stash(&db, "s-default", Some("default"));
+
+        db.import_contexts(&[plain_context("default", true)]).unwrap();
+
+        assert!(db.get_contexts().unwrap().iter().any(|c| c.id == "default" && !c.deleted));
+        assert!(!stored(&db, "s-default").1);
+    }
+
+    #[test]
+    fn the_database_refuses_a_stash_without_a_context() {
+        let db = create_test_db();
+        let insert = db.conn.execute(
+            "INSERT INTO stashes (id, context_id, content, files, created_at) \
+             VALUES ('s-raw', NULL, 'x', '[]', '2026-09-27T00:00:00Z')",
+            [],
+        );
+        assert!(insert.is_err());
+
+        insert_raw_stash(&db, "s-raw", Some("default"));
+        let update = db
+            .conn
+            .execute("UPDATE stashes SET context_id = NULL WHERE id = 's-raw'", []);
+        assert!(update.is_err());
+    }
+
+    #[test]
+    fn a_stash_from_ipc_without_a_context_reads_as_the_default_one() {
+        for payload in [
+            r#"{"id":"a","content":"x","createdAt":"t"}"#,
+            r#"{"id":"a","content":"x","createdAt":"t","contextId":null}"#,
+            r#"{"id":"a","content":"x","createdAt":"t","contextId":""}"#,
+        ] {
+            let stash: StashItem = serde_json::from_str(payload).unwrap();
+            assert_eq!(stash.context_id, "default", "{}", payload);
+        }
+    }
     
     #[test]
     fn test_save_and_get_context() {
@@ -1468,7 +1669,7 @@ mod tests {
 
         let with_file = StashItem {
             id: "s-with".to_string(),
-            context_id: Some("default".to_string()),
+            context_id: "default".to_string(),
             content: "has an attachment".to_string(),
             enhanced_content: None,
             files: vec![],
@@ -1535,7 +1736,7 @@ mod tests {
         
         let stash = StashItem {
             id: "test-stash-1".to_string(),
-            context_id: Some("default".to_string()),
+            context_id: "default".to_string(),
             content: "Test stash content".to_string(),
             enhanced_content: None,
             files: vec![],
@@ -1563,7 +1764,7 @@ mod tests {
         
         let stash = StashItem {
             id: "stash-to-delete".to_string(),
-            context_id: Some("default".to_string()),
+            context_id: "default".to_string(),
             content: "Will be deleted".to_string(),
             enhanced_content: None,
             files: vec![],
@@ -1591,7 +1792,7 @@ mod tests {
         // Create completed and active stashes
         let completed = StashItem {
             id: "completed-1".to_string(),
-            context_id: Some("default".to_string()),
+            context_id: "default".to_string(),
             content: "Completed task".to_string(),
             enhanced_content: None,
             files: vec![],
@@ -1605,7 +1806,7 @@ mod tests {
         
         let active = StashItem {
             id: "active-1".to_string(),
-            context_id: Some("default".to_string()),
+            context_id: "default".to_string(),
             content: "Active task".to_string(),
             enhanced_content: None,
             files: vec![],
@@ -1634,7 +1835,7 @@ mod tests {
         
         let stash1 = StashItem {
             id: "pos-1".to_string(),
-            context_id: Some("default".to_string()),
+            context_id: "default".to_string(),
             content: "First".to_string(),
             enhanced_content: None,
             files: vec![],
@@ -1648,7 +1849,7 @@ mod tests {
         
         let stash2 = StashItem {
             id: "pos-2".to_string(),
-            context_id: Some("default".to_string()),
+            context_id: "default".to_string(),
             content: "Second".to_string(),
             enhanced_content: None,
             files: vec![],
@@ -2054,7 +2255,7 @@ mod tests {
     fn stash_with_updated_at(id: &str, content: &str, updated_at: Option<u64>) -> StashItem {
         StashItem {
             id: id.to_string(),
-            context_id: Some("default".to_string()),
+            context_id: "default".to_string(),
             content: content.to_string(),
             enhanced_content: None,
             files: vec![],
