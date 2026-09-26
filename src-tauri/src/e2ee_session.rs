@@ -192,9 +192,15 @@ pub fn seal_stash_payload(
     for stash in stashes.iter_mut() {
         let id = stash["id"].as_str().unwrap_or_default().to_string();
 
-        // A tombstone carries no text, and the server stores none for one either. Sealing
-        // an empty string would only add a blob nobody reads.
+        strip_attachment_details(stash);
+
+        // A tombstone carries no text: the server stores none for one, and sealing an empty
+        // string would only add a blob nobody reads. So the text is removed here rather
+        // than skipped - the local row keeps it after a delete, and skipping sealing used
+        // to send it along in the clear.
         if stash["deleted"].as_bool().unwrap_or(false) {
+            stash["content"] = serde_json::json!("");
+            stash["enhancedContent"] = serde_json::Value::Null;
             continue;
         }
 
@@ -211,6 +217,25 @@ pub fn seal_stash_payload(
         )?;
     }
     Ok(())
+}
+
+/// Reduce each attachment in a pushed stash to its id and deleted flag.
+///
+/// Its name, type and size already travel sealed, in the descriptor `seal_attachment`
+/// builds and the upload stores - together with the file's own key. This installation keeps
+/// no copy of that descriptor, so it cannot send it again, and sending the local plaintext
+/// instead is what went wrong: the server wrote it over the descriptor, the key was lost,
+/// and the file name was back on the server in the clear. The id is all a push needs to
+/// file an attachment under its stash, and the flag to say it was removed.
+fn strip_attachment_details(stash: &mut serde_json::Value) {
+    let Some(attachments) = stash["attachments"].as_array_mut() else {
+        return;
+    };
+    for attachment in attachments.iter_mut() {
+        if let Some(fields) = attachment.as_object_mut() {
+            fields.retain(|name, _| name == "id" || name == "deleted");
+        }
+    }
 }
 
 /// Open a stash-sync response on its way in.
@@ -273,7 +298,11 @@ pub fn seal_context_payload(
 
     for ctx in contexts.iter_mut() {
         let id = ctx["id"].as_str().unwrap_or_default().to_string();
+        // As for a stash: a deleted context leaves without its name, description or rules.
         if ctx["deleted"].as_bool().unwrap_or(false) {
+            ctx["name"] = serde_json::json!("");
+            ctx["description"] = serde_json::Value::Null;
+            ctx["rules"] = serde_json::json!([]);
             continue;
         }
 
@@ -733,6 +762,40 @@ mod tests {
         });
     }
 
+    /// An attachment's plaintext name, type and size must not leave with the push: they
+    /// travel sealed in the descriptor, and the server once wrote this copy over it.
+    #[test]
+    fn a_push_carries_no_attachment_details() {
+        with_key(|| {
+            let mut payload = stash_payload();
+            payload["stashes"][0]["attachments"] = serde_json::json!([{
+                "id": "44444444-4444-4444-8444-444444444444",
+                "fileName": "Q3-layoffs.xlsx",
+                "fileSize": 9001,
+                "mimeType": "application/vnd.ms-excel",
+                "syntax": null
+            }]);
+            seal_stash_payload(&mut payload, USER).expect("seal");
+
+            assert_eq!(
+                payload["stashes"][0]["attachments"],
+                serde_json::json!([{ "id": "44444444-4444-4444-8444-444444444444" }])
+            );
+            assert!(!payload.to_string().contains("Q3-layoffs"));
+        });
+    }
+
+    #[test]
+    fn without_a_key_attachment_details_are_sent_as_before() {
+        let _guard = lock_or_recover(&TEST_LOCK);
+        clear_content_key();
+        let mut payload = stash_payload();
+        payload["stashes"][0]["attachments"] =
+            serde_json::json!([{ "id": "a", "fileName": "shot.png", "fileSize": 5 }]);
+        seal_stash_payload(&mut payload, USER).expect("seal");
+        assert_eq!(payload["stashes"][0]["attachments"][0]["fileName"], "shot.png");
+    }
+
     #[test]
     fn without_a_key_nothing_is_touched() {
         let _guard = lock_or_recover(&TEST_LOCK);
@@ -743,15 +806,37 @@ mod tests {
         assert!(payload["cryptoVersion"].is_null());
     }
 
-    /// A tombstone carries no text and the server stores none for one either.
+    /// A tombstone carries no text, and the local row still holds it after a delete - so it
+    /// has to be removed on the way out, not merely left unsealed.
     #[test]
-    fn a_delete_is_not_sealed() {
+    fn a_delete_leaves_without_its_text() {
         with_key(|| {
             let mut payload = stash_payload();
             payload["stashes"][0]["deleted"] = serde_json::json!(true);
-            payload["stashes"][0]["content"] = serde_json::json!("");
             seal_stash_payload(&mut payload, USER).expect("seal");
             assert_eq!(payload["stashes"][0]["content"], "");
+            assert!(payload["stashes"][0]["enhancedContent"].is_null());
+            assert!(!payload.to_string().contains("the original text"));
+        });
+    }
+
+    #[test]
+    fn a_deleted_context_leaves_without_its_name_or_rules() {
+        with_key(|| {
+            let mut payload = serde_json::json!({
+                "contexts": [{
+                    "id": "55555555-5555-4555-8555-555555555555",
+                    "name": "Steuer 2026",
+                    "description": "Belege",
+                    "rules": [{ "ruleType": "process", "value": "excel.exe" }],
+                    "deleted": true
+                }]
+            });
+            seal_context_payload(&mut payload, USER).expect("seal");
+            let ctx = &payload["contexts"][0];
+            assert_eq!(ctx["name"], "");
+            assert!(ctx["description"].is_null());
+            assert_eq!(ctx["rules"], serde_json::json!([]));
         });
     }
 

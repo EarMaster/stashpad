@@ -555,6 +555,7 @@ pub fn run() {
             sync::sync_stashes_api,
             sync::sync_contexts_api,
             sync::upload_attachment_to_cloud,
+            sync::convert_attachments_to_encrypted,
             sync::download_attachment_from_cloud,
             sync::connect_websocket,
             sync::disconnect_websocket,
