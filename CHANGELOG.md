@@ -11,6 +11,8 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+## [1.8.9] - 2026-09-26
+
 ### Security
 - **Attaching a file to an encrypted stash no longer risks its key.** On an account with
   encryption on, syncing a stash right after adding an attachment to it could overwrite that
