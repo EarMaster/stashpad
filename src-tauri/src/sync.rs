@@ -568,6 +568,8 @@ pub async fn upload_attachment_to_cloud(
         &user_id,
     )?;
 
+    let is_sealed = sealed.is_some();
+
     // For an encrypted account the name, type and syntax travel inside the sealed blob, so
     // the columns that used to hold them carry nothing.
     let (file_content, declared_name, declared_size, declared_mime, declared_syntax) = match sealed
@@ -625,7 +627,10 @@ pub async fn upload_attachment_to_cloud(
     // 3. PUT file to R2
     let put_resp = client
         .put(upload_url)
-        .header("Content-Type", attachment.mime_type.unwrap_or_else(|| "application/octet-stream".to_string()))
+        .header(
+            "Content-Type",
+            upload_content_type(is_sealed, attachment.mime_type.as_deref()),
+        )
         .body(file_content)
         .send()
         .await
@@ -1229,5 +1234,302 @@ mod tests {
         let snippet = error_snippet(&body);
         assert_eq!(snippet, body);
         assert!(!snippet.ends_with('…'));
+    }
+}
+
+// ---------------------------------------------------------------------------------------
+// Re-encrypting attachments written before encryption was switched on
+// ---------------------------------------------------------------------------------------
+
+/// Set once this session has done all the attachment conversion it can: everything is
+/// sealed, or what is left is nothing this installation can fix. Saves a listing request -
+/// and a storage check per file on the server - on every later sync.
+static ATTACHMENTS_SETTLED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Most attachments re-encrypted in one sync cycle.
+///
+/// Each is a download or a disk read, an encryption and an upload, and a sync cycle should
+/// stay short: the rest are picked up by the next one, and the one after.
+const MAX_CONVERSIONS_PER_CYCLE: usize = 5;
+
+/// What one pass achieved, for the log and the sync panel.
+#[derive(Debug, Default, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AttachmentConversion {
+    pub converted: usize,
+    /// Plaintext attachments the account still has, as the server counted before this pass.
+    pub remaining: i64,
+    /// Sealed bytes whose key was lost, that this installation holds no copy of.
+    pub unrecoverable: usize,
+}
+
+/// Where the readable bytes of an attachment come from.
+#[derive(Debug, PartialEq)]
+enum PlaintextSource {
+    /// This installation's own copy - always preferred, and the only way to rescue a file
+    /// whose key a sync push once overwrote.
+    Local(String),
+    /// The server's copy, which is plaintext: it was uploaded before encryption.
+    Server,
+    /// Sealed bytes with their key gone, and no local copy. Nothing here can open them.
+    Unrecoverable,
+}
+
+fn plaintext_source(local_path: Option<&str>, damaged: bool) -> PlaintextSource {
+    match local_path.filter(|path| !path.trim().is_empty() && std::path::Path::new(path).exists())
+    {
+        Some(path) => PlaintextSource::Local(path.to_string()),
+        None if damaged => PlaintextSource::Unrecoverable,
+        None => PlaintextSource::Server,
+    }
+}
+
+/// The `Content-Type` an upload declares to the object store, which keeps it as metadata.
+///
+/// Sealed bytes say nothing: the real type travels in the sealed descriptor, and declaring
+/// it here would hand it to the bucket in the clear beside the ciphertext.
+fn upload_content_type(sealed: bool, mime_type: Option<&str>) -> &str {
+    match (sealed, mime_type) {
+        (false, Some(mime)) => mime,
+        _ => "application/octet-stream",
+    }
+}
+
+/// Re-encrypt the attachments this account still stores in plaintext.
+///
+/// Records are converted by the sync sweep, but an uploaded file is never uploaded again, so
+/// files attached before encryption was switched on stayed plaintext on the server - bytes,
+/// name and type - indefinitely. This works through the server's list of them a few at a
+/// time, on every sync, until none are left, and then records that on the account.
+///
+/// Each file is proposed, uploaded to a staging key and confirmed, and the server swaps it
+/// in only on confirmation (`cloud/src/routes/attachments.rs`), so an interrupted pass costs
+/// nothing and the next one simply tries again.
+#[tauri::command]
+pub async fn convert_attachments_to_encrypted(
+    state: State<'_, Arc<DbState>>,
+    settings_state: State<'_, Arc<SettingsState>>,
+) -> Result<AttachmentConversion, UiError> {
+    use std::sync::atomic::Ordering;
+
+    let mut report = AttachmentConversion::default();
+    if ATTACHMENTS_SETTLED.load(Ordering::Relaxed) || !crate::e2ee_session::is_unlocked() {
+        return Ok(report);
+    }
+
+    let settings = settings_state.inner().clone();
+    let user_id = {
+        let settings = settings.lock_settings();
+        settings
+            .cloud_config
+            .as_ref()
+            .and_then(|c| c.user_id.clone())
+            .unwrap_or_default()
+    };
+
+    // Files this pass could not convert stay in the list, so the next page starts past them.
+    let mut offset: i64 = 0;
+    let mut first_page = true;
+    loop {
+        let page = e2ee_get(&settings, &format!("/attachments/unsealed?offset={}", offset)).await?;
+
+        if !page["encrypted"].as_bool().unwrap_or(false) {
+            ATTACHMENTS_SETTLED.store(true, Ordering::Relaxed);
+            return Ok(report);
+        }
+        if first_page {
+            report.remaining = page["remaining"].as_i64().unwrap_or(0);
+            first_page = false;
+        }
+
+        if page["remaining"].as_i64().unwrap_or(0) == 0 {
+            if !page["done"].as_bool().unwrap_or(false) {
+                // The server verifies this rather than taking it on trust.
+                e2ee_post(&settings, "/e2ee/attachments-done", serde_json::json!({})).await?;
+                log::info!("[Attachment] Every attachment on this account is encrypted");
+            }
+            ATTACHMENTS_SETTLED.store(true, Ordering::Relaxed);
+            return Ok(report);
+        }
+
+        let items = page["attachments"].as_array().cloned().unwrap_or_default();
+        if items.is_empty() {
+            break;
+        }
+
+        let mut skipped: i64 = 0;
+        for item in &items {
+            if report.converted >= MAX_CONVERSIONS_PER_CYCLE {
+                return Ok(report);
+            }
+            let Some(id) = item["id"].as_str() else {
+                skipped += 1;
+                continue;
+            };
+
+            let local_path: Option<String> = {
+                let db = state.lock_db();
+                db.conn
+                    .query_row(
+                        "SELECT file_path FROM attachments WHERE id = ?1",
+                        params![id],
+                        |row| row.get(0),
+                    )
+                    .optional()
+                    .map_err(|e| e.to_string())?
+            };
+
+            let source =
+                plaintext_source(local_path.as_deref(), item["damaged"].as_bool().unwrap_or(false));
+            if source == PlaintextSource::Unrecoverable {
+                report.unrecoverable += 1;
+                skipped += 1;
+                continue;
+            }
+
+            match reencrypt_attachment(&settings, &user_id, item, source).await {
+                Ok(true) => {
+                    report.converted += 1;
+                    log::info!("[Attachment] Re-encrypted {}", id);
+                }
+                Ok(false) => skipped += 1,
+                Err(e) => {
+                    // One file failing must not hold up the rest; it is retried next sync.
+                    log::warn!("[Attachment] Could not re-encrypt {}: {}", id, e);
+                    skipped += 1;
+                }
+            }
+        }
+        offset += skipped;
+    }
+
+    // Every page read, and what is left is nothing this installation can do more about.
+    if report.converted == 0 {
+        ATTACHMENTS_SETTLED.store(true, Ordering::Relaxed);
+    }
+    if report.unrecoverable > 0 {
+        log::warn!(
+            "[Attachment] {} attachment(s) lost their key and are not on this device",
+            report.unrecoverable
+        );
+    }
+    Ok(report)
+}
+
+/// Seal one attachment and swap it in. `Ok(false)` when the server says it already is.
+async fn reencrypt_attachment(
+    settings: &Arc<SettingsState>,
+    user_id: &str,
+    item: &serde_json::Value,
+    source: PlaintextSource,
+) -> Result<bool, UiError> {
+    let id = item["id"].as_str().ok_or("attachment without an id")?;
+
+    let plaintext = match source {
+        PlaintextSource::Local(path) => tauri::async_runtime::spawn_blocking(move || fs::read(path))
+            .await
+            .map_err(|e| format!("Attachment read task failed: {}", e))?
+            .map_err(|e| format!("Could not read the local copy: {}", e))?,
+        PlaintextSource::Server => {
+            let link = e2ee_get(settings, &format!("/attachments/{}", id)).await?;
+            let url = link["downloadUrl"]
+                .as_str()
+                .ok_or_else(|| "No download URL in response".to_string())?;
+            let response = transfer_client()?
+                .get(url)
+                .send()
+                .await
+                .map_err(|e| format!("Failed to download attachment: {}", e))?;
+            if !response.status().is_success() {
+                return Err(format!("Attachment download failed: {}", response.status()).into());
+            }
+            let bytes = response
+                .bytes()
+                .await
+                .map_err(|e| format!("Failed to read attachment body: {}", e))?
+                .to_vec();
+            // The listing said how long the plaintext is. Anything else is not the file
+            // this row describes, and sealing it would make that permanent.
+            if Some(bytes.len() as i64) != item["fileSize"].as_i64() {
+                return Err("the stored file is not the size its record says".into());
+            }
+            bytes
+        }
+        PlaintextSource::Unrecoverable => return Ok(false),
+    };
+
+    let sealed = crate::e2ee_session::seal_attachment(
+        &plaintext,
+        item["fileName"].as_str().unwrap_or("attachment"),
+        item["mimeType"].as_str(),
+        item["syntax"].as_str(),
+        id,
+        user_id,
+    )?
+    .ok_or("this installation is locked")?;
+
+    let proposal = e2ee_post(
+        settings,
+        &format!("/attachments/{}/rekey", id),
+        serde_json::json!({ "fileName": sealed.metadata, "fileSize": sealed.bytes.len() }),
+    )
+    .await?;
+    if proposal["alreadySealed"].as_bool() == Some(true) {
+        return Ok(false);
+    }
+    let upload_url = proposal["uploadUrl"]
+        .as_str()
+        .ok_or_else(|| "No upload URL in response".to_string())?;
+
+    let put = transfer_client()?
+        .put(upload_url)
+        .header("Content-Type", upload_content_type(true, None))
+        .body(sealed.bytes)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to upload the encrypted file: {}", e))?;
+    if !put.status().is_success() {
+        return Err(format!("Storage rejected the encrypted file: {}", put.status()).into());
+    }
+
+    e2ee_post(
+        settings,
+        &format!("/attachments/{}/rekey/confirm", id),
+        serde_json::json!({}),
+    )
+    .await?;
+    Ok(true)
+}
+
+#[cfg(test)]
+mod conversion_tests {
+    use super::*;
+
+    #[test]
+    fn a_local_copy_is_always_preferred() {
+        let file = std::env::temp_dir().join("stashpad-conversion-test.bin");
+        fs::write(&file, b"x").unwrap();
+        let path = file.to_string_lossy().to_string();
+
+        assert_eq!(plaintext_source(Some(&path), false), PlaintextSource::Local(path.clone()));
+        // Even for sealed bytes whose key was lost: the local copy is the rescue.
+        assert_eq!(plaintext_source(Some(&path), true), PlaintextSource::Local(path.clone()));
+        fs::remove_file(&file).ok();
+    }
+
+    #[test]
+    fn without_a_local_copy_only_plaintext_can_come_from_the_server() {
+        assert_eq!(plaintext_source(None, false), PlaintextSource::Server);
+        assert_eq!(plaintext_source(Some(""), false), PlaintextSource::Server);
+        assert_eq!(plaintext_source(Some("/no/such/file"), false), PlaintextSource::Server);
+        assert_eq!(plaintext_source(None, true), PlaintextSource::Unrecoverable);
+    }
+
+    #[test]
+    fn a_sealed_upload_tells_storage_nothing_about_its_type() {
+        assert_eq!(upload_content_type(true, Some("image/png")), "application/octet-stream");
+        assert_eq!(upload_content_type(false, Some("image/png")), "image/png");
+        assert_eq!(upload_content_type(false, None), "application/octet-stream");
     }
 }

@@ -185,6 +185,8 @@ export function installMockBackend(overrides: Partial<DemoState> = {}): void {
                 };
             case 'upload_attachment_to_cloud':
                 return false;
+            case 'convert_attachments_to_encrypted':
+                return { converted: 0, remaining: 0, unrecoverable: 0 };
             case 'check_screen_recording_permission':
                 return true;
             case 'check_apple_intelligence_available':

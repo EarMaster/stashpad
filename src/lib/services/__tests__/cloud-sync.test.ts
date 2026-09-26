@@ -39,6 +39,7 @@ function createAdapter(overrides: Partial<IStorageService> = {}) {
         importStashes: vi.fn().mockResolvedValue(undefined),
         importContexts: vi.fn().mockResolvedValue(undefined),
         uploadAttachmentToCloud: vi.fn().mockResolvedValue(false),
+        convertAttachmentsToEncrypted: vi.fn().mockResolvedValue({ converted: 0, remaining: 0, unrecoverable: 0 }),
         downloadAttachmentFromCloud: vi.fn().mockResolvedValue('/cache/file.png'),
         connectWebSocket: vi.fn().mockResolvedValue(undefined),
         disconnectWebSocket: vi.fn().mockResolvedValue(undefined),

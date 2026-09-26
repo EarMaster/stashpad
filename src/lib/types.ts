@@ -148,6 +148,14 @@ export interface Settings {
     autoUpdateChecks?: boolean;
 }
 
+/** What one pass of re-encrypting older attachments achieved. */
+export interface AttachmentConversion {
+    converted: number;
+    remaining: number;
+    /** Files whose key was lost and that this installation holds no copy of. */
+    unrecoverable: number;
+}
+
 export interface IStorageService {
     saveStash(stash: StashItem, options?: { invertPosition?: boolean }): Promise<void>;
     saveStashes(stashes: StashItem[]): Promise<void>;
@@ -262,6 +270,11 @@ export interface IStorageService {
     openSystemPromptFile(): Promise<void>;
     /** Uploads the attachment's bytes. Resolves true only if bytes were actually sent. */
     uploadAttachmentToCloud(attachmentId: string): Promise<boolean>;
+    /**
+     * Re-encrypts a few of the attachments an encrypted account still stores in plaintext -
+     * files uploaded before encryption was switched on. A no-op once none are left.
+     */
+    convertAttachmentsToEncrypted(): Promise<AttachmentConversion>;
 
     // Device passphrase - only ever anything but "notNeeded" on a machine with no OS
     // credential store, where a typed passphrase is the only real protection available.

@@ -11,6 +11,20 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+### Security
+- **Attaching a file to an encrypted stash no longer risks its key.** On an account with
+  encryption on, syncing a stash right after adding an attachment to it could overwrite that
+  file's encryption key with a copy of its plain name and size - which destroyed the key.
+  The file then looked broken on every other device, and only the one that uploaded it still
+  had a readable copy. Cloud sync no longer sends an attachment's name, size or type on an
+  ordinary sync; only the upload itself sets them
+- **Files attached before encryption was turned on are re-encrypted automatically.** They
+  used to stay readable on the server indefinitely, because nothing re-uploaded them once
+  encryption was on. A few are now re-encrypted in the background after each sync until
+  none are left
+- An uploaded file's type is no longer sent to cloud storage in the clear on an encrypted
+  account
+
 ## [1.8.8] - 2026-09-25
 
 ### Changed

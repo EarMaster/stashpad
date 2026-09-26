@@ -735,6 +735,21 @@ export class CloudSyncService {
             // marked as present locally and are not immediately pushed back up.
             const uploadedAttachments = await this.uploadPendingAttachments(localStashes);
 
+            // Files uploaded before encryption was switched on are still plaintext on the
+            // server; a few are re-encrypted per sync until none are left. Never allowed to
+            // fail the sync: the stashes it carried are fine either way, and the pass simply
+            // resumes next time.
+            try {
+                const conversion = await this.adapter.convertAttachmentsToEncrypted();
+                if (conversion.converted > 0) {
+                    console.info(
+                        `[CloudSync] Re-encrypted ${conversion.converted} of ${conversion.remaining} older attachment(s)`
+                    );
+                }
+            } catch (e) {
+                console.warn('[CloudSync] Could not re-encrypt older attachments:', e);
+            }
+
             // Update last sync timestamp
             if (this.settings?.cloudConfig && (stashResponse || contextResponse)) {
                 this.settings.cloudConfig.lastSyncAt =
