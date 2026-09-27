@@ -113,7 +113,7 @@
     <div
         use:portal={"body"}
         use:trapFocus
-        class="fixed left-[50%] top-[50%] z-[100] w-full max-w-sm translate-x-[-50%] translate-y-[-50%] outline-none"
+        class="fixed left-[50%] top-[50%] z-[100] w-full max-w-sm translate-x-[-50%] translate-y-[-50%] outline-none px-4"
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}

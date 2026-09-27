@@ -11,6 +11,16 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+### Fixed
+- **Importing a context whose rules match your current ones no longer reports a conflict.**
+  The check compared the imported and current rules as JSON text, and an export writes a
+  rule's fields in a different order than the app does - so any context with auto-switch
+  rules was flagged as conflicting with itself on every import, asking you to pick between
+  two copies of the same rule
+- **Export, import and confirmation dialogs no longer touch the window edges on a narrow
+  window.** Each had a maximum width but no side margin, so below about 670px wide the panel
+  ran edge to edge with no gap on either side
+
 ## [1.8.10] - 2026-09-27
 
 ### Changed
