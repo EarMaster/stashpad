@@ -435,6 +435,8 @@ export interface ImportPreview {
      * silently, so an unreadable archive lost every creation date without a word.
      */
     unreadableDates: number;
+    /** Attachments the document links to that the archive does not contain; skipped on import. */
+    missingAttachments: string[];
 }
 
 export interface FilePreviewData {

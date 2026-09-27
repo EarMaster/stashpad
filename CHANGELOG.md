@@ -26,6 +26,20 @@ popover, not for the person who wrote the commit.
   end up with no context at all. The queue showed it under Default, but clearing completed
   stashes there, exporting, and the cloud all missed it. Such a stash is now filed under
   Default everywhere
+- **Exporting a context with two attachments of the same name no longer fails silently.**
+  Two pasted screenshots, both called `image.png`, made the export archive stop after the
+  first one - and the dialog gave no sign anything had gone wrong. Files are now named by
+  attachment id inside the archive, so a repeated name no longer collides
+- **An export refuses to leave a file out rather than write an incomplete archive.** An
+  attachment synced from another device but not yet downloaded used to be dropped from the
+  archive while the document still linked to it. The export now fetches anything missing
+  and tries again, or says exactly which file it could not include
+- **Importing a `.zip` export now actually finds its attachments.** The importer looked for
+  each file under the *new* id an imported stash gets, which is never the id the archive was
+  written with, so no attachment from an export ever survived an import. Older exports still
+  import correctly
+- **A failed export or import now shows why, instead of leaving the dialog open with nothing
+  said.** Both used to fail silently to the console
 
 ## [1.8.9] - 2026-09-26
 

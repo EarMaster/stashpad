@@ -22,7 +22,7 @@
 //! Doing it here means the bytes never leave the Rust side, compression runs off the UI
 //! thread, and an import is a single transaction instead of `2N + M` round trips.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -80,6 +80,12 @@ pub struct ImportPreview {
     /// bad archive quietly lost every creation date. Reporting the count lets the UI say
     /// so instead.
     pub unreadable_dates: u32,
+    /// Attachments the document links to that the archive does not contain.
+    ///
+    /// They are skipped on import. Said up front because the old importer skipped them
+    /// with nothing but a log line, and a stash quietly arriving without its screenshot
+    /// is found out much later, if at all.
+    pub missing_attachments: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -153,14 +159,70 @@ fn parse_heading_date(raw: &str) -> Option<DateTime<Utc>> {
 // Markdown generation
 // ---------------------------------------------------------------------------
 
-/// Short form of a stash id used to keep attachment names unique inside an archive.
-fn stash_prefix(id: &str) -> String {
-    id.chars().take(8).collect()
+/// One attachment as it goes into an archive.
+struct ArchivedFile {
+    /// The attachment's id, or empty for a legacy `files` path, which never had one.
+    id: String,
+    /// The name the stash shows it under.
+    name: String,
+    /// Where its bytes are on this device. Empty when they never arrived here.
+    source: String,
+    /// Its name inside `attachments/`.
+    entry: String,
 }
 
-/// Name an attachment gets inside the archive: `<8 chars of stash id>_<file name>`.
-fn archive_file_name(stash_id: &str, file_name: &str) -> String {
-    format!("{}_{}", stash_prefix(stash_id), file_name)
+/// Name an attachment gets inside an archive: `<attachment id>_<file name>`.
+///
+/// The id is what keeps it unique. The previous `<8 chars of stash id>_<file name>` gave
+/// two attachments of one name in one stash - two pasted `image.png`s, the ordinary case -
+/// the same entry, the zip writer refused the second, and the export died part way with
+/// one file written. The name is kept after the id so someone looking for a particular
+/// file in the archive can still find it by name.
+fn archive_entry_name(key: &str, file_name: &str) -> String {
+    let name: String = file_name
+        .chars()
+        .map(|c| {
+            // Separators would make a directory of it, and the rest are refused by
+            // Windows when someone extracts the archive there.
+            if matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control() {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect();
+    let name = if name.trim().is_empty() {
+        "attachment".to_string()
+    } else {
+        name
+    };
+    format!("{}_{}", key, name)
+}
+
+/// Every file a stash refers to, as it will be placed in an archive.
+fn archived_files(stash: &StashItem) -> Vec<ArchivedFile> {
+    let legacy = stash.files.iter().map(|path| {
+        let name = Path::new(path)
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| path.clone());
+        // No id to key on, so a fresh one: it has the same shape, which is what the
+        // importer recognises and strips.
+        let entry = archive_entry_name(&Uuid::new_v4().to_string(), &name);
+        ArchivedFile {
+            id: String::new(),
+            name,
+            source: path.clone(),
+            entry,
+        }
+    });
+    let current = stash.attachments.iter().map(|a| ArchivedFile {
+        id: a.id.clone(),
+        name: a.file_name.clone(),
+        source: a.file_path.clone(),
+        entry: archive_entry_name(&a.id, &a.file_name),
+    });
+    legacy.chain(current).collect()
 }
 
 /// Every attachment name a stash refers to, legacy `files` paths included.
@@ -184,11 +246,15 @@ fn stash_file_names(stash: &StashItem) -> Vec<String> {
 /// Build the markdown document for a set of stashes.
 ///
 /// Mirrors the layout the webview produced, so archives stay mutually readable.
-pub fn build_markdown(
+///
+/// `archived` is what goes into the archive, per stash id, and `None` for a markdown-only
+/// export. The links are written from it rather than worked out again here, so a link and
+/// the entry it points at cannot disagree.
+fn build_markdown(
     context_name: &str,
     metadata: &ArchiveMetadata,
     stashes: &[StashItem],
-    include_attachments: bool,
+    archived: Option<&HashMap<String, Vec<ArchivedFile>>>,
     exported_at: DateTime<Utc>,
 ) -> String {
     let mut out = String::new();
@@ -227,20 +293,26 @@ pub fn build_markdown(
                 out.push_str("\n\n");
             }
 
-            let names = stash_file_names(stash);
-            if !names.is_empty() {
+            let lines: Vec<String> = match archived {
+                Some(archived) => archived
+                    .get(&stash.id)
+                    .map(|files| {
+                        files
+                            .iter()
+                            .map(|f| format!("- [{}]({}/{})", f.name, ATTACHMENTS_DIR, f.entry))
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+                None => stash_file_names(stash)
+                    .iter()
+                    .map(|name| format!("- {}", name))
+                    .collect(),
+            };
+            if !lines.is_empty() {
                 out.push_str("**Attachments:**\n");
-                for name in &names {
-                    if include_attachments {
-                        out.push_str(&format!(
-                            "- [{}]({}/{})\n",
-                            name,
-                            ATTACHMENTS_DIR,
-                            archive_file_name(&stash.id, name)
-                        ));
-                    } else {
-                        out.push_str(&format!("- {}\n", name));
-                    }
+                for line in &lines {
+                    out.push_str(line);
+                    out.push('\n');
                 }
                 out.push('\n');
             }
@@ -262,9 +334,24 @@ struct ParsedDocument {
     unreadable_dates: u32,
 }
 
-/// Strip the `<8 hex chars>_` prefix the exporter adds, recovering the original name.
+/// True for the 36 bytes of a hyphenated UUID.
+fn is_uuid(bytes: &[u8]) -> bool {
+    bytes.len() == 36
+        && bytes.iter().enumerate().all(|(i, b)| match i {
+            8 | 13 | 18 | 23 => *b == b'-',
+            _ => b.is_ascii_hexdigit(),
+        })
+}
+
+/// Strip the prefix the exporter adds, recovering the original name.
+///
+/// Two shapes exist: `<attachment id>_` from now on, and the `<8 hex chars of stash id>_`
+/// every earlier archive carries.
 fn strip_archive_prefix(name: &str) -> String {
     let bytes = name.as_bytes();
+    if bytes.len() > 37 && bytes[36] == b'_' && is_uuid(&bytes[..36]) {
+        return name[37..].to_string();
+    }
     if bytes.len() > 9
         && bytes[8] == b'_'
         // Compared on the raw bytes. The previous `name[..8].chars()` was safe - the
@@ -412,21 +499,36 @@ fn parse_section_header(line: &str) -> Option<bool> {
     Some(kind)
 }
 
-/// `- [name](attachments/prefixed)` or the plain `- name` form.
+/// `- [name](attachments/entry)` or the plain `- name` form.
+///
+/// The linked form comes back as its target, `attachments/<entry>`, because that is the
+/// only thing that finds the file again. Reducing it to the bare name, which this used to
+/// do, left the importer rebuilding the entry from the stash's id - and an imported stash
+/// has a new id, so not one file of an exported archive was ever found.
 fn parse_attachment_line(line: &str) -> Option<String> {
     let rest = line.strip_prefix("- ")?;
 
     if let Some(open) = rest.find("](") {
         if rest.starts_with('[') && rest.ends_with(')') {
             let target = &rest[open + 2..rest.len() - 1];
-            let name = target
-                .strip_prefix(&format!("{}/", ATTACHMENTS_DIR))
-                .unwrap_or(target);
-            return Some(strip_archive_prefix(name));
+            if target.starts_with(&format!("{}/", ATTACHMENTS_DIR)) {
+                return Some(target.to_string());
+            }
+            return Some(strip_archive_prefix(target));
         }
     }
 
     Some(strip_archive_prefix(rest))
+}
+
+/// Where a parsed reference's bytes should be in an extracted archive, and its real name.
+///
+/// `None` for the plain `- name` form: an archive exported without its attachments lists
+/// them by name only, and there is nothing to look for.
+fn archived_reference(extract_dir: &Path, reference: &str) -> Option<(PathBuf, String)> {
+    let entry = reference.strip_prefix(&format!("{}/", ATTACHMENTS_DIR))?;
+    let source = safe_entry_path(&extract_dir.join(ATTACHMENTS_DIR), entry)?;
+    Some((source, strip_archive_prefix(entry)))
 }
 
 // ---------------------------------------------------------------------------
@@ -546,48 +648,62 @@ pub async fn export_context_archive(
             .unwrap_or_default(),
     };
 
-    // Only real files count: a row whose path is empty has no bytes on this device.
-    let attachment_sources: Vec<(String, String)> = if include_attachments {
+    let archived: HashMap<String, Vec<ArchivedFile>> = if include_attachments {
         stashes
             .iter()
-            .flat_map(|s| {
-                let stash_id = s.id.clone();
-                let legacy = s.files.iter().cloned().map(move |p| {
-                    let name = Path::new(&p)
-                        .file_name()
-                        .map(|n| n.to_string_lossy().into_owned())
-                        .unwrap_or_else(|| p.clone());
-                    (p, name)
-                });
-                let stash_id2 = stash_id.clone();
-                let current = s
-                    .attachments
-                    .iter()
-                    .filter(|a| !a.file_path.trim().is_empty())
-                    .map(move |a| (a.file_path.clone(), a.file_name.clone()));
-
-                legacy
-                    .map(move |(p, n)| (stash_id.clone(), p, n))
-                    .chain(current.map(move |(p, n)| (stash_id2.clone(), p, n)))
-            })
-            .filter(|(_, path, _)| Path::new(path).exists())
-            .map(|(stash_id, path, name)| (path, archive_file_name(&stash_id, &name)))
+            .map(|s| (s.id.clone(), archived_files(s)))
+            .filter(|(_, files)| !files.is_empty())
             .collect()
     } else {
-        Vec::new()
+        HashMap::new()
     };
+
+    // An archive that says it holds a context's attachments has to hold all of them. This
+    // used to drop whatever was not on disk and still link it from the document, so the
+    // archive looked complete and was not. Refused instead, naming the files, with the ids
+    // the interface needs to fetch them from the cloud and try again.
+    let in_order = || stashes.iter().filter_map(|s| archived.get(&s.id)).flatten();
+    let missing: Vec<&ArchivedFile> = in_order()
+        .filter(|f| f.source.trim().is_empty() || !Path::new(&f.source).exists())
+        .collect();
+    if !missing.is_empty() {
+        let names = missing
+            .iter()
+            .map(|f| f.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let ids = missing
+            .iter()
+            .filter(|f| !f.id.is_empty())
+            .map(|f| f.id.as_str())
+            .collect::<Vec<_>>()
+            .join(",");
+        return Err(UiError::with_values(
+            "transfer.attachments_missing",
+            format!("These attachments are not on this device: {}", names),
+            [
+                ("count", missing.len().to_string()),
+                ("names", names),
+                ("ids", ids),
+            ],
+        ));
+    }
 
     let markdown = build_markdown(
         &context_name,
         &metadata,
         &stashes,
-        include_attachments && !attachment_sources.is_empty(),
+        (!archived.is_empty()).then_some(&archived),
         Utc::now(),
     );
 
     let dest = PathBuf::from(&dest_path);
-    let attachment_count = attachment_sources.len() as u32;
+    let attachment_count = archived.values().map(Vec::len).sum::<usize>() as u32;
     let stash_count = stashes.len() as u32;
+
+    let files: Vec<(String, String)> = in_order()
+        .map(|f| (f.source.clone(), format!("{}/{}", ATTACHMENTS_DIR, f.entry)))
+        .collect();
 
     // Deflating every attachment in a context is the single heaviest thing this app
     // does, so it belongs on the blocking pool rather than an async worker. Tokio does
@@ -599,38 +715,26 @@ pub async fn export_context_archive(
             fs::create_dir_all(parent).map_err(|e| format!("Failed to create folder: {}", e))?;
         }
 
-        if attachment_sources.is_empty() {
+        if files.is_empty() {
             fs::write(&write_dest, markdown)
                 .map_err(|e| format!("Failed to write export: {}", e))?;
             return Ok(());
         }
 
-        let file =
-            fs::File::create(&write_dest).map_err(|e| format!("Failed to write export: {}", e))?;
-        let mut zip = zip::ZipWriter::new(file);
-        let options: zip::write::FileOptions<'_, ()> =
-            zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+        // Built beside the destination and renamed into place, so a failure part way
+        // leaves no half an archive under the name the user chose.
+        let mut partial = write_dest.clone().into_os_string();
+        partial.push(".partial");
+        let partial = PathBuf::from(partial);
 
-        zip.start_file(MARKDOWN_ENTRY, options)
-            .map_err(|e| e.to_string())?;
-        zip.write_all(markdown.as_bytes())
-            .map_err(|e| e.to_string())?;
-
-        for (source, name) in &attachment_sources {
-            let bytes = match fs::read(source) {
-                Ok(b) => b,
-                Err(e) => {
-                    log::warn!("[Export] skipping {}: {}", source, e);
-                    continue;
-                }
-            };
-            zip.start_file(format!("{}/{}", ATTACHMENTS_DIR, name), options)
-                .map_err(|e| e.to_string())?;
-            zip.write_all(&bytes).map_err(|e| e.to_string())?;
+        let written = write_zip(&partial, &markdown, &files).and_then(|()| {
+            fs::rename(&partial, &write_dest)
+                .map_err(|e| format!("Failed to write export: {}", e).into())
+        });
+        if written.is_err() {
+            let _ = fs::remove_file(&partial);
         }
-
-        zip.finish().map_err(|e| e.to_string())?;
-        Ok(())
+        written
     })
     .await
     .map_err(|e| format!("Export task failed: {}", e))??;
@@ -640,6 +744,33 @@ pub async fn export_context_archive(
         attachments: attachment_count,
         path: dest_path,
     })
+}
+
+/// Write an export archive to `path`.
+///
+/// Every file it is given has to make it in, so a read that fails ends the export rather
+/// than leaving a gap the document still links to.
+fn write_zip(path: &Path, markdown: &str, files: &[(String, String)]) -> Result<(), UiError> {
+    let file = fs::File::create(path).map_err(|e| format!("Failed to write export: {}", e))?;
+    let mut zip = zip::ZipWriter::new(file);
+    let options: zip::write::FileOptions<'_, ()> =
+        zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+
+    zip.start_file(MARKDOWN_ENTRY, options)
+        .map_err(|e| e.to_string())?;
+    zip.write_all(markdown.as_bytes())
+        .map_err(|e| e.to_string())?;
+
+    for (source, entry) in files {
+        let mut src =
+            fs::File::open(source).map_err(|e| format!("Failed to read {}: {}", source, e))?;
+        zip.start_file(entry.as_str(), options)
+            .map_err(|e| e.to_string())?;
+        std::io::copy(&mut src, &mut zip).map_err(|e| format!("Failed to read {}: {}", source, e))?;
+    }
+
+    zip.finish().map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 /// Read an archive and report what importing it would bring in.
@@ -689,12 +820,22 @@ pub async fn read_import_archive(
 
     let duplicate_ids = find_duplicates(&parsed.stashes, &existing);
 
+    let missing_attachments = parsed
+        .stashes
+        .iter()
+        .flat_map(|s| s.files.iter())
+        .filter_map(|reference| archived_reference(&temp_dir, reference))
+        .filter(|(source, _)| !source.is_file())
+        .map(|(_, name)| name)
+        .collect();
+
     Ok(ImportPreview {
         stashes: parsed.stashes,
         metadata: parsed.metadata,
         duplicate_ids,
         token,
         unreadable_dates: parsed.unreadable_dates,
+        missing_attachments,
     })
 }
 
@@ -755,71 +896,18 @@ pub async fn commit_import(
     // attachments, and every byte of that was previously copied on an async worker.
     let copy_context = context_id.clone();
     let copy_temp = temp_dir.clone();
-    let prepared: Vec<StashItem> = tauri::async_runtime::spawn_blocking(
-        move || -> Result<Vec<StashItem>, UiError> {
-            let mut prepared: Vec<StashItem> = Vec::with_capacity(stashes.len());
-
-            for mut stash in stashes {
-                stash.context_id = copy_context.clone();
-
-                // Copy each referenced file out of the extraction directory and into the
-                // stash's own cache folder, building the attachment rows as we go.
-                let mut attachments: Vec<Attachment> = Vec::new();
-                if !stash.files.is_empty() {
-                    let target_dir = get_stash_cache_path(&stash.id, Some(&copy_context));
-                    fs::create_dir_all(&target_dir)
-                        .map_err(|e| format!("Failed to create attachment folder: {}", e))?;
-
-                    for name in &stash.files {
-                        let archived = archive_file_name(&stash.id, name);
-                        let candidates = [
-                            copy_temp.join(ATTACHMENTS_DIR).join(&archived),
-                            copy_temp.join(ATTACHMENTS_DIR).join(name),
-                        ];
-
-                        let Some(source) = candidates.iter().find(|p| p.exists()) else {
-                            log::warn!("[Import] {} is referenced but not in the archive", name);
-                            continue;
-                        };
-
-                        // Reserved rather than joined: two attachments of one name in
-                        // the same stash used to land on the same path, so the second
-                        // copy replaced the first one's bytes and both rows pointed at
-                        // the survivor.
-                        let dest = match crate::utils::reserve_unique_path(&target_dir, name) {
-                            Ok(dest) => dest,
-                            Err(e) => {
-                                log::warn!("[Import] could not place {}: {}", name, e);
-                                continue;
-                            }
-                        };
-                        if let Err(e) = fs::copy(source, &dest) {
-                            let _ = fs::remove_file(&dest);
-                            log::warn!("[Import] could not place {}: {}", name, e);
-                            continue;
-                        }
-
-                        let size = fs::metadata(&dest).map(|m| m.len()).unwrap_or(0) as i64;
-                        attachments.push(Attachment {
-                            id: Uuid::new_v4().to_string(),
-                            stash_id: stash.id.clone(),
-                            file_path: dest.to_string_lossy().into_owned(),
-                            file_name: name.clone(),
-                            file_size: size,
-                            mime_type: mime_guess::from_path(&dest).first().map(|m| m.to_string()),
-                            syntax: None,
-                            created_at: Utc::now().to_rfc3339(),
-                        });
-                    }
+    let (prepared, placed) = tauri::async_runtime::spawn_blocking(
+        move || -> Result<(Vec<StashItem>, Vec<PathBuf>), UiError> {
+            // Every file placed so far, so a failure can take them back out. Otherwise a
+            // half-finished import leaves files in the cache that no row points at.
+            let mut placed: Vec<PathBuf> = Vec::new();
+            match place_import_files(stashes, &copy_context, &copy_temp, &mut placed) {
+                Ok(prepared) => Ok((prepared, placed)),
+                Err(e) => {
+                    remove_all(&placed);
+                    Err(e)
                 }
-
-                // The legacy `files` column is not carried forward; attachments replace it.
-                stash.files = Vec::new();
-                stash.attachments = attachments;
-                prepared.push(stash);
             }
-
-            Ok(prepared)
         },
     )
     .await
@@ -828,15 +916,89 @@ pub async fn commit_import(
     // One transaction for the lot, rather than the two-commands-per-stash-plus-one-per-file
     // the webview used to issue. insert_local_stashes, not import_stashes: these records
     // are new on this device and have to reach the cloud, so they stay pending.
-    state
-        .lock_db()
-        .insert_local_stashes(&prepared)
-        .map_err(|e| e.to_string())?;
+    let inserted = state.lock_db().insert_local_stashes(&prepared);
+    if let Err(e) = inserted {
+        remove_all(&placed);
+        return Err(e.to_string().into());
+    }
 
     let cleanup_dir = temp_dir.clone();
     let _ = tauri::async_runtime::spawn_blocking(move || fs::remove_dir_all(&cleanup_dir)).await;
 
     Ok(prepared.len() as u32)
+}
+
+/// Take back files an import placed before it failed.
+fn remove_all(paths: &[PathBuf]) {
+    for path in paths {
+        let _ = fs::remove_file(path);
+    }
+}
+
+/// Copy each stash's files out of the extraction directory into its own cache folder,
+/// building the attachment rows as it goes.
+///
+/// A file the archive does not contain is skipped - the preview already named it. A file
+/// that is there and cannot be copied ends the import instead: it is an error on this
+/// machine, and importing the rest without it would lose it without a word.
+fn place_import_files(
+    stashes: Vec<StashItem>,
+    context_id: &str,
+    extract_dir: &Path,
+    placed: &mut Vec<PathBuf>,
+) -> Result<Vec<StashItem>, UiError> {
+    let mut prepared: Vec<StashItem> = Vec::with_capacity(stashes.len());
+
+    for mut stash in stashes {
+        stash.context_id = context_id.to_string();
+
+        let mut attachments: Vec<Attachment> = Vec::new();
+        let references: Vec<(PathBuf, String)> = stash
+            .files
+            .iter()
+            .filter_map(|reference| archived_reference(extract_dir, reference))
+            .collect();
+
+        if !references.is_empty() {
+            let target_dir = get_stash_cache_path(&stash.id, Some(context_id));
+            fs::create_dir_all(&target_dir)
+                .map_err(|e| format!("Failed to create attachment folder: {}", e))?;
+
+            for (source, name) in &references {
+                if !source.is_file() {
+                    log::warn!("[Import] {} is referenced but not in the archive", name);
+                    continue;
+                }
+
+                // Reserved rather than joined: two attachments of one name in the same
+                // stash used to land on the same path, so the second copy replaced the
+                // first one's bytes and both rows pointed at the survivor.
+                let dest = crate::utils::reserve_unique_path(&target_dir, name)
+                    .map_err(|e| format!("Could not place {}: {}", name, e))?;
+                placed.push(dest.clone());
+                fs::copy(source, &dest).map_err(|e| format!("Could not place {}: {}", name, e))?;
+
+                let size = fs::metadata(&dest).map(|m| m.len()).unwrap_or(0) as i64;
+                attachments.push(Attachment {
+                    id: Uuid::new_v4().to_string(),
+                    stash_id: stash.id.clone(),
+                    file_path: dest.to_string_lossy().into_owned(),
+                    file_name: name.clone(),
+                    file_size: size,
+                    mime_type: mime_guess::from_path(&dest).first().map(|m| m.to_string()),
+                    syntax: None,
+                    created_at: Utc::now().to_rfc3339(),
+                });
+            }
+        }
+
+        // The legacy `files` column is not carried forward; attachments replace it.
+        stash.files = Vec::new();
+        stash.attachments = attachments;
+        prepared.push(stash);
+    }
+
+    Ok(prepared)
 }
 
 /// Drop the files an aborted import had extracted.
@@ -885,7 +1047,7 @@ mod tests {
             stash("b", "second entry", "2026-08-17T09:30:00Z", true),
         ];
 
-        let md = build_markdown("Work", &metadata(), &stashes, false, Utc::now());
+        let md = build_markdown("Work", &metadata(), &stashes, None, Utc::now());
         let parsed = parse_markdown(&md, "ctx");
 
         assert_eq!(parsed.unreadable_dates, 0);
@@ -901,7 +1063,6 @@ mod tests {
         assert!(done.created_at.starts_with("2026-08-17T09:30:00"));
     }
 
-    #[test]
     /// Non-ASCII names are left intact rather than mistaken for a prefixed one.
     #[test]
     fn a_non_ascii_attachment_name_keeps_its_leading_characters() {
@@ -913,27 +1074,147 @@ mod tests {
         assert_eq!(strip_archive_prefix("abcdef12_shot.png"), "shot.png");
         // Eight characters that are not hex are left alone.
         assert_eq!(strip_archive_prefix("zzzzzzzz_shot.png"), "zzzzzzzz_shot.png");
+        // The attachment-id prefix archives are written with now.
+        assert_eq!(
+            strip_archive_prefix("0cdf01cd-f5be-49a2-840b-cd1d12f43a42_shot.png"),
+            "shot.png"
+        );
+        // Something UUID-length that is not one keeps its name.
+        assert_eq!(
+            strip_archive_prefix("zzzzzzzz-f5be-49a2-840b-cd1d12f43a42_shot.png"),
+            "zzzzzzzz-f5be-49a2-840b-cd1d12f43a42_shot.png"
+        );
+    }
+
+    fn attachment(id: &str, stash_id: &str, name: &str) -> Attachment {
+        Attachment {
+            id: id.into(),
+            stash_id: stash_id.into(),
+            file_path: format!("/cache/ctx/{}/{}", stash_id, name),
+            file_name: name.into(),
+            file_size: 1,
+            mime_type: None,
+            syntax: None,
+            created_at: "2026-08-18T10:00:00Z".into(),
+        }
+    }
+
+    const ATT_A: &str = "11111111-2222-4333-8444-555555555555";
+    const ATT_B: &str = "66666666-7777-4888-8999-aaaaaaaaaaaa";
+
+    fn archived_for(stashes: &[StashItem]) -> HashMap<String, Vec<ArchivedFile>> {
+        stashes
+            .iter()
+            .map(|s| (s.id.clone(), archived_files(s)))
+            .collect()
     }
 
     #[test]
     fn attachment_names_round_trip_without_their_archive_prefix() {
         let mut item = stash("abcdef12", "has a file", "2026-08-18T10:00:00Z", false);
-        item.attachments.push(Attachment {
-            id: "att".into(),
-            stash_id: "abcdef12".into(),
-            file_path: "/cache/ctx/abcdef12/shot.png".into(),
-            file_name: "shot.png".into(),
-            file_size: 1,
-            mime_type: None,
-            syntax: None,
-            created_at: "2026-08-18T10:00:00Z".into(),
-        });
+        item.attachments.push(attachment(ATT_A, "abcdef12", "shot.png"));
 
-        let md = build_markdown("Work", &metadata(), &[item], true, Utc::now());
-        assert!(md.contains("attachments/abcdef12_shot.png"));
+        let items = [item];
+        let md = build_markdown("Work", &metadata(), &items, Some(&archived_for(&items)), Utc::now());
+        let entry = format!("attachments/{}_shot.png", ATT_A);
+        assert!(md.contains(&format!("- [shot.png]({})", entry)), "{}", md);
 
+        // The importer keeps the link target, because the imported stash has a new id and
+        // the target is the only thing that finds the file.
         let parsed = parse_markdown(&md, "ctx");
-        assert_eq!(parsed.stashes[0].files, vec!["shot.png".to_string()]);
+        assert_eq!(parsed.stashes[0].files, vec![entry.clone()]);
+
+        let (source, name) = archived_reference(Path::new("/tmp/import"), &entry).unwrap();
+        assert_eq!(name, "shot.png");
+        assert_eq!(source, Path::new("/tmp/import/attachments").join(format!("{}_shot.png", ATT_A)));
+    }
+
+    /// Two pasted `image.png`s in one stash used to share an entry, and the zip writer
+    /// refused the second one - ending the export with one file written.
+    #[test]
+    fn two_attachments_of_one_name_get_their_own_entries() {
+        let mut item = stash("b53d26f6", "two images", "2026-09-25T12:49:10Z", false);
+        item.attachments.push(attachment(ATT_A, "b53d26f6", "image.png"));
+        item.attachments.push(attachment(ATT_B, "b53d26f6", "image.png"));
+
+        let files = archived_files(&item);
+        assert_eq!(files.len(), 2);
+        assert_ne!(files[0].entry, files[1].entry);
+        assert!(files.iter().all(|f| f.entry.ends_with("_image.png")));
+    }
+
+    #[test]
+    fn an_entry_name_cannot_make_a_directory() {
+        assert_eq!(archive_entry_name(ATT_A, "../a/b\\c.png"), format!("{}_.._a_b_c.png", ATT_A));
+        assert_eq!(archive_entry_name(ATT_A, "  "), format!("{}_attachment", ATT_A));
+    }
+
+    /// Archives written before this change link `<8 chars of stash id>_<name>`.
+    #[test]
+    fn attachments_in_older_archives_are_still_found() {
+        let md = concat!(
+            "## Active Stashes (1)
+
+### 2026-09-25 12:49:10
+
+old
+
+",
+            "**Attachments:**
+- [image.png](attachments/b53d26f6_image.png)
+
+---
+",
+        );
+        let parsed = parse_markdown(md, "ctx");
+        let reference = &parsed.stashes[0].files[0];
+
+        let (source, name) = archived_reference(Path::new("/x"), reference).unwrap();
+        assert_eq!(name, "image.png");
+        assert!(source.ends_with("b53d26f6_image.png"));
+    }
+
+    /// The name-only list an export without attachments writes has nothing to look for.
+    #[test]
+    fn a_name_only_reference_is_not_expected_in_the_archive() {
+        assert!(archived_reference(Path::new("/x"), "shot.png").is_none());
+    }
+
+    #[test]
+    fn the_archive_holds_every_file_it_links() {
+        let dir = std::env::temp_dir().join(format!("stashpad-export-{}", Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let first = dir.join("one.png");
+        let second = dir.join("two.png");
+        fs::write(&first, b"first").unwrap();
+        fs::write(&second, b"second").unwrap();
+
+        let files = vec![
+            (first.to_string_lossy().into_owned(), format!("attachments/{}_image.png", ATT_A)),
+            (second.to_string_lossy().into_owned(), format!("attachments/{}_image.png", ATT_B)),
+        ];
+        let out = dir.join("export.zip");
+        write_zip(&out, "# doc", &files).unwrap();
+
+        let mut zip = zip::ZipArchive::new(fs::File::open(&out).unwrap()).unwrap();
+        assert_eq!(zip.len(), 3);
+        let mut body = String::new();
+        zip.by_name(&files[1].1).unwrap().read_to_string(&mut body).unwrap();
+        assert_eq!(body, "second");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_file_that_cannot_be_read_fails_the_archive() {
+        let dir = std::env::temp_dir().join(format!("stashpad-export-{}", Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let files = vec![(
+            dir.join("gone.png").to_string_lossy().into_owned(),
+            "attachments/x_gone.png".to_string(),
+        )];
+        assert!(write_zip(&dir.join("export.zip"), "# doc", &files).is_err());
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

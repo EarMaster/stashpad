@@ -18,6 +18,7 @@
     } from "$lib/types";
     import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
     import { getRelativeTime } from "$lib/utils/date";
+    import { errorText } from "$lib/errors";
     import {
         Upload,
         FileText,
@@ -58,6 +59,10 @@
     let importToken = $state<string | null>(null);
     /** Headings whose date could not be read; those stashes fall back to now. */
     let unreadableDates = $state(0);
+    /** Attachments the document links to that the archive does not hold. */
+    let missingAttachments = $state<string[]>([]);
+    /** Why reading or importing failed. Both used to reach only the console. */
+    let errorMessage = $state("");
     let isImporting = $state(false);
     let isParsing = $state(false);
     let importedFileName = $state("");
@@ -91,6 +96,8 @@
             duplicateIds = new Set();
             importToken = null;
             unreadableDates = 0;
+            missingAttachments = [];
+            errorMessage = "";
             isImporting = false;
             isParsing = false;
             importedFileName = "";
@@ -194,7 +201,7 @@
             title: $_("contexts.importDialog.selectFile"),
             filters: [
                 {
-                    name: "Stashpad Export",
+                    name: $_("contexts.importDialog.fileFilter"),
                     extensions: ["md", "zip"],
                 },
             ],
@@ -210,6 +217,7 @@
      */
     async function loadFromPath(filePath: string) {
         isParsing = true;
+        errorMessage = "";
         try {
             const fileName = filePath.split(/[\\/]/).pop() || "";
             importedFileName = fileName;
@@ -223,6 +231,7 @@
             duplicateIds = new Set(preview.duplicateIds);
             importToken = preview.token;
             unreadableDates = preview.unreadableDates;
+            missingAttachments = preview.missingAttachments ?? [];
 
             const metadata: Metadata | undefined = preview.metadata
                 ? {
@@ -264,6 +273,7 @@
             step = "preview";
         } catch (e) {
             console.error("Failed to parse file:", e);
+            errorMessage = errorText(e, $_("contexts.importDialog.readFailed"));
         } finally {
             isParsing = false;
         }
@@ -369,6 +379,7 @@
         if (selectedIds.size === 0 || !importToken) return;
 
         isImporting = true;
+        errorMessage = "";
         try {
             // The conflict dialog may have edited the context in memory.
             if (importedMetadata) {
@@ -382,6 +393,7 @@
             handleClose();
         } catch (e) {
             console.error("Import failed:", e);
+            errorMessage = errorText(e, $_("contexts.importDialog.importFailed"));
         } finally {
             isImporting = false;
         }
@@ -523,6 +535,11 @@
                         <p class="text-xs text-muted-foreground">
                             {$_("contexts.importDialog.dropToImport")}
                         </p>
+                        {#if errorMessage}
+                            <p class="text-xs text-destructive text-center" role="alert">
+                                {errorMessage}
+                            </p>
+                        {/if}
                     </div>
                 {:else}
                     <!-- Preview Step -->
@@ -735,6 +752,23 @@
                                 {$_("contexts.importDialog.unreadableDates", {
                                     values: { count: unreadableDates },
                                 })}
+                            </div>
+                        {/if}
+
+                        {#if missingAttachments.length > 0}
+                            <div class="text-xs text-amber-600 dark:text-amber-500">
+                                {$_("contexts.importDialog.missingAttachments", {
+                                    values: {
+                                        count: missingAttachments.length,
+                                        names: missingAttachments.join(", "),
+                                    },
+                                })}
+                            </div>
+                        {/if}
+
+                        {#if errorMessage}
+                            <div class="text-xs text-destructive" role="alert">
+                                {errorMessage}
                             </div>
                         {/if}
 
