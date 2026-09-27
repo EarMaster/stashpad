@@ -303,14 +303,12 @@ pub fn seal(
         aead::{Aead, KeyInit, Payload},
         XChaCha20Poly1305, XNonce,
     };
-    use rand::RngCore;
 
     let key = field_key(content_key, binding.kind, binding.field);
     let cipher = XChaCha20Poly1305::new_from_slice(&key)
         .map_err(|_| EnvelopeError::Malformed("bad key length"))?;
 
-    let mut nonce = [0u8; NONCE_LEN];
-    rand::thread_rng().fill_bytes(&mut nonce);
+    let nonce: [u8; NONCE_LEN] = rand::random();
 
     let aad = binding.aad();
     let ciphertext = cipher

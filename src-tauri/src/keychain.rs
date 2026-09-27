@@ -507,11 +507,9 @@ mod tests {
             Aes256Gcm, Nonce,
         };
         use base64::{engine::general_purpose::STANDARD, Engine as _};
-        use rand::RngCore;
 
         let cipher = Aes256Gcm::new_from_slice(&derive_machine_key()).expect("32-byte key");
-        let mut nonce = [0u8; 12];
-        rand::thread_rng().fill_bytes(&mut nonce);
+        let nonce: [u8; 12] = rand::random();
         let ciphertext = cipher
             .encrypt(Nonce::from_slice(&nonce), secret.as_bytes())
             .expect("encrypt");

@@ -179,8 +179,7 @@ pub fn wrap_to_device(
     let key = derive_wrap_key(shared.as_bytes(), &info);
 
     let cipher = XChaCha20Poly1305::new_from_slice(key.as_slice()).map_err(|_| "bad key length")?;
-    let mut nonce = [0u8; 24];
-    rand::thread_rng().fill_bytes(&mut nonce);
+    let nonce: [u8; 24] = rand::random();
     let ciphertext = cipher
         .encrypt(XNonce::from_slice(&nonce), content_key.as_slice())
         .map_err(|_| "could not seal the content key".to_string())?;
@@ -375,8 +374,7 @@ pub fn wrap_to_recovery(
     user_id: &str,
     epoch: u32,
 ) -> Result<(String, String), UiError> {
-    let mut salt = [0u8; 16];
-    rand::thread_rng().fill_bytes(&mut salt);
+    let salt: [u8; 16] = rand::random();
     let key = derive_recovery_key(code.secret.as_slice(), &salt, user_id, epoch);
     let wrapped = seal_key(&key, content_key)?;
     Ok((STANDARD.encode(salt), wrapped))
@@ -421,8 +419,7 @@ pub fn wrap_to_api_key(
 ) -> Result<(String, String), UiError> {
     use hkdf::Hkdf;
 
-    let mut salt = [0u8; 16];
-    rand::thread_rng().fill_bytes(&mut salt);
+    let salt: [u8; 16] = rand::random();
 
     let mut info = Vec::with_capacity(64);
     info.extend_from_slice(b"stashpad/e2ee/v1/apikey");
@@ -455,8 +452,7 @@ pub fn make_verifier(content_key: &ContentKey) -> Result<String, UiError> {
         XChaCha20Poly1305, XNonce,
     };
     let cipher = XChaCha20Poly1305::new_from_slice(key.as_slice()).map_err(|_| "bad key")?;
-    let mut nonce = [0u8; 24];
-    rand::thread_rng().fill_bytes(&mut nonce);
+    let nonce: [u8; 24] = rand::random();
     let ct = cipher
         .encrypt(XNonce::from_slice(&nonce), VERIFIER_PLAINTEXT)
         .map_err(|_| "could not build the verifier".to_string())?;
@@ -507,8 +503,7 @@ fn seal_key(key: &[u8; 32], content_key: &ContentKey) -> Result<String, UiError>
         XChaCha20Poly1305, XNonce,
     };
     let cipher = XChaCha20Poly1305::new_from_slice(key).map_err(|_| "bad key length")?;
-    let mut nonce = [0u8; 24];
-    rand::thread_rng().fill_bytes(&mut nonce);
+    let nonce: [u8; 24] = rand::random();
     let ct = cipher
         .encrypt(XNonce::from_slice(&nonce), content_key.as_slice())
         .map_err(|_| "could not seal the content key".to_string())?;

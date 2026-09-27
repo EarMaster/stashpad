@@ -34,7 +34,6 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
@@ -152,8 +151,7 @@ fn seal_with(key: &[u8; 32], plaintext: &[u8]) -> Result<String, UiError> {
     };
 
     let cipher = Aes256Gcm::new_from_slice(key).map_err(|e| e.to_string())?;
-    let mut nonce_bytes = [0u8; 12];
-    rand::thread_rng().fill_bytes(&mut nonce_bytes);
+    let nonce_bytes: [u8; 12] = rand::random();
     let ciphertext = cipher
         .encrypt(Nonce::from_slice(&nonce_bytes), plaintext)
         .map_err(|_| "Encryption failed".to_string())?;
@@ -215,8 +213,7 @@ pub fn set_passphrase(passphrase: &str, remember: bool) -> Result<(), UiError> {
         ));
     }
 
-    let mut salt = [0u8; 16];
-    rand::thread_rng().fill_bytes(&mut salt);
+    let salt: [u8; 16] = rand::random();
 
     let key = derive(
         passphrase,

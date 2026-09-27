@@ -539,12 +539,8 @@ pub fn seal_attachment(
     let epoch = *lock_or_recover(&EPOCH);
 
     let mut file_key = Zeroizing::new([0u8; 32]);
-    let mut nonce = [0u8; 24];
-    {
-        let mut rng = rand::thread_rng();
-        rng.fill_bytes(file_key.as_mut());
-        rng.fill_bytes(&mut nonce);
-    }
+    rand::thread_rng().fill_bytes(file_key.as_mut());
+    let nonce: [u8; 24] = rand::random();
 
     let cipher = XChaCha20Poly1305::new_from_slice(file_key.as_slice())
         .map_err(|_| "bad file key".to_string())?;
