@@ -86,18 +86,22 @@ pub async fn save_context(state: State<'_, Arc<DbState>>, context: Context) -> R
 /// edited and push it straight back on the next sync.
 #[tauri::command]
 pub async fn import_contexts(state: State<'_, Arc<DbState>>, contexts: Vec<Context>) -> Result<(), UiError> {
-    state
-        .lock_db()
-        .import_contexts(&contexts)
-        .map_err(|e| e.to_string())
-        .map_err(UiError::from)
+    let mut db = state.lock_db();
+    // A context deleted on another device takes its stashes with it here too.
+    let deleted = db.import_contexts(&contexts).map_err(|e| e.to_string())?;
+    crate::stashes::purge_deleted_stash_files(&db, &deleted);
+    Ok(())
 }
 
+/// Delete a context and every stash filed under it - the same rule the cloud applies, so
+/// the result is the same whichever side the deletion starts on.
 #[tauri::command]
 pub async fn delete_context(state: State<'_, Arc<DbState>>, id: String) -> Result<(), UiError> {
     println!("Deleting context: {}", id);
-    if let Err(e) = state.lock_db().delete_context(&id) {
-        println!("Failed to delete context: {}", e);
+    let mut db = state.lock_db();
+    match db.delete_context(&id) {
+        Ok(deleted) => crate::stashes::purge_deleted_stash_files(&db, &deleted),
+        Err(e) => println!("Failed to delete context: {}", e),
     }
     Ok(())
 }

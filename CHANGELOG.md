@@ -11,6 +11,38 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+## [1.8.10] - 2026-09-27
+
+### Changed
+- **Deleting a context now deletes the stashes in it, and the confirmation says how many.**
+  They used to stay behind, filed under a context that no longer existed: no view showed
+  them, yet they were still stored, counted and synced. Deleted stashes stay recoverable on
+  the cloud for about 30 days. The Default context still cannot be deleted
+
+### Fixed
+- **Importing a `.zip` export now actually finds its attachments.** The importer looked for
+  each file under the *new* id an imported stash gets, which is never the id the archive was
+  written with, so no attachment from an export ever survived an import. Older exports still
+  import correctly
+- **Exporting a context with two attachments of the same name no longer fails silently.**
+  Two pasted screenshots, both called `image.png`, made the export archive stop after the
+  first one - and the dialog gave no sign anything had gone wrong. Files are now named by
+  attachment id inside the archive, so a repeated name no longer collides
+- **An export refuses to leave a file out rather than write an incomplete archive.** An
+  attachment synced from another device but not yet downloaded used to be dropped from the
+  archive while the document still linked to it. The export now fetches anything missing
+  and tries again, or says exactly which file it could not include
+- **A failed export or import now shows why, instead of leaving the dialog open with nothing
+  said.** Both used to fail silently to the console
+- **Stashes left behind by an earlier context deletion are cleaned up.** After this update,
+  any stash still filed under a deleted context - on this device or in the cloud - is deleted
+  like its context was. You could not see these stashes anyway
+- **Every stash now belongs to a context, the same way here and in the cloud.** A stash
+  saved by an older version, imported from an older export, or created by an AI agent could
+  end up with no context at all. The queue showed it under Default, but clearing completed
+  stashes there, exporting, and the cloud all missed it. Such a stash is now filed under
+  Default everywhere
+
 ## [1.8.9] - 2026-09-26
 
 ### Security

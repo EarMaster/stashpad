@@ -30,7 +30,8 @@ export interface StashItem {
     attachments: Attachment[];
     files?: string[]; // Deprecated, kept for backward compatibility during migration
     createdAt: string;
-    contextId?: string;
+    /** Every stash belongs to a context; "default" holds the ones with no other place. */
+    contextId: string;
     completed?: boolean;
     completedAt?: string; // ISO Date string
     updatedAt?: string | number; // ISO Date string (string) or Unix timestamp (number)
@@ -434,6 +435,8 @@ export interface ImportPreview {
      * silently, so an unreadable archive lost every creation date without a word.
      */
     unreadableDates: number;
+    /** Attachments the document links to that the archive does not contain; skipped on import. */
+    missingAttachments: string[];
 }
 
 export interface FilePreviewData {

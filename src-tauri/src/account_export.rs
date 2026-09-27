@@ -188,7 +188,13 @@ async fn parse_export(
 
         stashes.push(StashItem {
             id,
-            context_id: raw["context_id"].as_str().map(str::to_string),
+            // An export from before every stash had a context carries null here, which
+            // lands in the default context - where the app showed it all along.
+            context_id: raw["context_id"]
+                .as_str()
+                .filter(|id| !id.is_empty())
+                .unwrap_or(crate::models::DEFAULT_CONTEXT_ID)
+                .to_string(),
             content,
             files: Vec::new(),
             created_at: raw["created_at"].as_str().unwrap_or_default().to_string(),
@@ -303,11 +309,7 @@ pub async fn export_whole_account(
 
         let mut by_context: HashMap<String, Vec<String>> = HashMap::new();
         for stash in stashes {
-            let owner = stash
-                .context_id
-                .clone()
-                .unwrap_or_else(|| "default".to_string());
-            by_context.entry(owner).or_default().push(stash.id);
+            by_context.entry(stash.context_id).or_default().push(stash.id);
         }
         (contexts, by_context)
     };

@@ -10,6 +10,8 @@
     import { save } from "@tauri-apps/plugin-dialog";
     import { stat } from "@tauri-apps/plugin-fs";
     import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
+    import { attachmentSync } from "$lib/stores/attachment-sync.svelte";
+    import { errorCode, errorText } from "$lib/errors";
     import type { Context, StashItem } from "$lib/types";
     import { getRelativeTime } from "$lib/utils/date";
     import { formatBytes } from "$lib/utils/format";
@@ -33,6 +35,10 @@
     let selectedIds = $state<Set<string>>(new Set());
     let includeAttachments = $state(false);
     let isExporting = $state(false);
+    /** Fetching attachments that are not on this device yet, before exporting again. */
+    let isDownloading = $state(false);
+    /** Why the export failed. It used to reach only the console, with the dialog left open. */
+    let errorMessage = $state("");
     let totalAttachmentSize = $state(0);
     let isCalculatingSize = $state(false);
 
@@ -47,6 +53,8 @@
             );
             includeAttachments = false;
             isExporting = false;
+            isDownloading = false;
+            errorMessage = "";
         } else if (hasOpened) {
             // Ensure parent state is synchronized when dialog is closed/dismissed
             // via internal mechanisms (Esc key, backdrop click)
@@ -193,26 +201,47 @@
             title: $_("contexts.exportTitle"),
             defaultPath: defaultFileName,
             filters: asZip
-                ? [{ name: "ZIP Archive", extensions: ["zip"] }]
-                : [{ name: "Markdown", extensions: ["md"] }],
+                ? [{ name: $_("contexts.exportDialog.zipFilter"), extensions: ["zip"] }]
+                : [{ name: $_("contexts.exportDialog.markdownFilter"), extensions: ["md"] }],
         });
 
         if (!filePath) return;
 
         isExporting = true;
+        errorMessage = "";
+        const run = () =>
+            adapter.exportContextArchive(context.id, [...selectedIds], asZip, filePath);
         try {
-            await adapter.exportContextArchive(
-                context.id,
-                [...selectedIds],
-                asZip,
-                filePath,
-            );
+            try {
+                await run();
+            } catch (e) {
+                // Attachments synced from another device arrive as details only, and their
+                // bytes download in the background. The archive has to hold every file, so
+                // Rust refuses while any is missing and names them; fetch those now and try
+                // once more. Legacy files carry no id and cannot be fetched, so an error
+                // without ids is shown as it is.
+                const ids = missingAttachmentIds(e);
+                if (ids.length === 0) throw e;
+                isDownloading = true;
+                await Promise.all(ids.map((id) => attachmentSync.request(id, "")));
+                isDownloading = false;
+                await run();
+            }
             handleClose();
         } catch (e) {
             console.error("Export failed:", e);
+            errorMessage = errorText(e, $_("contexts.exportDialog.failed"));
         } finally {
             isExporting = false;
+            isDownloading = false;
         }
+    }
+
+    /** The attachments an export was refused for, when that is why it was refused. */
+    function missingAttachmentIds(error: unknown): string[] {
+        if (errorCode(error) !== "transfer.attachments_missing") return [];
+        const ids = (error as { values?: Record<string, string> }).values?.ids ?? "";
+        return ids.split(",").filter((id) => id.length > 0);
     }
 
 
@@ -232,6 +261,11 @@
             event.preventDefault();
             handleClose();
         }
+    }
+
+    /** Files a stash carries, legacy paths included. Counting `files` alone missed every current one. */
+    function attachmentCount(stash: StashItem): number {
+        return (stash.files?.length || 0) + (stash.attachments?.length || 0);
     }
 
     /**
@@ -339,11 +373,11 @@
                                                 $_,
                                             )}</span
                                         >
-                                        {#if stash.files && stash.files.length > 0}
+                                        {#if attachmentCount(stash) > 0}
                                             <span
                                                 class="text-[10px] text-muted-foreground shrink-0"
                                             >
-                                                📎{stash.files.length}
+                                                📎{attachmentCount(stash)}
                                             </span>
                                         {/if}
                                     </button>
@@ -394,11 +428,11 @@
                                                 $_,
                                             )}</span
                                         >
-                                        {#if stash.files && stash.files.length > 0}
+                                        {#if attachmentCount(stash) > 0}
                                             <span
                                                 class="text-[10px] text-muted-foreground shrink-0"
                                             >
-                                                📎{stash.files.length}
+                                                📎{attachmentCount(stash)}
                                             </span>
                                         {/if}
                                     </button>
@@ -484,6 +518,12 @@
                         </label>
                     {/if}
 
+                    {#if errorMessage}
+                        <p class="text-xs text-destructive" role="alert">
+                            {errorMessage}
+                        </p>
+                    {/if}
+
                     <!-- Action buttons -->
                     <div class="flex items-center justify-end gap-4">
                         {#if isCalculatingSize}
@@ -516,9 +556,11 @@
                                 disabled={selectedIds.size === 0 || isExporting}
                             >
                                 <Download size={16} />
-                                {isExporting
-                                    ? $_("common.loading")
-                                    : $_("contexts.exportDialog.export")}
+                                {isDownloading
+                                    ? $_("contexts.exportDialog.downloading")
+                                    : isExporting
+                                      ? $_("common.loading")
+                                      : $_("contexts.exportDialog.export")}
                             </button>
                         </div>
                     </div>

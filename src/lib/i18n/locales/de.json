@@ -323,6 +323,9 @@
     "removeContext": "Entfernen",
     "shiftClickToSkip": "Umschalt+Klick zum Überspringen der Bestätigung",
     "deleteConfirm": "Diesen Kontext löschen?",
+    "deleteConfirmEmpty": "Er enthält keine Stashes.",
+    "deleteConfirmOne": "Sein Stash wird mit ihm gelöscht.",
+    "deleteConfirmMany": "Seine {count} Stashes werden mit ihm gelöscht.",
     "autoSwitchRules": "Auto-Wechsel-Regeln",
     "noRules": "Keine Regeln definiert. Dieser Kontext wird nur bei manueller Auswahl aktiv.",
     "noContexts": "Keine benutzerdefinierten Kontexte definiert. Stashes gehen zu \"Standard\".",
@@ -343,7 +346,11 @@
       "noStashesSelected": "Keine Stashes ausgewählt",
       "estimatedSize": "Geschätzte Dateigröße",
       "file": "Datei",
-      "files": "Dateien"
+      "files": "Dateien",
+      "zipFilter": "ZIP-Archiv",
+      "markdownFilter": "Markdown",
+      "downloading": "Lade Anhänge herunter…",
+      "failed": "Der Export ist fehlgeschlagen."
     },
     "import": "Importieren",
     "importContext": "Stashes aus Datei importieren",
@@ -367,7 +374,11 @@
       "selectedCount": "{count} Stashes ausgewählt",
       "conflictTitle": "Metadaten-Konflikt",
       "conflictDescription": "Der importierte Kontext hat andere Metadaten als dein aktueller Kontext. Wähle, welche Werte behalten werden sollen.",
-      "confirmImport": "Import bestätigen"
+      "confirmImport": "Import bestätigen",
+      "fileFilter": "Stashpad-Export",
+      "readFailed": "Diese Datei konnte nicht gelesen werden.",
+      "importFailed": "Der Import ist fehlgeschlagen. Es wurde nichts importiert.",
+      "missingAttachments": "{count} Anhang/Anhänge, auf die diese Datei verweist, fehlen darin und werden übersprungen: {names}"
     },
     "rules": {
       "process": "Prozessname",
@@ -554,6 +565,9 @@
       "recovery_code_typo": "In diesem Wiederherstellungscode steckt ein Tippfehler. Prüf ihn und versuch es noch einmal.",
       "recovery_code_length": "Ein Wiederherstellungscode hat nach SP1- {expected} Zeichen, dieser hat {actual}.",
       "recovery_code_wrong_account": "Dieser Wiederherstellungscode gehört nicht zu diesem Konto."
+    },
+    "transfer": {
+      "attachments_missing": "{count} Anhang/Anhänge liegen nicht auf diesem Gerät und konnten nicht geladen werden: {names}"
     },
     "localkey": {
       "passphrase_empty": "Die Passphrase darf nicht leer sein.",

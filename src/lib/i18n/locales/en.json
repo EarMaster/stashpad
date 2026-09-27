@@ -323,6 +323,9 @@
     "removeContext": "Remove",
     "shiftClickToSkip": "Shift+Click to skip confirmation",
     "deleteConfirm": "Delete this context?",
+    "deleteConfirmEmpty": "It holds no stashes.",
+    "deleteConfirmOne": "Its stash is deleted with it.",
+    "deleteConfirmMany": "Its {count} stashes are deleted with it.",
     "autoSwitchRules": "Auto-Switch Rules",
     "noRules": "No rules defined. This context will only be active if selected manually.",
     "noContexts": "No custom contexts defined. Stashes will go to \"Default\".",
@@ -343,7 +346,11 @@
       "noStashesSelected": "No stashes selected",
       "estimatedSize": "Estimated file size",
       "file": "file",
-      "files": "files"
+      "files": "files",
+      "zipFilter": "ZIP archive",
+      "markdownFilter": "Markdown",
+      "downloading": "Downloading attachments…",
+      "failed": "The export failed."
     },
     "import": "Import",
     "importContext": "Import stashes from file",
@@ -367,7 +374,11 @@
       "selectedCount": "{count} stashes selected",
       "conflictTitle": "Metadata Conflict",
       "conflictDescription": "The imported context has different metadata than your current context. Please choose which values to keep.",
-      "confirmImport": "Confirm Import"
+      "confirmImport": "Confirm Import",
+      "fileFilter": "Stashpad export",
+      "readFailed": "This file could not be read.",
+      "importFailed": "The import failed. Nothing was imported.",
+      "missingAttachments": "{count} attachment(s) this file links to are not in it and will be skipped: {names}"
     },
     "rules": {
       "process": "Process Name",
@@ -554,6 +565,9 @@
       "recovery_code_typo": "That recovery code has a typo in it. Check it and try again.",
       "recovery_code_length": "A recovery code has {expected} characters after SP1-, and this one has {actual}.",
       "recovery_code_wrong_account": "That recovery code does not belong to this account."
+    },
+    "transfer": {
+      "attachments_missing": "{count} attachment(s) are not on this device and could not be fetched: {names}"
     },
     "localkey": {
       "passphrase_empty": "The passphrase cannot be empty.",

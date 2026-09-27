@@ -103,7 +103,7 @@ pub async fn save_stash(
              // Minimal struct for check
              Ok(StashItem {
                 id: row.get(0)?,
-                context_id: None, 
+                context_id: crate::models::DEFAULT_CONTEXT_ID.to_string(),
                 content: "".into(), 
                 enhanced_content: None,
                 files: vec![], 
@@ -272,6 +272,16 @@ pub async fn delete_completed_stashes(state: State<'_, Arc<DbState>>, context_id
         }
     }
     Ok(())
+}
+
+/// Remove the files of stashes deleted because their context was, as
+/// [`DbManager::enforce_context_rules`] reports them.
+pub(crate) fn purge_deleted_stash_files(db: &DbManager, stashes: &[(String, String)]) {
+    let with_context: Vec<(String, Option<String>)> = stashes
+        .iter()
+        .map(|(id, context_id)| (id.clone(), Some(context_id.clone())))
+        .collect();
+    purge_stash_files(db, &with_context);
 }
 
 /// Remove the cache folders of the given stashes and clear the paths that pointed into
