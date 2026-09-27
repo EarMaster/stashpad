@@ -19,6 +19,7 @@
     import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
     import { getRelativeTime } from "$lib/utils/date";
     import { errorText } from "$lib/errors";
+    import { sameRules } from "$lib/utils/rules";
     import {
         Upload,
         FileText,
@@ -300,13 +301,8 @@
             hasConflict = true;
         }
 
-        // Check rules
-        // For now, simple JSON stringify comparison.
-        // Ideally we should sort rules but order might matter.
-        // Let's assume order matters.
-        const currentRules = JSON.stringify(context.rules || []);
-        const importedRules = JSON.stringify(metadata.rules || []);
-        if (importedRules !== currentRules) {
+        // Check rules, by what they do rather than by their JSON text.
+        if (!sameRules(context.rules, metadata.rules)) {
             conflicts.rules = true;
             hasConflict = true;
         }
@@ -472,7 +468,7 @@
     <div
         use:portal={"body"}
         use:trapFocus
-        class="fixed left-[50%] top-[50%] z-[100] w-full max-w-2xl translate-x-[-50%] translate-y-[-50%] outline-none max-h-[85vh] flex flex-col"
+        class="fixed left-[50%] top-[50%] z-[100] w-full max-w-2xl translate-x-[-50%] translate-y-[-50%] outline-none px-4 max-h-[85vh] flex flex-col"
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
@@ -810,7 +806,7 @@
     <div
         use:portal={"body"}
         use:trapFocus
-        class="fixed left-[50%] top-[50%] z-[200] w-full max-w-2xl translate-x-[-50%] translate-y-[-50%] outline-none max-h-[85vh] flex flex-col"
+        class="fixed left-[50%] top-[50%] z-[200] w-full max-w-2xl translate-x-[-50%] translate-y-[-50%] outline-none px-4 max-h-[85vh] flex flex-col"
         role="dialog"
         aria-modal="true"
         aria-labelledby={conflictTitleId}
