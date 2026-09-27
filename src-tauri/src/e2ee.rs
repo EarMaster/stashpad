@@ -43,11 +43,11 @@
 // so nothing here is unverified - only uncalled. The allow comes off when enrolment lands.
 #![allow(dead_code)]
 
+use crate::uierror::UiError;
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use rand::RngCore;
 use sha2::{Digest, Sha256};
 use zeroize::Zeroizing;
-use crate::uierror::UiError;
 
 /// Crockford base32: no I, L, O or U, so nothing in a written code can be misread as
 /// something else. Decoding folds I and L to 1, and O to 0, which is what people actually
@@ -178,10 +178,8 @@ pub fn wrap_to_device(
     let info = wrap_info(user_id, &ephemeral_public, recipient_public, epoch);
     let key = derive_wrap_key(shared.as_bytes(), &info);
 
-    let cipher =
-        XChaCha20Poly1305::new_from_slice(key.as_slice()).map_err(|_| "bad key length")?;
-    let mut nonce = [0u8; 24];
-    rand::thread_rng().fill_bytes(&mut nonce);
+    let cipher = XChaCha20Poly1305::new_from_slice(key.as_slice()).map_err(|_| "bad key length")?;
+    let nonce: [u8; 24] = rand::random();
     let ciphertext = cipher
         .encrypt(XNonce::from_slice(&nonce), content_key.as_slice())
         .map_err(|_| "could not seal the content key".to_string())?;
@@ -223,8 +221,7 @@ pub fn unwrap_with_device(
     let info = wrap_info(user_id, &ephemeral_public, &keypair.public_bytes(), epoch);
     let key = derive_wrap_key(shared.as_bytes(), &info);
 
-    let cipher =
-        XChaCha20Poly1305::new_from_slice(key.as_slice()).map_err(|_| "bad key length")?;
+    let cipher = XChaCha20Poly1305::new_from_slice(key.as_slice()).map_err(|_| "bad key length")?;
     let plaintext = cipher
         .decrypt(XNonce::from_slice(nonce), ciphertext)
         .map_err(|_| "this wrapped key is not for this installation".to_string())?;
@@ -254,7 +251,11 @@ impl RecoveryCode {
     /// Stored so a user holding two pieces of paper can tell which is current. It costs 20
     /// of 240 bits; the remaining 220 are still far past any brute-force budget.
     pub fn hint(&self) -> String {
-        self.printed.split('-').take(2).collect::<Vec<_>>().join("-")
+        self.printed
+            .split('-')
+            .take(2)
+            .collect::<Vec<_>>()
+            .join("-")
     }
 }
 
@@ -373,8 +374,7 @@ pub fn wrap_to_recovery(
     user_id: &str,
     epoch: u32,
 ) -> Result<(String, String), UiError> {
-    let mut salt = [0u8; 16];
-    rand::thread_rng().fill_bytes(&mut salt);
+    let salt: [u8; 16] = rand::random();
     let key = derive_recovery_key(code.secret.as_slice(), &salt, user_id, epoch);
     let wrapped = seal_key(&key, content_key)?;
     Ok((STANDARD.encode(salt), wrapped))
@@ -419,8 +419,7 @@ pub fn wrap_to_api_key(
 ) -> Result<(String, String), UiError> {
     use hkdf::Hkdf;
 
-    let mut salt = [0u8; 16];
-    rand::thread_rng().fill_bytes(&mut salt);
+    let salt: [u8; 16] = rand::random();
 
     let mut info = Vec::with_capacity(64);
     info.extend_from_slice(b"stashpad/e2ee/v1/apikey");
@@ -453,8 +452,7 @@ pub fn make_verifier(content_key: &ContentKey) -> Result<String, UiError> {
         XChaCha20Poly1305, XNonce,
     };
     let cipher = XChaCha20Poly1305::new_from_slice(key.as_slice()).map_err(|_| "bad key")?;
-    let mut nonce = [0u8; 24];
-    rand::thread_rng().fill_bytes(&mut nonce);
+    let nonce: [u8; 24] = rand::random();
     let ct = cipher
         .encrypt(XNonce::from_slice(&nonce), VERIFIER_PLAINTEXT)
         .map_err(|_| "could not build the verifier".to_string())?;
@@ -505,8 +503,7 @@ fn seal_key(key: &[u8; 32], content_key: &ContentKey) -> Result<String, UiError>
         XChaCha20Poly1305, XNonce,
     };
     let cipher = XChaCha20Poly1305::new_from_slice(key).map_err(|_| "bad key length")?;
-    let mut nonce = [0u8; 24];
-    rand::thread_rng().fill_bytes(&mut nonce);
+    let nonce: [u8; 24] = rand::random();
     let ct = cipher
         .encrypt(XNonce::from_slice(&nonce), content_key.as_slice())
         .map_err(|_| "could not seal the content key".to_string())?;
@@ -648,7 +645,9 @@ mod tests {
         let ck = new_content_key();
         let wrapped = wrap_to_device(&original.public_bytes(), &ck, USER, 1).unwrap();
         assert_eq!(
-            unwrap_with_device(&restored, &wrapped, USER, 1).unwrap().as_slice(),
+            unwrap_with_device(&restored, &wrapped, USER, 1)
+                .unwrap()
+                .as_slice(),
             ck.as_slice()
         );
     }
@@ -724,7 +723,10 @@ mod tests {
         let mut chars: Vec<char> = code.printed.chars().collect();
         chars[at] = if chars[at] == '2' { '3' } else { '2' };
         let typo: String = chars.into_iter().collect();
-        assert_ne!(typo, code.printed, "the test must actually change something");
+        assert_ne!(
+            typo, code.printed,
+            "the test must actually change something"
+        );
         assert_eq!(typo.len(), code.printed.len(), "and only the one character");
 
         match parse_recovery_code(&typo) {
@@ -747,8 +749,7 @@ mod tests {
         let code = new_recovery_code();
         let ck = new_content_key();
         let (salt, wrapped) = wrap_to_recovery(&code, &ck, USER, 1).expect("wrap");
-        let opened =
-            unwrap_with_recovery(&code.printed, &salt, &wrapped, USER, 1).expect("unwrap");
+        let opened = unwrap_with_recovery(&code.printed, &salt, &wrapped, USER, 1).expect("unwrap");
         assert_eq!(opened.as_slice(), ck.as_slice());
     }
 
@@ -832,8 +833,7 @@ fn print_recovery_fixture() {
     let epoch: u32 = 1;
 
     let code = new_recovery_code();
-    let (salt_b64, wrapped) =
-        wrap_to_recovery(&code, &content_key, user_id, epoch).expect("wrap");
+    let (salt_b64, wrapped) = wrap_to_recovery(&code, &content_key, user_id, epoch).expect("wrap");
 
     println!("typed:       {}", code.printed);
     println!("salt_b64:    {}", salt_b64);

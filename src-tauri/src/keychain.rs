@@ -53,11 +53,7 @@ const KEYCHAIN_LOCAL_KEY_TARGET: &str = "stashpad.local_key";
 /// * **Windows** - it is the credential's TargetName, and secrets exist under it.
 /// * **Linux** - it is one of the lookup attributes (`src/secret_service.rs:237`), so
 ///   dropping it would silently hide every secret already stored under it.
-fn build_entry(
-    target: &str,
-    service: &str,
-    user: &str,
-) -> Result<keyring::Entry, keyring::Error> {
+fn build_entry(target: &str, service: &str, user: &str) -> Result<keyring::Entry, keyring::Error> {
     #[cfg(target_os = "macos")]
     {
         let _ = target;
@@ -85,7 +81,11 @@ pub fn create_cloud_keychain_entry() -> Result<keyring::Entry, keyring::Error> {
 /// what seals the device key file, and on a machine with a credential store it is the only
 /// thing standing between that file and anyone who can read the folder.
 pub fn create_local_key_entry() -> Result<keyring::Entry, keyring::Error> {
-    build_entry(KEYCHAIN_LOCAL_KEY_TARGET, KEYCHAIN_SERVICE, KEYCHAIN_LOCAL_KEY_USER)
+    build_entry(
+        KEYCHAIN_LOCAL_KEY_TARGET,
+        KEYCHAIN_SERVICE,
+        KEYCHAIN_LOCAL_KEY_USER,
+    )
 }
 
 /// Whether this machine has a credential store that actually works.
@@ -150,9 +150,10 @@ pub fn flush_early_diagnostics() {
 pub fn probe_keychain() -> KeychainStatus {
     let status = run_probe();
     match status {
-        KeychainStatus::Working => {
-            early_log(log::Level::Info, "Credential store is available and round-trips".to_string())
-        }
+        KeychainStatus::Working => early_log(
+            log::Level::Info,
+            "Credential store is available and round-trips".to_string(),
+        ),
         KeychainStatus::Unavailable => early_log(
             log::Level::Warn,
             "No usable credential store on this machine - secrets fall back to an encrypted file"
@@ -188,11 +189,7 @@ fn run_probe() -> KeychainStatus {
     // The cost is an orphaned credential if the process dies between the write and the
     // delete. That is a narrow window and a tiny value with a recognisable name, which is
     // a better trade than intermittently mistaking a working store for a missing one.
-    let unique = format!(
-        "{}-{:x}",
-        std::process::id(),
-        rand::random::<u64>()
-    );
+    let unique = format!("{}-{:x}", std::process::id(), rand::random::<u64>());
     let target = format!("stashpad.probe.{}", unique);
     let canary = format!("stashpad-keychain-probe-{}", unique);
     // The uniqueness has to be in the user as well as the target, because macOS ignores the
@@ -204,13 +201,19 @@ fn run_probe() -> KeychainStatus {
     let entry = match build_entry(&target, KEYCHAIN_SERVICE, &probe_user) {
         Ok(entry) => entry,
         Err(e) => {
-            early_log(log::Level::Warn, format!("Credential store probe could not create an entry: {}", e));
+            early_log(
+                log::Level::Warn,
+                format!("Credential store probe could not create an entry: {}", e),
+            );
             return KeychainStatus::Unavailable;
         }
     };
 
     if let Err(e) = entry.set_password(&canary) {
-        early_log(log::Level::Warn, format!("Credential store probe could not write: {}", e));
+        early_log(
+            log::Level::Warn,
+            format!("Credential store probe could not write: {}", e),
+        );
         return KeychainStatus::Unavailable;
     }
 
@@ -218,19 +221,25 @@ fn run_probe() -> KeychainStatus {
     // reading back through the same one would pass against a store that persists nothing.
     // The value is unique per probe as well, so a stale entry cannot stand in for a live
     // write either.
-    let readback =
-        build_entry(&target, KEYCHAIN_SERVICE, &probe_user).and_then(|verify| verify.get_password());
+    let readback = build_entry(&target, KEYCHAIN_SERVICE, &probe_user)
+        .and_then(|verify| verify.get_password());
 
     let _ = entry.delete_credential();
 
     match readback {
         Ok(value) if value == canary => KeychainStatus::Working,
         Ok(_) => {
-            early_log(log::Level::Warn, "Credential store probe read back a different value".to_string());
+            early_log(
+                log::Level::Warn,
+                "Credential store probe read back a different value".to_string(),
+            );
             KeychainStatus::Unavailable
         }
         Err(e) => {
-            early_log(log::Level::Warn, format!("Credential store probe could not read back: {}", e));
+            early_log(
+                log::Level::Warn,
+                format!("Credential store probe could not read back: {}", e),
+            );
             KeychainStatus::Unavailable
         }
     }
@@ -238,7 +247,9 @@ fn run_probe() -> KeychainStatus {
 
 /// What the startup probe found. `Unavailable` until [`probe_keychain`] has run.
 pub fn keychain_status() -> KeychainStatus {
-    *KEYCHAIN_STATUS.get().unwrap_or(&KeychainStatus::Unavailable)
+    *KEYCHAIN_STATUS
+        .get()
+        .unwrap_or(&KeychainStatus::Unavailable)
 }
 
 /// Store a secret in the system keychain.
@@ -280,7 +291,11 @@ pub fn store_api_key_in_keychain(key: &str) -> bool {
 
 /// Store cloud access token in system keychain
 pub fn store_cloud_token_in_keychain(token: &str) -> bool {
-    store_secret_in_keychain(create_cloud_keychain_entry, delete_cloud_token_from_keychain, token)
+    store_secret_in_keychain(
+        create_cloud_keychain_entry,
+        delete_cloud_token_from_keychain,
+        token,
+    )
 }
 
 /// Retrieve a secret from the system keychain.
@@ -288,15 +303,7 @@ pub fn store_cloud_token_in_keychain(token: &str) -> bool {
 pub fn get_secret_from_keychain(
     create_entry: fn() -> Result<keyring::Entry, keyring::Error>,
 ) -> Option<String> {
-    match create_entry() {
-        Ok(entry) => {
-            match entry.get_password() {
-                Ok(password) => Some(password),
-                Err(_) => None
-            }
-        }
-        Err(_) => None
-    }
+    create_entry().ok()?.get_password().ok()
 }
 
 /// Retrieve API key from system keychain
@@ -310,9 +317,7 @@ pub fn get_cloud_token_from_keychain() -> Option<String> {
 }
 
 /// Delete a secret from the keychain.
-pub fn delete_secret_from_keychain(
-    create_entry: fn() -> Result<keyring::Entry, keyring::Error>,
-) {
+pub fn delete_secret_from_keychain(create_entry: fn() -> Result<keyring::Entry, keyring::Error>) {
     if let Ok(entry) = create_entry() {
         let _ = entry.delete_credential();
     }
@@ -331,10 +336,10 @@ pub fn delete_cloud_token_from_keychain() {
 /// Derive a 256-bit key from machine-specific information
 /// This makes the encrypted data machine-bound (can't be decrypted on another machine)
 pub fn derive_machine_key() -> [u8; 32] {
-    use sha2::{Sha256, Digest};
-    
+    use sha2::{Digest, Sha256};
+
     let mut hasher = Sha256::new();
-    
+
     // Add machine-specific data to the key derivation
     // This includes hostname and app directory path
     if let Ok(hostname) = std::env::var("COMPUTERNAME")
@@ -343,13 +348,13 @@ pub fn derive_machine_key() -> [u8; 32] {
     {
         hasher.update(hostname.as_bytes());
     }
-    
+
     // Add app directory path (unique per user/installation)
     hasher.update(get_app_dir().to_string_lossy().as_bytes());
-    
+
     // Add a static salt
     hasher.update(b"StashpadAPIKeyEncryption2026");
-    
+
     let result = hasher.finalize();
     let mut key = [0u8; 32];
     key.copy_from_slice(&result);
@@ -502,11 +507,9 @@ mod tests {
             Aes256Gcm, Nonce,
         };
         use base64::{engine::general_purpose::STANDARD, Engine as _};
-        use rand::RngCore;
 
         let cipher = Aes256Gcm::new_from_slice(&derive_machine_key()).expect("32-byte key");
-        let mut nonce = [0u8; 12];
-        rand::thread_rng().fill_bytes(&mut nonce);
+        let nonce: [u8; 12] = rand::random();
         let ciphertext = cipher
             .encrypt(Nonce::from_slice(&nonce), secret.as_bytes())
             .expect("encrypt");
@@ -574,7 +577,11 @@ mod tests {
         let encoded = STANDARD.encode(&obfuscated);
 
         assert_eq!(decrypt_legacy_secret(&encoded), secret);
-        assert_eq!(decrypt_api_key(&encoded), "", "the live path must not open it");
+        assert_eq!(
+            decrypt_api_key(&encoded),
+            "",
+            "the live path must not open it"
+        );
     }
 
     /// Proves the thing the unit tests above cannot: that a *real* credential store is
@@ -593,10 +600,17 @@ mod tests {
         );
 
         let secret = "sk_stashpad_round_trip_check";
-        assert!(store_api_key_in_keychain(secret), "the store refused a write");
+        assert!(
+            store_api_key_in_keychain(secret),
+            "the store refused a write"
+        );
         assert_eq!(get_api_key_from_keychain().as_deref(), Some(secret));
         delete_api_key_from_keychain();
-        assert_eq!(get_api_key_from_keychain(), None, "delete must actually remove it");
+        assert_eq!(
+            get_api_key_from_keychain(),
+            None,
+            "delete must actually remove it"
+        );
     }
 
     #[test]

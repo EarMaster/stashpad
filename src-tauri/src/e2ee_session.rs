@@ -51,8 +51,8 @@ use zeroize::Zeroizing;
 use crate::e2ee::{self, ContentKey, DeviceKeypair};
 use crate::envelope::{self, Binding, Field, Kind};
 use crate::state::lock_or_recover;
-use crate::utils::get_app_dir;
 use crate::uierror::UiError;
+use crate::utils::get_app_dir;
 
 /// The content key for this account, once something has unwrapped it.
 static CONTENT_KEY: Mutex<Option<ContentKey>> = Mutex::new(None);
@@ -76,8 +76,7 @@ pub fn load_or_create_device_keypair() -> Result<DeviceKeypair, UiError> {
     let path = device_key_path();
 
     if let Ok(sealed) = fs::read_to_string(&path) {
-        let opened = open_local(sealed.trim())
-            .ok_or_else(|| {
+        let opened = open_local(sealed.trim()).ok_or_else(|| {
             UiError::new(
                 "e2ee.device_key_unopenable",
                 "This installation's key could not be opened on this machine",
@@ -85,9 +84,9 @@ pub fn load_or_create_device_keypair() -> Result<DeviceKeypair, UiError> {
         })?;
         if opened.len() != 32 {
             return Err(UiError::new(
-            "e2ee.device_key_damaged",
-            "This installation's key is damaged",
-        ));
+                "e2ee.device_key_damaged",
+                "This installation's key is damaged",
+            ));
         }
         let mut bytes = [0u8; 32];
         bytes.copy_from_slice(&opened);
@@ -95,13 +94,12 @@ pub fn load_or_create_device_keypair() -> Result<DeviceKeypair, UiError> {
     }
 
     let keypair = DeviceKeypair::generate();
-    let sealed = seal_local(keypair.secret_bytes().as_slice())
-        .ok_or_else(|| {
-            UiError::new(
-                "e2ee.nowhere_safe",
-                "There is nowhere safe on this machine to keep an encryption key",
-            )
-        })?;
+    let sealed = seal_local(keypair.secret_bytes().as_slice()).ok_or_else(|| {
+        UiError::new(
+            "e2ee.nowhere_safe",
+            "There is nowhere safe on this machine to keep an encryption key",
+        )
+    })?;
     fs::write(&path, sealed).map_err(|e| format!("Could not save the key: {}", e))?;
     Ok(keypair)
 }
@@ -171,10 +169,7 @@ pub struct UnreadableRecord {
 ///
 /// A no-op when this installation holds no content key, which is every account that has not
 /// turned encryption on.
-pub fn seal_stash_payload(
-    payload: &mut serde_json::Value,
-    user_id: &str,
-) -> Result<(), UiError> {
+pub fn seal_stash_payload(payload: &mut serde_json::Value, user_id: &str) -> Result<(), UiError> {
     let guard = lock_or_recover(&CONTENT_KEY);
     let Some(key) = guard.as_ref() else {
         return Ok(());
@@ -204,7 +199,16 @@ pub fn seal_stash_payload(
             continue;
         }
 
-        seal_field(stash, "content", key, user_id, &id, Kind::Stash, Field::Content, epoch)?;
+        seal_field(
+            stash,
+            "content",
+            key,
+            user_id,
+            &id,
+            Kind::Stash,
+            Field::Content,
+            epoch,
+        )?;
         seal_field(
             stash,
             "enhancedContent",
@@ -242,10 +246,7 @@ fn strip_attachment_details(stash: &mut serde_json::Value) {
 ///
 /// Records that cannot be opened are removed from `synced` and returned, so the caller can
 /// report them. They are never written locally - see the rule in the module notes.
-pub fn open_stash_response(
-    body: &mut serde_json::Value,
-    user_id: &str,
-) -> Vec<UnreadableRecord> {
+pub fn open_stash_response(body: &mut serde_json::Value, user_id: &str) -> Vec<UnreadableRecord> {
     let mut unreadable = Vec::new();
 
     let guard = lock_or_recover(&CONTENT_KEY);
@@ -269,7 +270,10 @@ pub fn open_stash_response(
                 open_field(stash, field, key, user_id, &id, Kind::Stash, which, epoch)
             {
                 log::warn!("Dropping stash {} from this sync: {}", id, reason);
-                unreadable.push(UnreadableRecord { id: id.clone(), reason: reason.message });
+                unreadable.push(UnreadableRecord {
+                    id: id.clone(),
+                    reason: reason.message,
+                });
                 return false;
             }
         }
@@ -280,10 +284,7 @@ pub fn open_stash_response(
 }
 
 /// Seal a context-sync payload. Name, description and rules travel together.
-pub fn seal_context_payload(
-    payload: &mut serde_json::Value,
-    user_id: &str,
-) -> Result<(), UiError> {
+pub fn seal_context_payload(payload: &mut serde_json::Value, user_id: &str) -> Result<(), UiError> {
     let guard = lock_or_recover(&CONTENT_KEY);
     let Some(key) = guard.as_ref() else {
         return Ok(());
@@ -306,7 +307,16 @@ pub fn seal_context_payload(
             continue;
         }
 
-        seal_field(ctx, "name", key, user_id, &id, Kind::Context, Field::Name, epoch)?;
+        seal_field(
+            ctx,
+            "name",
+            key,
+            user_id,
+            &id,
+            Kind::Context,
+            Field::Name,
+            epoch,
+        )?;
         seal_field(
             ctx,
             "description",
@@ -343,10 +353,7 @@ pub fn seal_context_payload(
 }
 
 /// Open a context-sync response.
-pub fn open_context_response(
-    body: &mut serde_json::Value,
-    user_id: &str,
-) -> Vec<UnreadableRecord> {
+pub fn open_context_response(body: &mut serde_json::Value, user_id: &str) -> Vec<UnreadableRecord> {
     let mut unreadable = Vec::new();
 
     let guard = lock_or_recover(&CONTENT_KEY);
@@ -367,18 +374,19 @@ pub fn open_context_response(
                 open_field(ctx, field, key, user_id, &id, Kind::Context, which, epoch)
             {
                 log::warn!("Dropping context {} from this sync: {}", id, reason);
-                unreadable.push(UnreadableRecord { id: id.clone(), reason: reason.message });
+                unreadable.push(UnreadableRecord {
+                    id: id.clone(),
+                    reason: reason.message,
+                });
                 return false;
             }
         }
 
         // The sealed-rules case: a one-element array holding an envelope.
-        let sealed_rules = ctx["rules"]
-            .as_array()
-            .and_then(|r| match r.as_slice() {
-                [serde_json::Value::String(s)] if envelope::is_envelope(s) => Some(s.clone()),
-                _ => None,
-            });
+        let sealed_rules = ctx["rules"].as_array().and_then(|r| match r.as_slice() {
+            [serde_json::Value::String(s)] if envelope::is_envelope(s) => Some(s.clone()),
+            _ => None,
+        });
 
         if let Some(sealed) = sealed_rules {
             match envelope::open(
@@ -394,12 +402,16 @@ pub fn open_context_response(
                 },
             ) {
                 Ok(json) => {
-                    ctx["rules"] = serde_json::from_str(&json).unwrap_or_else(|_| serde_json::json!([]));
+                    ctx["rules"] =
+                        serde_json::from_str(&json).unwrap_or_else(|_| serde_json::json!([]));
                 }
                 Err(e) => {
                     let reason = format!("{:?}", e);
                     log::warn!("Dropping context {} from this sync: {}", id, reason);
-                    unreadable.push(UnreadableRecord { id: id.clone(), reason });
+                    unreadable.push(UnreadableRecord {
+                        id: id.clone(),
+                        reason,
+                    });
                     return false;
                 }
             }
@@ -527,12 +539,8 @@ pub fn seal_attachment(
     let epoch = *lock_or_recover(&EPOCH);
 
     let mut file_key = Zeroizing::new([0u8; 32]);
-    let mut nonce = [0u8; 24];
-    {
-        let mut rng = rand::thread_rng();
-        rng.fill_bytes(file_key.as_mut());
-        rng.fill_bytes(&mut nonce);
-    }
+    rand::thread_rng().fill_bytes(file_key.as_mut());
+    let nonce: [u8; 24] = rand::random();
 
     let cipher = XChaCha20Poly1305::new_from_slice(file_key.as_slice())
         .map_err(|_| "bad file key".to_string())?;
@@ -703,7 +711,9 @@ fn confirm_and_hold(key: ContentKey, epoch: u32, verifier: &str) -> Result<(), U
 
 /// Keep a copy of the raw key bytes for a caller that has to wrap it onward.
 pub fn content_key_bytes() -> Option<Zeroizing<[u8; 32]>> {
-    lock_or_recover(&CONTENT_KEY).as_ref().map(|k| Zeroizing::new(**k))
+    lock_or_recover(&CONTENT_KEY)
+        .as_ref()
+        .map(|k| Zeroizing::new(**k))
 }
 
 #[cfg(test)]
@@ -793,7 +803,10 @@ mod tests {
         payload["stashes"][0]["attachments"] =
             serde_json::json!([{ "id": "a", "fileName": "shot.png", "fileSize": 5 }]);
         seal_stash_payload(&mut payload, USER).expect("seal");
-        assert_eq!(payload["stashes"][0]["attachments"][0]["fileName"], "shot.png");
+        assert_eq!(
+            payload["stashes"][0]["attachments"][0]["fileName"],
+            "shot.png"
+        );
     }
 
     #[test]
@@ -847,7 +860,10 @@ mod tests {
         with_key(|| {
             let mut payload = stash_payload();
             seal_stash_payload(&mut payload, USER).expect("first");
-            let once = payload["stashes"][0]["content"].as_str().unwrap().to_string();
+            let once = payload["stashes"][0]["content"]
+                .as_str()
+                .unwrap()
+                .to_string();
 
             seal_stash_payload(&mut payload, USER).expect("second");
             assert_eq!(payload["stashes"][0]["content"], once);
@@ -999,7 +1015,10 @@ mod attachment_tests {
                 .expect("open")
                 .expect("sealed");
             assert_eq!(details.file_name, "Q3-layoffs.xlsx");
-            assert_eq!(details.mime_type.as_deref(), Some("application/vnd.ms-excel"));
+            assert_eq!(
+                details.mime_type.as_deref(),
+                Some("application/vnd.ms-excel")
+            );
             assert_eq!(details.syntax, None);
             assert_eq!(details.plaintext_size, plaintext.len() as i64);
 
@@ -1015,11 +1034,20 @@ mod attachment_tests {
             let a = seal_attachment(b"one", "a.txt", None, None, ATT, USER)
                 .unwrap()
                 .unwrap();
-            let b = seal_attachment(b"two", "b.txt", None, None, "66666666-6666-4666-8666-666666666666", USER)
+            let b = seal_attachment(
+                b"two",
+                "b.txt",
+                None,
+                None,
+                "66666666-6666-4666-8666-666666666666",
+                USER,
+            )
+            .unwrap()
+            .unwrap();
+
+            let details_a = open_attachment_metadata(&a.metadata, ATT, USER)
                 .unwrap()
                 .unwrap();
-
-            let details_a = open_attachment_metadata(&a.metadata, ATT, USER).unwrap().unwrap();
             assert!(
                 open_attachment_bytes(&details_a, &b.bytes).is_err(),
                 "one file's key must not open another's bytes"
@@ -1065,7 +1093,9 @@ mod attachment_tests {
             let sealed = seal_attachment(b"the bytes", "a.txt", None, None, ATT, USER)
                 .unwrap()
                 .unwrap();
-            let details = open_attachment_metadata(&sealed.metadata, ATT, USER).unwrap().unwrap();
+            let details = open_attachment_metadata(&sealed.metadata, ATT, USER)
+                .unwrap()
+                .unwrap();
             assert!(open_attachment_bytes(&details, &sealed.bytes[..20]).is_err());
         });
     }

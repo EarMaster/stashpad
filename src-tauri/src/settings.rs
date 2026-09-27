@@ -11,20 +11,20 @@
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 // See the GNU Affero General Public License for more details.
 
+use crate::keychain::{
+    decrypt_api_key, decrypt_legacy_secret, get_api_key_from_keychain,
+    get_cloud_token_from_keychain, keychain_status, store_api_key_in_keychain,
+    store_cloud_token_in_keychain, KeychainStatus,
+};
+use crate::localkey;
+use crate::models::{default_cloud_endpoint, CloudConfig, Settings};
+use crate::state::{lock_or_recover, SettingsState};
+use crate::uierror::UiError;
+use crate::utils::get_app_dir;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use tauri::{State, Manager};
-use crate::models::{Settings, CloudConfig, default_cloud_endpoint};
-use crate::utils::get_app_dir;
-use crate::keychain::{
-    decrypt_api_key, decrypt_legacy_secret, get_api_key_from_keychain, get_cloud_token_from_keychain,
-    keychain_status, store_api_key_in_keychain, store_cloud_token_in_keychain,
-    KeychainStatus,
-};
-use crate::localkey;
-use crate::state::{SettingsState, lock_or_recover};
-use crate::uierror::UiError;
+use tauri::{Manager, State};
 
 pub fn get_settings_path() -> PathBuf {
     get_app_dir().join("settings.json")
@@ -92,7 +92,7 @@ pub const MAX_PASTE_AS_ATTACHMENT_THRESHOLD: u32 = 100_000;
 /// This ensures robustness against manual edits or corruption of settings.json.
 pub fn validate_settings(mut settings: Settings) -> Settings {
     let defaults = Settings::default();
-    
+
     // Validate new_stash_position: must be "top" or "bottom"
     if settings.new_stash_position != "top" && settings.new_stash_position != "bottom" {
         println!(
@@ -101,7 +101,7 @@ pub fn validate_settings(mut settings: Settings) -> Settings {
         );
         settings.new_stash_position = defaults.new_stash_position.clone();
     }
-    
+
     // Validate clear_completed_strategy: must be "never", "on-close", or "after-n-days"
     let valid_strategies = ["never", "on-close", "after-n-days"];
     if !valid_strategies.contains(&settings.clear_completed_strategy.as_str()) {
@@ -111,7 +111,7 @@ pub fn validate_settings(mut settings: Settings) -> Settings {
         );
         settings.clear_completed_strategy = defaults.clear_completed_strategy.clone();
     }
-    
+
     // Validate theme: must be "light", "dark", "system", or None
     if let Some(ref theme) = settings.theme {
         if !["light", "dark", "system"].contains(&theme.as_str()) {
@@ -122,7 +122,7 @@ pub fn validate_settings(mut settings: Settings) -> Settings {
             settings.theme = None;
         }
     }
-    
+
     // Validate clear_completed_days: must be at least 1 if strategy is after-n-days
     if settings.clear_completed_strategy == "after-n-days" && settings.clear_completed_days == 0 {
         println!(
@@ -131,7 +131,7 @@ pub fn validate_settings(mut settings: Settings) -> Settings {
         );
         settings.clear_completed_days = defaults.clear_completed_days;
     }
-    
+
     // Validate paste_as_attachment_threshold: 0 is valid (ask user), so only cap the top
     // end. Clamp rather than reset - the user asked for "as large as possible", and
     // dropping them back to the default silently discards that intent.
@@ -142,7 +142,7 @@ pub fn validate_settings(mut settings: Settings) -> Settings {
         );
         settings.paste_as_attachment_threshold = MAX_PASTE_AS_ATTACHMENT_THRESHOLD;
     }
-    
+
     // Discard update timestamps that sit implausibly far in the future. A clock that
     // jumped forward once would otherwise suppress every later update check - the 48h
     // deadline and the "remind me later" deadline would both never be reached again.
@@ -155,7 +155,10 @@ pub fn validate_settings(mut settings: Settings) -> Settings {
         println!("Warning: last_update_check_at is in the future, resetting");
         settings.last_update_check_at = None;
     }
-    if settings.update_remind_after.is_some_and(|t| t > horizon + 7 * 24 * 60 * 60 * 1000) {
+    if settings
+        .update_remind_after
+        .is_some_and(|t| t > horizon + 7 * 24 * 60 * 60 * 1000)
+    {
         println!("Warning: update_remind_after is implausibly far ahead, resetting");
         settings.update_remind_after = None;
     }
@@ -175,7 +178,7 @@ pub fn validate_settings(mut settings: Settings) -> Settings {
             last_sync_at: None,
         });
     }
-    
+
     settings
 }
 
@@ -240,7 +243,10 @@ fn persist_secret(
                 return String::new();
             }
             KeychainStatus::Unavailable => {
-                log::info!("No credential store for {}, using the device passphrase", label);
+                log::info!(
+                    "No credential store for {}, using the device passphrase",
+                    label
+                );
             }
         }
     }
@@ -299,8 +305,12 @@ pub fn persist_settings_to_disk(settings: &Settings) {
         let api_key = ai_config.api_key.clone();
 
         if !api_key.is_empty() {
-            ai_config.api_key =
-                persist_secret(&LAST_API_KEY, store_api_key_in_keychain, &api_key, "API key");
+            ai_config.api_key = persist_secret(
+                &LAST_API_KEY,
+                store_api_key_in_keychain,
+                &api_key,
+                "API key",
+            );
         }
     }
 
@@ -374,7 +384,11 @@ pub async fn get_settings(state: State<'_, Arc<SettingsState>>) -> Result<Settin
 }
 
 #[tauri::command]
-pub async fn save_settings(app: tauri::AppHandle, state: State<'_, Arc<SettingsState>>, mut settings: Settings) -> Result<(), UiError> {
+pub async fn save_settings(
+    app: tauri::AppHandle,
+    state: State<'_, Arc<SettingsState>>,
+    mut settings: Settings,
+) -> Result<(), UiError> {
     // One critical section, not five. Each `lock_settings()` is a blocking acquire on
     // an async worker, and this command runs on every keystroke in the settings panel;
     // taking the lock five times per call multiplied that contention for no reason.
@@ -546,7 +560,12 @@ pub fn migrate_secrets_into_keychain(state: &SettingsState) {
         }
     }
     if let (Some(raw), Some(cloud_config)) = (raw_token, settings.cloud_config.as_mut()) {
-        if cloud_config.access_token.as_deref().unwrap_or("").is_empty() {
+        if cloud_config
+            .access_token
+            .as_deref()
+            .unwrap_or("")
+            .is_empty()
+        {
             let recovered = decrypt_legacy_secret(&raw);
             if !recovered.is_empty() {
                 log::info!("Recovered the cloud token from an older storage format");

@@ -11,17 +11,17 @@
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 // See the GNU Affero General Public License for more details.
 
-use std::sync::Arc;
-use std::time::Duration;
-use tauri::State;
+use crate::models::{default_cloud_endpoint, Attachment, CloudConfig};
+use crate::settings::persist_settings_off_thread;
+use crate::state::{lock_or_recover, DbState, SettingsState, WsState};
+use crate::uierror::UiError;
+use crate::utils::get_app_dir;
 use rusqlite::params;
 use rusqlite::OptionalExtension;
 use std::fs;
-use crate::models::{CloudConfig, Attachment, default_cloud_endpoint};
-use crate::state::{SettingsState, DbState, WsState, lock_or_recover};
-use crate::settings::persist_settings_off_thread;
-use crate::utils::get_app_dir;
-use crate::uierror::UiError;
+use std::sync::Arc;
+use std::time::Duration;
+use tauri::State;
 
 /// How long a JSON API call may take before it is abandoned.
 ///
@@ -128,7 +128,10 @@ pub async fn fetch_cloud_account(
 ) -> Result<CloudConfig, UiError> {
     let (endpoint, token) = {
         let settings = settings_state.lock_settings();
-        let config = settings.cloud_config.as_ref().ok_or("Cloud config missing")?;
+        let config = settings
+            .cloud_config
+            .as_ref()
+            .ok_or("Cloud config missing")?;
         let token = config.access_token.clone().ok_or("Not authenticated")?;
         (config.endpoint.clone(), token)
     };
@@ -151,7 +154,9 @@ pub async fn fetch_cloud_account(
 
     absorb_refreshed_token(&settings_state, &response).await;
 
-    let account: serde_json::Value = response.json().await
+    let account: serde_json::Value = response
+        .json()
+        .await
         .map_err(|e| format!("Failed to parse account: {}", e))?;
 
     // Update local config with subscription info. The lock is dropped before the write:
@@ -163,8 +168,12 @@ pub async fn fetch_cloud_account(
             return Err("Cloud config not found".into());
         };
         config.subscription_tier = account["subscriptionTier"].as_str().map(|s| s.to_string());
-        config.subscription_status = account["subscriptionStatus"].as_str().map(|s| s.to_string());
-        config.subscription_period_end = account["subscriptionPeriodEnd"].as_str().map(|s| s.to_string());
+        config.subscription_status = account["subscriptionStatus"]
+            .as_str()
+            .map(|s| s.to_string());
+        config.subscription_period_end = account["subscriptionPeriodEnd"]
+            .as_str()
+            .map(|s| s.to_string());
         config.enterprise_owner_id = account["enterpriseOwnerId"].as_str().map(|s| s.to_string());
 
         (config.clone(), settings.clone())
@@ -185,13 +194,19 @@ pub async fn exchange_link_code_api(
 ) -> Result<CloudConfig, UiError> {
     let endpoint = {
         let settings = settings_state.lock_settings();
-        let config = settings.cloud_config.as_ref().ok_or("Cloud config missing")?;
+        let config = settings
+            .cloud_config
+            .as_ref()
+            .ok_or("Cloud config missing")?;
         config.endpoint.clone()
     };
 
     let client = api_client()?;
     let response = client
-        .post(format!("{}/auth/exchange-token", endpoint.trim_end_matches('/')))
+        .post(format!(
+            "{}/auth/exchange-token",
+            endpoint.trim_end_matches('/')
+        ))
         .header("Content-Type", "application/json")
         // The device id ties the issued token to this installation, so the account page
         // can revoke this instance on its own instead of every session at once.
@@ -229,9 +244,7 @@ pub async fn exchange_link_code_api(
         .ok_or("Missing token in response")?
         .to_string();
 
-    let user_id_val = data["user_id"]
-        .as_str()
-        .map(|s| s.to_string());
+    let user_id_val = data["user_id"].as_str().map(|s| s.to_string());
 
     // Same as above: mutate under the lock, then release it before the blocking write.
     let (config, snapshot) = {
@@ -264,7 +277,6 @@ pub async fn exchange_link_code_api(
     Ok(return_config)
 }
 
-
 #[tauri::command]
 pub async fn sync_stashes_api(
     settings_state: State<'_, Arc<SettingsState>>,
@@ -272,7 +284,10 @@ pub async fn sync_stashes_api(
 ) -> Result<serde_json::Value, UiError> {
     let (endpoint, token, user_id) = {
         let settings = settings_state.lock_settings();
-        let config = settings.cloud_config.as_ref().ok_or("Cloud config missing")?;
+        let config = settings
+            .cloud_config
+            .as_ref()
+            .ok_or("Cloud config missing")?;
         let token = config.access_token.clone().ok_or("Not authenticated")?;
         (
             config.endpoint.clone(),
@@ -358,7 +373,10 @@ pub async fn e2ee_get(
 ) -> Result<serde_json::Value, UiError> {
     let (endpoint, token) = {
         let settings = settings_state.lock_settings();
-        let config = settings.cloud_config.as_ref().ok_or("Cloud config missing")?;
+        let config = settings
+            .cloud_config
+            .as_ref()
+            .ok_or("Cloud config missing")?;
         let token = config.access_token.clone().ok_or("Not authenticated")?;
         (config.endpoint.clone(), token)
     };
@@ -391,7 +409,10 @@ pub async fn e2ee_post(
 ) -> Result<serde_json::Value, UiError> {
     let (endpoint, token) = {
         let settings = settings_state.lock_settings();
-        let config = settings.cloud_config.as_ref().ok_or("Cloud config missing")?;
+        let config = settings
+            .cloud_config
+            .as_ref()
+            .ok_or("Cloud config missing")?;
         let token = config.access_token.clone().ok_or("Not authenticated")?;
         (config.endpoint.clone(), token)
     };
@@ -431,7 +452,10 @@ pub async fn upload_attachment_to_cloud(
 ) -> Result<bool, UiError> {
     let (endpoint, token) = {
         let settings = settings_state.lock_settings();
-        let config = settings.cloud_config.as_ref().ok_or("Cloud config missing")?;
+        let config = settings
+            .cloud_config
+            .as_ref()
+            .ok_or("Cloud config missing")?;
         let token = config.access_token.clone().ok_or("Not authenticated")?;
         (config.endpoint.clone(), token)
     };
@@ -455,8 +479,10 @@ pub async fn upload_attachment_to_cloud(
                 },
                 uploaded_at.is_some(),
             ))
-        }).optional().map_err(|e| e.to_string())?
-            .ok_or_else(|| "Attachment not found".to_string())?
+        })
+        .optional()
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "Attachment not found".to_string())?
     };
 
     // Idempotency: without this every sync re-PUT the full body of every attachment
@@ -533,7 +559,7 @@ pub async fn upload_attachment_to_cloud(
     }
 
     let client = transfer_client()?;
-    
+
     // 1. Read the file, and seal it when this account is encrypted.
     //
     // This has to happen before presigning. `file_size` is what `confirm_upload` compares
@@ -545,7 +571,10 @@ pub async fn upload_attachment_to_cloud(
         .await
         .map_err(|e| format!("Attachment read task failed: {}", e))?
         .map_err(|e| {
-            let msg = format!("Failed to read attachment file {}: {}", attachment.file_path, e);
+            let msg = format!(
+                "Failed to read attachment file {}: {}",
+                attachment.file_path, e
+            );
             log::error!("[Attachment] {}", msg);
             msg
         })?;
@@ -598,7 +627,10 @@ pub async fn upload_attachment_to_cloud(
     });
 
     let upload_url_resp = client
-        .post(format!("{}/attachments/upload", endpoint.trim_end_matches('/')))
+        .post(format!(
+            "{}/attachments/upload",
+            endpoint.trim_end_matches('/')
+        ))
         .header("Authorization", format!("Bearer {}", token))
         .json(&upload_req)
         .send()
@@ -606,19 +638,25 @@ pub async fn upload_attachment_to_cloud(
         .map_err(|e| format!("Failed to get upload URL: {}", e))?;
 
     let status = upload_url_resp.status();
-    let resp_text = upload_url_resp.text().await
+    let resp_text = upload_url_resp
+        .text()
+        .await
         .map_err(|e| format!("Failed to read upload URL response: {}", e))?;
 
     if !status.is_success() {
-        let msg = format!("Cloud rejected upload request for {}: {} - {}", attachment.id, status, resp_text);
+        let msg = format!(
+            "Cloud rejected upload request for {}: {} - {}",
+            attachment.id, status, resp_text
+        );
         log::error!("[Attachment] {}", msg);
         return Err(msg.into());
     }
 
     let upload_data: serde_json::Value = serde_json::from_str(&resp_text)
         .map_err(|e| format!("Failed to parse upload URL response: {}", e))?;
-    
-    let upload_url = upload_data["uploadUrl"].as_str()
+
+    let upload_url = upload_data["uploadUrl"]
+        .as_str()
         .ok_or_else(|| "No upload URL in response".to_string())?;
 
     // The bytes were read and sealed above, before presigning, because the size
@@ -637,7 +675,11 @@ pub async fn upload_attachment_to_cloud(
         .map_err(|e| format!("Failed to upload file to storage: {}", e))?;
 
     if !put_resp.status().is_success() {
-        let msg = format!("Storage rejected the file for {}: {}", attachment.id, put_resp.status());
+        let msg = format!(
+            "Storage rejected the file for {}: {}",
+            attachment.id,
+            put_resp.status()
+        );
         log::error!("[Attachment] {}", msg);
         return Err(msg.into());
     }
@@ -666,7 +708,11 @@ pub async fn upload_attachment_to_cloud(
         return Err(msg.into());
     }
 
-    log::info!("[Attachment] Uploaded {} ({})", attachment.id, attachment.file_name);
+    log::info!(
+        "[Attachment] Uploaded {} ({})",
+        attachment.id,
+        attachment.file_name
+    );
 
     // 5. Record locally so we never re-upload these bytes.
     {
@@ -695,7 +741,10 @@ pub async fn download_attachment_from_cloud(
 ) -> Result<String, UiError> {
     let (endpoint, token) = {
         let settings = settings_state.lock_settings();
-        let config = settings.cloud_config.as_ref().ok_or("Cloud config missing")?;
+        let config = settings
+            .cloud_config
+            .as_ref()
+            .ok_or("Cloud config missing")?;
         let token = config.access_token.clone().ok_or("Not authenticated")?;
         (config.endpoint.clone(), token)
     };
@@ -752,8 +801,8 @@ pub async fn download_attachment_from_cloud(
         return Err(format!("Cloud rejected download request: {} - {}", status, body).into());
     }
 
-    let data: serde_json::Value =
-        serde_json::from_str(&body).map_err(|e| format!("Failed to parse download response: {}", e))?;
+    let data: serde_json::Value = serde_json::from_str(&body)
+        .map_err(|e| format!("Failed to parse download response: {}", e))?;
     let download_url = data["downloadUrl"]
         .as_str()
         .ok_or_else(|| "No download URL in response".to_string())?;
@@ -789,7 +838,8 @@ pub async fn download_attachment_from_cloud(
             .unwrap_or_default()
     };
 
-    let details = crate::e2ee_session::open_attachment_metadata(&file_name, &attachment_id, &user_id)?;
+    let details =
+        crate::e2ee_session::open_attachment_metadata(&file_name, &attachment_id, &user_id)?;
 
     let (bytes, file_name) = match details {
         Some(details) => {
@@ -836,8 +886,8 @@ pub async fn download_attachment_from_cloud(
     let write_temp = temp.clone();
     let write_dir = dir.clone();
     let desired_name = file_name.clone();
-    let target = tauri::async_runtime::spawn_blocking(
-        move || -> Result<std::path::PathBuf, UiError> {
+    let target =
+        tauri::async_runtime::spawn_blocking(move || -> Result<std::path::PathBuf, UiError> {
             fs::write(&write_temp, &bytes)
                 .map_err(|e| format!("Failed to write attachment: {}", e))?;
 
@@ -846,8 +896,8 @@ pub async fn download_attachment_from_cloud(
             // look like a finished attachment to every `exists()` check in the codebase.
             // Downloading straight onto `dir.join(&file_name)` was the other way two
             // attachments of one name came to share a single file.
-            let target = crate::utils::reserve_unique_path(&write_dir, &desired_name)
-                .map_err(|e| {
+            let target =
+                crate::utils::reserve_unique_path(&write_dir, &desired_name).map_err(|e| {
                     let _ = fs::remove_file(&write_temp);
                     format!("Failed to reserve attachment path: {}", e)
                 })?;
@@ -858,10 +908,9 @@ pub async fn download_attachment_from_cloud(
                 return Err(format!("Failed to finalise attachment: {}", e).into());
             }
             Ok(target)
-        },
-    )
-    .await
-    .map_err(|e| format!("Attachment write task failed: {}", e))??;
+        })
+        .await
+        .map_err(|e| format!("Attachment write task failed: {}", e))??;
 
     let path_str = target.to_string_lossy().to_string();
 
@@ -887,7 +936,10 @@ pub async fn sync_contexts_api(
 ) -> Result<serde_json::Value, UiError> {
     let (endpoint, token, user_id) = {
         let settings = settings_state.lock_settings();
-        let config = settings.cloud_config.as_ref().ok_or("Cloud config missing")?;
+        let config = settings
+            .cloud_config
+            .as_ref()
+            .ok_or("Cloud config missing")?;
         let token = config.access_token.clone().ok_or("Not authenticated")?;
         (
             config.endpoint.clone(),
@@ -967,8 +1019,15 @@ pub async fn connect_websocket(
 
     let (endpoint, token, enabled) = {
         let settings = settings_state.lock_settings();
-        let config = settings.cloud_config.as_ref().ok_or("Cloud config missing")?;
-        (config.endpoint.clone(), config.access_token.clone(), config.enabled)
+        let config = settings
+            .cloud_config
+            .as_ref()
+            .ok_or("Cloud config missing")?;
+        (
+            config.endpoint.clone(),
+            config.access_token.clone(),
+            config.enabled,
+        )
     };
 
     if !enabled || token.is_none() {
@@ -980,9 +1039,13 @@ pub async fn connect_websocket(
     let ws_endpoint = endpoint
         .replace("http://", "ws://")
         .replace("https://", "wss://");
-    
+
     // Append the token to the URL query string
-    let ws_url = format!("{}/ws?token={}", ws_endpoint.trim_end_matches('/'), urlencoding::encode(&token));
+    let ws_url = format!(
+        "{}/ws?token={}",
+        ws_endpoint.trim_end_matches('/'),
+        urlencoding::encode(&token)
+    );
 
     // Spawn a persistent task for the WebSocket connection with reconnect logic
     let task_app = app.clone();
@@ -992,8 +1055,8 @@ pub async fn connect_websocket(
     let task_settings: Arc<SettingsState> = (*settings_state).clone();
     let handle = tauri::async_runtime::spawn(async move {
         use futures_util::{SinkExt, StreamExt};
-        use tokio_tungstenite::connect_async;
         use tauri::Emitter;
+        use tokio_tungstenite::connect_async;
 
         // How often to ping the server. Idle WebSockets through a NAT or proxy are
         // dropped silently; without traffic the client believes it is still connected
@@ -1016,12 +1079,16 @@ pub async fn connect_websocket(
             // stopped looping: the app kept believing a connection was pending and
             // fell back to the 15-minute poll, which reads as sync being broken.
             let attempt = tokio::time::timeout(WS_CONNECT_TIMEOUT, connect_async(ws_url.clone()));
-            match attempt.await.unwrap_or_else(|_| {
-                Err(tokio_tungstenite::tungstenite::Error::Io(std::io::Error::new(
-                    std::io::ErrorKind::TimedOut,
-                    "WebSocket handshake timed out",
-                )))
-            }) {
+            let connected = match attempt.await {
+                Ok(result) => result,
+                Err(_elapsed) => Err(tokio_tungstenite::tungstenite::Error::Io(
+                    std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "WebSocket handshake timed out",
+                    ),
+                )),
+            };
+            match connected {
                 Ok((ws_stream, _)) => {
                     log::info!("[WebSocket] Connected successfully");
 
@@ -1041,9 +1108,9 @@ pub async fn connect_websocket(
                             match crate::e2ee_enrol::unlock_this_installation(&unlock_settings)
                                 .await
                             {
-                                Ok(true) => log::info!(
-                                    "Content key opened after the connection came back"
-                                ),
+                                Ok(true) => {
+                                    log::info!("Content key opened after the connection came back")
+                                }
                                 Ok(false) => {}
                                 Err(e) => log::warn!(
                                     "Could not open the content key after reconnecting: {}",
@@ -1154,7 +1221,10 @@ pub async fn fetch_cloud_usage(
 ) -> Result<CloudUsage, UiError> {
     let (endpoint, token) = {
         let settings = settings_state.lock_settings();
-        let config = settings.cloud_config.as_ref().ok_or("Cloud config missing")?;
+        let config = settings
+            .cloud_config
+            .as_ref()
+            .ok_or("Cloud config missing")?;
         let token = config.access_token.clone().ok_or("Not authenticated")?;
         (config.endpoint.clone(), token)
     };
@@ -1219,7 +1289,10 @@ mod tests {
         assert!(!body.is_char_boundary(ERROR_SNIPPET_CHARS));
 
         let snippet = error_snippet(&body);
-        assert_eq!(snippet.chars().filter(|c| *c == '€').count(), ERROR_SNIPPET_CHARS);
+        assert_eq!(
+            snippet.chars().filter(|c| *c == '€').count(),
+            ERROR_SNIPPET_CHARS
+        );
     }
 
     #[test]
@@ -1277,8 +1350,7 @@ enum PlaintextSource {
 }
 
 fn plaintext_source(local_path: Option<&str>, damaged: bool) -> PlaintextSource {
-    match local_path.filter(|path| !path.trim().is_empty() && std::path::Path::new(path).exists())
-    {
+    match local_path.filter(|path| !path.trim().is_empty() && std::path::Path::new(path).exists()) {
         Some(path) => PlaintextSource::Local(path.to_string()),
         None if damaged => PlaintextSource::Unrecoverable,
         None => PlaintextSource::Server,
@@ -1332,7 +1404,11 @@ pub async fn convert_attachments_to_encrypted(
     let mut offset: i64 = 0;
     let mut first_page = true;
     loop {
-        let page = e2ee_get(&settings, &format!("/attachments/unsealed?offset={}", offset)).await?;
+        let page = e2ee_get(
+            &settings,
+            &format!("/attachments/unsealed?offset={}", offset),
+        )
+        .await?;
 
         if !page["encrypted"].as_bool().unwrap_or(false) {
             ATTACHMENTS_SETTLED.store(true, Ordering::Relaxed);
@@ -1380,8 +1456,10 @@ pub async fn convert_attachments_to_encrypted(
                     .map_err(|e| e.to_string())?
             };
 
-            let source =
-                plaintext_source(local_path.as_deref(), item["damaged"].as_bool().unwrap_or(false));
+            let source = plaintext_source(
+                local_path.as_deref(),
+                item["damaged"].as_bool().unwrap_or(false),
+            );
             if source == PlaintextSource::Unrecoverable {
                 report.unrecoverable += 1;
                 skipped += 1;
@@ -1427,10 +1505,12 @@ async fn reencrypt_attachment(
     let id = item["id"].as_str().ok_or("attachment without an id")?;
 
     let plaintext = match source {
-        PlaintextSource::Local(path) => tauri::async_runtime::spawn_blocking(move || fs::read(path))
-            .await
-            .map_err(|e| format!("Attachment read task failed: {}", e))?
-            .map_err(|e| format!("Could not read the local copy: {}", e))?,
+        PlaintextSource::Local(path) => {
+            tauri::async_runtime::spawn_blocking(move || fs::read(path))
+                .await
+                .map_err(|e| format!("Attachment read task failed: {}", e))?
+                .map_err(|e| format!("Could not read the local copy: {}", e))?
+        }
         PlaintextSource::Server => {
             let link = e2ee_get(settings, &format!("/attachments/{}", id)).await?;
             let url = link["downloadUrl"]
@@ -1512,9 +1592,15 @@ mod conversion_tests {
         fs::write(&file, b"x").unwrap();
         let path = file.to_string_lossy().to_string();
 
-        assert_eq!(plaintext_source(Some(&path), false), PlaintextSource::Local(path.clone()));
+        assert_eq!(
+            plaintext_source(Some(&path), false),
+            PlaintextSource::Local(path.clone())
+        );
         // Even for sealed bytes whose key was lost: the local copy is the rescue.
-        assert_eq!(plaintext_source(Some(&path), true), PlaintextSource::Local(path.clone()));
+        assert_eq!(
+            plaintext_source(Some(&path), true),
+            PlaintextSource::Local(path.clone())
+        );
         fs::remove_file(&file).ok();
     }
 
@@ -1522,13 +1608,19 @@ mod conversion_tests {
     fn without_a_local_copy_only_plaintext_can_come_from_the_server() {
         assert_eq!(plaintext_source(None, false), PlaintextSource::Server);
         assert_eq!(plaintext_source(Some(""), false), PlaintextSource::Server);
-        assert_eq!(plaintext_source(Some("/no/such/file"), false), PlaintextSource::Server);
+        assert_eq!(
+            plaintext_source(Some("/no/such/file"), false),
+            PlaintextSource::Server
+        );
         assert_eq!(plaintext_source(None, true), PlaintextSource::Unrecoverable);
     }
 
     #[test]
     fn a_sealed_upload_tells_storage_nothing_about_its_type() {
-        assert_eq!(upload_content_type(true, Some("image/png")), "application/octet-stream");
+        assert_eq!(
+            upload_content_type(true, Some("image/png")),
+            "application/octet-stream"
+        );
         assert_eq!(upload_content_type(false, Some("image/png")), "image/png");
         assert_eq!(upload_content_type(false, None), "application/octet-stream");
     }

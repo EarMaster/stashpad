@@ -1,0 +1,6 @@
+# Commits `git blame` should look through: whole-tree mechanical changes that touch
+# every line and change nothing. GitHub reads this file; locally, run once:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# Format the Rust backend with rustfmt
+b0b3fe18e1d81c7ea620ac79e1e62788a22d9964

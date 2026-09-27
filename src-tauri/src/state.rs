@@ -11,9 +11,9 @@
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 // See the GNU Affero General Public License for more details.
 
-use std::sync::{Arc, Mutex, MutexGuard};
 use crate::db::DbManager;
 use crate::models::{AppContext, Settings};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 /// Take a lock, recovering the guard if a previous holder panicked.
 ///

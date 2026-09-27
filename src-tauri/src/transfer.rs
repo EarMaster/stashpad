@@ -36,8 +36,8 @@ use uuid::Uuid;
 use crate::models::{Attachment, Context, StashItem};
 use crate::stashes::get_stash_cache_path;
 use crate::state::DbState;
-use crate::utils::get_app_dir;
 use crate::uierror::UiError;
+use crate::utils::get_app_dir;
 
 /// Name of the markdown document inside an archive.
 const MARKDOWN_ENTRY: &str = "export.md";
@@ -259,8 +259,7 @@ fn build_markdown(
 ) -> String {
     let mut out = String::new();
 
-    let frontmatter =
-        serde_yaml::to_string(metadata).unwrap_or_else(|_| "name: ''\n".to_string());
+    let frontmatter = serde_yaml::to_string(metadata).unwrap_or_else(|_| "name: ''\n".to_string());
     out.push_str("---\n");
     out.push_str(frontmatter.trim());
     out.push_str("\n---\n\n");
@@ -286,7 +285,10 @@ fn build_markdown(
         out.push_str(&format!("## {} Stashes ({})\n\n", title, group.len()));
 
         for stash in group.iter() {
-            out.push_str(&format!("### {}\n\n", format_heading_date(&stash.created_at)));
+            out.push_str(&format!(
+                "### {}\n\n",
+                format_heading_date(&stash.created_at)
+            ));
             // The id, so references between stashes in this archive can be pointed at
             // the new ids an import gives them. A comment renders as nothing, so the
             // document still reads cleanly, and older builds import it as invisible text.
@@ -378,7 +380,10 @@ const STASH_ID_MARKER: &str = "<!-- stash-id: ";
 
 /// The id recorded on a marker line, if this is one.
 fn parse_stash_id_marker(line: &str) -> Option<&str> {
-    let id = line.trim().strip_prefix(STASH_ID_MARKER)?.strip_suffix(" -->")?;
+    let id = line
+        .trim()
+        .strip_prefix(STASH_ID_MARKER)?
+        .strip_suffix(" -->")?;
     (!id.is_empty() && !id.contains(char::is_whitespace)).then_some(id)
 }
 
@@ -528,10 +533,8 @@ fn parse_section_header(line: &str) -> Option<bool> {
     let rest = line.strip_prefix("## ")?;
     let (kind, tail) = if let Some(t) = rest.strip_prefix("Active Stashes (") {
         (false, t)
-    } else if let Some(t) = rest.strip_prefix("Completed Stashes (") {
-        (true, t)
     } else {
-        return None;
+        (true, rest.strip_prefix("Completed Stashes (")?)
     };
 
     let count = tail.strip_suffix(')')?;
@@ -578,7 +581,11 @@ fn archived_reference(extract_dir: &Path, reference: &str) -> Option<(PathBuf, S
 // ---------------------------------------------------------------------------
 
 fn normalise(content: &str) -> String {
-    content.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase()
+    content
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
 }
 
 /// Jaccard similarity over word sets - the same measure the webview used, moved here
@@ -627,10 +634,12 @@ fn transfer_temp_root() -> PathBuf {
 /// Reject an archive entry whose name would escape the directory it is extracted into.
 fn safe_entry_path(base: &Path, name: &str) -> Option<PathBuf> {
     let candidate = Path::new(name);
-    if candidate
-        .components()
-        .any(|c| matches!(c, std::path::Component::ParentDir | std::path::Component::RootDir))
-    {
+    if candidate.components().any(|c| {
+        matches!(
+            c,
+            std::path::Component::ParentDir | std::path::Component::RootDir
+        )
+    }) {
         return None;
     }
     Some(base.join(candidate))
@@ -660,9 +669,7 @@ pub async fn export_context_archive(
         let all = db.get_stashes().map_err(|e| e.to_string())?;
         let selected: Vec<StashItem> = all
             .into_iter()
-            .filter(|s| {
-                s.context_id == context_id && wanted.contains(&s.id)
-            })
+            .filter(|s| s.context_id == context_id && wanted.contains(&s.id))
             .collect();
 
         (context, selected)
@@ -808,7 +815,8 @@ fn write_zip(path: &Path, markdown: &str, files: &[(String, String)]) -> Result<
             fs::File::open(source).map_err(|e| format!("Failed to read {}: {}", source, e))?;
         zip.start_file(entry.as_str(), options)
             .map_err(|e| e.to_string())?;
-        std::io::copy(&mut src, &mut zip).map_err(|e| format!("Failed to read {}: {}", source, e))?;
+        std::io::copy(&mut src, &mut zip)
+            .map_err(|e| format!("Failed to read {}: {}", source, e))?;
     }
 
     zip.finish().map_err(|e| e.to_string())?;
@@ -838,12 +846,13 @@ pub async fn read_import_archive(
     // Inflating the archive to disk is blocking work, so it runs on the blocking pool.
     let extract_dir = temp_dir.clone();
     let markdown = tauri::async_runtime::spawn_blocking(move || -> Result<String, UiError> {
-        fs::create_dir_all(&extract_dir)
-            .map_err(|e| format!("Failed to prepare import: {}", e))?;
+        fs::create_dir_all(&extract_dir).map_err(|e| format!("Failed to prepare import: {}", e))?;
         if is_zip {
             extract_archive(&source, &extract_dir)
         } else {
-            fs::read_to_string(&source).map_err(|e| format!("Failed to read file: {}", e)).map_err(UiError::from)
+            fs::read_to_string(&source)
+                .map_err(|e| format!("Failed to read file: {}", e))
+                .map_err(UiError::from)
         }
     })
     .await
@@ -909,7 +918,10 @@ fn extract_archive(source: &Path, dest: &Path) -> Result<String, UiError> {
         // Attachments are written out under their archive names; the parser refers to
         // them by the same names, minus the stash-id prefix.
         let Some(target) = safe_entry_path(dest, &name) else {
-            log::warn!("[Import] refusing archive entry with a traversing path: {}", name);
+            log::warn!(
+                "[Import] refusing archive entry with a traversing path: {}",
+                name
+            );
             continue;
         };
 
@@ -920,7 +932,8 @@ fn extract_archive(source: &Path, dest: &Path) -> Result<String, UiError> {
         std::io::copy(&mut entry, &mut out).map_err(|e| e.to_string())?;
     }
 
-    markdown.ok_or_else(|| "The archive contains no markdown document".to_string())
+    markdown
+        .ok_or_else(|| "The archive contains no markdown document".to_string())
         .map_err(UiError::from)
 }
 
@@ -1111,7 +1124,12 @@ mod tests {
         let b = "bbbbbbbb-0000-4000-8000-000000000002";
         let outside = "cccccccc-0000-4000-8000-000000000003";
         let stashes = vec![
-            stash(a, &format!("see [b](stash:{b}) and [c](stash:{outside})"), "2026-08-18T10:00:00Z", false),
+            stash(
+                a,
+                &format!("see [b](stash:{b}) and [c](stash:{outside})"),
+                "2026-08-18T10:00:00Z",
+                false,
+            ),
             stash(b, "the target", "2026-08-17T09:30:00Z", true),
         ];
 
@@ -1138,7 +1156,10 @@ mod tests {
         // A genuine prefix is still stripped.
         assert_eq!(strip_archive_prefix("abcdef12_shot.png"), "shot.png");
         // Eight characters that are not hex are left alone.
-        assert_eq!(strip_archive_prefix("zzzzzzzz_shot.png"), "zzzzzzzz_shot.png");
+        assert_eq!(
+            strip_archive_prefix("zzzzzzzz_shot.png"),
+            "zzzzzzzz_shot.png"
+        );
         // The attachment-id prefix archives are written with now.
         assert_eq!(
             strip_archive_prefix("0cdf01cd-f5be-49a2-840b-cd1d12f43a42_shot.png"),
@@ -1177,10 +1198,17 @@ mod tests {
     #[test]
     fn attachment_names_round_trip_without_their_archive_prefix() {
         let mut item = stash("abcdef12", "has a file", "2026-08-18T10:00:00Z", false);
-        item.attachments.push(attachment(ATT_A, "abcdef12", "shot.png"));
+        item.attachments
+            .push(attachment(ATT_A, "abcdef12", "shot.png"));
 
         let items = [item];
-        let md = build_markdown("Work", &metadata(), &items, Some(&archived_for(&items)), Utc::now());
+        let md = build_markdown(
+            "Work",
+            &metadata(),
+            &items,
+            Some(&archived_for(&items)),
+            Utc::now(),
+        );
         let entry = format!("attachments/{}_shot.png", ATT_A);
         assert!(md.contains(&format!("- [shot.png]({})", entry)), "{}", md);
 
@@ -1191,7 +1219,10 @@ mod tests {
 
         let (source, name) = archived_reference(Path::new("/tmp/import"), &entry).unwrap();
         assert_eq!(name, "shot.png");
-        assert_eq!(source, Path::new("/tmp/import/attachments").join(format!("{}_shot.png", ATT_A)));
+        assert_eq!(
+            source,
+            Path::new("/tmp/import/attachments").join(format!("{}_shot.png", ATT_A))
+        );
     }
 
     /// Two pasted `image.png`s in one stash used to share an entry, and the zip writer
@@ -1199,8 +1230,10 @@ mod tests {
     #[test]
     fn two_attachments_of_one_name_get_their_own_entries() {
         let mut item = stash("b53d26f6", "two images", "2026-09-25T12:49:10Z", false);
-        item.attachments.push(attachment(ATT_A, "b53d26f6", "image.png"));
-        item.attachments.push(attachment(ATT_B, "b53d26f6", "image.png"));
+        item.attachments
+            .push(attachment(ATT_A, "b53d26f6", "image.png"));
+        item.attachments
+            .push(attachment(ATT_B, "b53d26f6", "image.png"));
 
         let files = archived_files(&item);
         assert_eq!(files.len(), 2);
@@ -1210,8 +1243,14 @@ mod tests {
 
     #[test]
     fn an_entry_name_cannot_make_a_directory() {
-        assert_eq!(archive_entry_name(ATT_A, "../a/b\\c.png"), format!("{}_.._a_b_c.png", ATT_A));
-        assert_eq!(archive_entry_name(ATT_A, "  "), format!("{}_attachment", ATT_A));
+        assert_eq!(
+            archive_entry_name(ATT_A, "../a/b\\c.png"),
+            format!("{}_.._a_b_c.png", ATT_A)
+        );
+        assert_eq!(
+            archive_entry_name(ATT_A, "  "),
+            format!("{}_attachment", ATT_A)
+        );
     }
 
     /// Archives written before this change link `<8 chars of stash id>_<name>`.
@@ -1255,8 +1294,14 @@ old
         fs::write(&second, b"second").unwrap();
 
         let files = vec![
-            (first.to_string_lossy().into_owned(), format!("attachments/{}_image.png", ATT_A)),
-            (second.to_string_lossy().into_owned(), format!("attachments/{}_image.png", ATT_B)),
+            (
+                first.to_string_lossy().into_owned(),
+                format!("attachments/{}_image.png", ATT_A),
+            ),
+            (
+                second.to_string_lossy().into_owned(),
+                format!("attachments/{}_image.png", ATT_B),
+            ),
         ];
         let out = dir.join("export.zip");
         write_zip(&out, "# doc", &files).unwrap();
@@ -1264,7 +1309,10 @@ old
         let mut zip = zip::ZipArchive::new(fs::File::open(&out).unwrap()).unwrap();
         assert_eq!(zip.len(), 3);
         let mut body = String::new();
-        zip.by_name(&files[1].1).unwrap().read_to_string(&mut body).unwrap();
+        zip.by_name(&files[1].1)
+            .unwrap()
+            .read_to_string(&mut body)
+            .unwrap();
         assert_eq!(body, "second");
 
         let _ = fs::remove_dir_all(&dir);
@@ -1287,13 +1335,22 @@ old
         // These are what JavaScript's toLocaleString() produced, which is what every
         // archive exported before this change contains.
         let en_us = parse_heading_date("8/20/2026, 10:14:32 AM").expect("en-US must parse");
-        assert_eq!(en_us.format("%Y-%m-%d %H:%M:%S").to_string(), "2026-08-20 10:14:32");
+        assert_eq!(
+            en_us.format("%Y-%m-%d %H:%M:%S").to_string(),
+            "2026-08-20 10:14:32"
+        );
 
         let de_de = parse_heading_date("20.8.2026, 10:14:32").expect("de-DE must parse");
-        assert_eq!(de_de.format("%Y-%m-%d %H:%M:%S").to_string(), "2026-08-20 10:14:32");
+        assert_eq!(
+            de_de.format("%Y-%m-%d %H:%M:%S").to_string(),
+            "2026-08-20 10:14:32"
+        );
 
         let current = parse_heading_date("2026-08-20 10:14:32").expect("current format must parse");
-        assert_eq!(current.format("%Y-%m-%d %H:%M:%S").to_string(), "2026-08-20 10:14:32");
+        assert_eq!(
+            current.format("%Y-%m-%d %H:%M:%S").to_string(),
+            "2026-08-20 10:14:32"
+        );
     }
 
     #[test]
@@ -1312,10 +1369,25 @@ old
 
     #[test]
     fn duplicate_detection_matches_only_near_identical_content() {
-        let existing = vec![stash("e1", "buy milk and eggs today", "2026-08-18T10:00:00Z", false)];
+        let existing = vec![stash(
+            "e1",
+            "buy milk and eggs today",
+            "2026-08-18T10:00:00Z",
+            false,
+        )];
         let incoming = vec![
-            stash("i1", "buy milk and eggs today", "2026-08-18T10:00:00Z", false),
-            stash("i2", "completely unrelated content here", "2026-08-18T10:00:00Z", false),
+            stash(
+                "i1",
+                "buy milk and eggs today",
+                "2026-08-18T10:00:00Z",
+                false,
+            ),
+            stash(
+                "i2",
+                "completely unrelated content here",
+                "2026-08-18T10:00:00Z",
+                false,
+            ),
         ];
 
         let dupes = find_duplicates(&incoming, &existing);

@@ -118,9 +118,7 @@ pub async fn import_account_export(
 }
 
 /// Parse and decrypt, without touching the database.
-async fn parse_export(
-    path: &str,
-) -> Result<(Vec<Context>, Vec<StashItem>, usize, usize), String> {
+async fn parse_export(path: &str) -> Result<(Vec<Context>, Vec<StashItem>, usize, usize), String> {
     let text = tokio::fs::read_to_string(path)
         .await
         .map_err(|e| format!("Could not read {}: {}", path, e))?;
@@ -146,9 +144,15 @@ async fn parse_export(
                 continue;
             }
         };
-        let description = open(raw["description"].as_str(), &user_id, "context", &id, "description")
-            .ok()
-            .filter(|d| !d.is_empty());
+        let description = open(
+            raw["description"].as_str(),
+            &user_id,
+            "context",
+            &id,
+            "description",
+        )
+        .ok()
+        .filter(|d| !d.is_empty());
 
         contexts.push(Context {
             id,
@@ -229,7 +233,10 @@ fn open(
     }
 
     let binding = match (kind, field) {
-        ("stash", "content") => (crate::envelope::Kind::Stash, crate::envelope::Field::Content),
+        ("stash", "content") => (
+            crate::envelope::Kind::Stash,
+            crate::envelope::Field::Content,
+        ),
         ("stash", "enhanced_content") => (
             crate::envelope::Kind::Stash,
             crate::envelope::Field::EnhancedContent,
@@ -258,7 +265,7 @@ fn open(
         },
     )
     .map_err(|e| format!("{:?}", e))
-        .map_err(UiError::from)
+    .map_err(UiError::from)
 }
 
 /// Reduce a context name to something that can be a file name.
@@ -309,7 +316,10 @@ pub async fn export_whole_account(
 
         let mut by_context: HashMap<String, Vec<String>> = HashMap::new();
         for stash in stashes {
-            by_context.entry(stash.context_id).or_default().push(stash.id);
+            by_context
+                .entry(stash.context_id)
+                .or_default()
+                .push(stash.id);
         }
         (contexts, by_context)
     };
@@ -330,8 +340,8 @@ pub async fn export_whole_account(
 
         // One archive per context, named after it. `safe_name` because a context name is
         // user-authored and this becomes a path.
-        let file = std::path::Path::new(&dest_dir)
-            .join(format!("{}.md", safe_file_name(&context.name)));
+        let file =
+            std::path::Path::new(&dest_dir).join(format!("{}.md", safe_file_name(&context.name)));
 
         crate::transfer::export_context_archive(
             state.clone(),

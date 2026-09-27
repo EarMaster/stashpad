@@ -119,8 +119,11 @@ async fn fetch_state(
     settings_state: &Arc<SettingsState>,
 ) -> Result<(ServerState, String, String), UiError> {
     let device_id = crate::utils::get_device_id(None).await?;
-    let body = crate::sync::e2ee_get(settings_state, &format!("/e2ee/state?deviceId={}", device_id))
-        .await?;
+    let body = crate::sync::e2ee_get(
+        settings_state,
+        &format!("/e2ee/state?deviceId={}", device_id),
+    )
+    .await?;
     let user_id = {
         let settings = settings_state.lock_settings();
         settings
@@ -412,8 +415,7 @@ pub async fn e2ee_approve_device(
 ) -> Result<(), UiError> {
     use base64::{engine::general_purpose::STANDARD, Engine as _};
 
-    let content_key =
-        e2ee_session::content_key_bytes().ok_or("Unlock this installation first")?;
+    let content_key = e2ee_session::content_key_bytes().ok_or("Unlock this installation first")?;
     let (server, user_id, this_device) = fetch_state(&settings_state).await?;
 
     let target = server
@@ -502,7 +504,12 @@ pub async fn e2ee_recover(
     // Now this installation holds the key, wrap it to its own public key so later starts do
     // not need the code again.
     let content_key = e2ee_session::content_key_bytes().ok_or("Unlocking did not take")?;
-    let wrap = e2ee::wrap_to_device(&keypair.public_bytes(), &content_key, &user_id, server.epoch)?;
+    let wrap = e2ee::wrap_to_device(
+        &keypair.public_bytes(),
+        &content_key,
+        &user_id,
+        server.epoch,
+    )?;
 
     crate::sync::e2ee_post(
         &settings_state,
@@ -688,8 +695,7 @@ pub async fn e2ee_create_access_key(
     let minted = if server.epoch > 0 {
         let content_key = e2ee_session::content_key_bytes()
             .ok_or("Unlock this installation before creating an access key")?;
-        let (salt, wrapped) =
-            e2ee::wrap_to_api_key(&secret, &content_key, &user_id, server.epoch)?;
+        let (salt, wrapped) = e2ee::wrap_to_api_key(&secret, &content_key, &user_id, server.epoch)?;
         Some(serde_json::json!({
             "prefix": prefix,
             "hash": hash,
@@ -724,7 +730,6 @@ pub async fn e2ee_create_access_key(
         scope: created["scope"].as_str().unwrap_or_default().to_string(),
     })
 }
-
 
 #[cfg(test)]
 mod tests {
