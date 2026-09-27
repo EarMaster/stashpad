@@ -131,7 +131,8 @@
       "description": "Automatically remove completed stashes",
       "never": "Never",
       "onClose": "On Restart",
-      "afterNDays": "After {days} days"
+      "afterNDays": "After {days} days",
+      "referencedHint": "Completed stashes that an open stash still references are kept until that stash is completed too."
     },
     "clearCompletedDays": {
       "label": "Days to Keep",
@@ -482,7 +483,17 @@
     "regenerate": "Regenerate",
     "keepEnhanced": "Keep current"
   },
+  "stashRef": {
+    "stateOpen": "Open",
+    "stateCompleted": "Completed",
+    "stateCompletedAt": "Completed {time}",
+    "inContext": "in {name}",
+    "gone": "deleted or unavailable",
+    "deleteReferenced": "Delete this stash? {count, plural, one {# other stash references it} other {# other stashes reference it}}, and those references will stop working.",
+    "clearReferenced": "Some of them are still referenced by other stashes."
+  },
   "editor": {
+    "referenceStash": "Reference a stash",
     "placeholder": "Type your stash here… (Cmd+Enter to save)",
     "addStash": "Stash",
     "saving": "Saving…",

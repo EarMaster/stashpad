@@ -497,6 +497,7 @@ pub fn run() {
             stashes::mark_stashes_synced,
             stashes::delete_stash,
             stashes::delete_completed_stashes,
+            stashes::write_reference_file,
             stashes::trigger_auto_cleanup,
             stashes::save_asset,
             stashes::save_asset_from_path,

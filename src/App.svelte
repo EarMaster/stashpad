@@ -64,6 +64,7 @@
    let movingStash = $state<StashItem | null>(null);
    let newlyAddedStashId = $state<string | null>(null);
    let allTags = $state<string[]>([]);
+   let refCandidates = $state<StashItem[]>([]);
    let autoDetectedWindowTitle = $state<string | undefined>(undefined);
 
    // Draft state persistence
@@ -775,6 +776,7 @@
                   bind:content={editorDraft}
                   bind:files={editorFiles}
                   availableTags={allTags}
+                  {refCandidates}
                   pasteAsAttachmentThreshold={settings.pasteAsAttachmentThreshold ??
                      500}
                   resizeImages={settings.resizeImages ?? true}
@@ -793,6 +795,8 @@
                   contextSelectorOpen = true;
                }}
                bind:allTags
+               bind:refCandidates
+               onSwitchContext={(id) => selectContext(id)}
                stripTagsOnCopy={settings.stripTagsOnCopy ?? true}
                aiConfig={settings.aiConfig}
                {autoDetectedWindowTitle}

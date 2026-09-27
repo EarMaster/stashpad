@@ -59,6 +59,11 @@
       matchesFilters,
       type AttachmentFilter,
    } from "$lib/utils/stash-filters";
+   import {
+      parseRefIds,
+      resolveRef,
+      type ResolvedRef,
+   } from "$lib/utils/stash-refs";
 
    let {
       transferMode,
@@ -69,6 +74,8 @@
       newStashId,
       onStashHandled,
       allTags = $bindable([]),
+      refCandidates = $bindable([]),
+      onSwitchContext,
       stripTagsOnCopy = true,
       aiConfig,
       autoDetectedWindowTitle,
@@ -81,6 +88,10 @@
       newStashId?: string | null;
       onStashHandled?: () => void;
       allTags?: string[];
+      /** Live stashes of the current context, offered by the `>>` picker */
+      refCandidates?: StashItem[];
+      /** Switch the queue to another context, to follow a reference there */
+      onSwitchContext?: (contextId: string) => void;
       stripTagsOnCopy?: boolean;
       aiConfig?: AIConfig;
       /** Window title from auto-detection (only set when auto-detection matched) */
@@ -265,6 +276,65 @@
       showMenu = false;
    }
 
+   // References between stashes. Resolved against every live stash this device has,
+   // so a target moved to another context is still found and can be followed.
+   const resolveStashRef = (id: string): ResolvedRef =>
+      resolveRef(id, stashes, currentContextId);
+
+   const contextName = (id: string): string =>
+      contexts.find((c) => c.id === id)?.name ?? id;
+
+   $effect(() => {
+      refCandidates = [...activeStashes, ...completedStashes].filter(
+         (s) => !s.isDndShadowItem,
+      );
+   });
+
+   /** How many other live stashes reference the given one. */
+   function referrerCount(id: string): number {
+      return stashes.filter(
+         (s) => s.id !== id && !s.deleted && parseRefIds(s.content).includes(id),
+      ).length;
+   }
+
+   /** A stash to reveal once the context switched to for it has loaded. */
+   let pendingRevealId = $state<string | null>(null);
+
+   /** Follow a reference: bring its target into view, switching context if needed. */
+   function followRef(ref: ResolvedRef) {
+      if (!ref.stash) return;
+      if (ref.state === "other_context") {
+         pendingRevealId = ref.stash.id;
+         onSwitchContext?.(ref.stash.contextId);
+         return;
+      }
+      revealStash(ref.stash.id);
+   }
+
+   async function revealStash(id: string) {
+      const target = stashes.find((s) => s.id === id);
+      if (!target) return;
+
+      // A filter hiding the target would make the click look broken.
+      if (
+         hasActiveFilters &&
+         !matchesFilters(target, selectedTags, selectedAttachmentFilters)
+      ) {
+         selectedTags = [];
+         selectedAttachmentFilters = [];
+      }
+      if (target.completed) completedCollapsed = false;
+      await tick();
+
+      const el = scrollContainer?.querySelector(
+         `[data-stash-id="${id}"]`,
+      ) as HTMLElement | null;
+      if (!el) return;
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      el.classList.add("stash-ref-target");
+      setTimeout(() => el.classList.remove("stash-ref-target"), 1500);
+   }
+
    // Sync all tags (Current Context Only) - counts only from active stashes
    $effect(() => {
       const tags = new Set<string>();
@@ -388,6 +458,16 @@
       if (scrollContainer) {
          scrollContainer.scrollTop = 0;
       }
+   });
+
+   // Declared after the two context effects above on purpose: a switch resets the
+   // collapsed state and the scroll position, and the reveal has to come after both.
+   $effect(() => {
+      currentContextId;
+      const id = untrack(() => pendingRevealId);
+      if (!id) return;
+      pendingRevealId = null;
+      tick().then(() => revealStash(id));
    });
 
    $effect(() => {
@@ -946,6 +1026,10 @@
                         availableTags={allTags}
                         {aiConfig}
                         {currentContext}
+                        resolveRef={resolveStashRef}
+                        {contextName}
+                        onReferenceClick={followRef}
+                        {refCandidates}
                         {autoDetectedWindowTitle}
                      />
                   {/if}
@@ -1047,6 +1131,10 @@
                                     enhancedContent,
                                  )}
                               {currentContext}
+                              resolveRef={resolveStashRef}
+                              {contextName}
+                              onReferenceClick={followRef}
+                              {refCandidates}
                               {autoDetectedWindowTitle}
                            />
                         </div>
@@ -1068,7 +1156,11 @@
       <ConfirmationDialog
          open={!!stashToDelete}
          title={$_("stashCard.deleteStashConfirm")}
-         description={$_("stashCard.deleteStashConfirm")}
+         description={stashToDelete && referrerCount(stashToDelete) > 0
+            ? $_("stashRef.deleteReferenced", {
+                 values: { count: referrerCount(stashToDelete) },
+              })
+            : $_("stashCard.deleteStashConfirm")}
          confirmText={$_("common.delete")}
          variant="destructive"
          onConfirm={() => {
@@ -1083,7 +1175,9 @@
       <ConfirmationDialog
          bind:open={showClearCompletedConfirm}
          title={$_("queue.clearCompleted")}
-         description={$_("queue.deleteAllCompleted")}
+         description={completedStashes.some((s) => referrerCount(s.id) > 0)
+            ? `${$_("queue.deleteAllCompleted")} ${$_("stashRef.clearReferenced")}`
+            : $_("queue.deleteAllCompleted")}
          confirmText={$_("common.delete")}
          variant="destructive"
          onConfirm={() => {

@@ -291,6 +291,77 @@
   border-color: rgba(255, 255, 255, 0.2);
 }
 
+/* References to other stashes, rendered via safeParse() / injectRefs(). */
+.stash-ref {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 0.25rem;
+  max-width: 100%;
+  border-radius: 0.375rem;
+  border: 1px solid color-mix(in srgb, var(--primary), transparent 70%);
+  padding: 0 0.375rem;
+  margin: 0 0.1em;
+  vertical-align: baseline;
+  background-color: color-mix(in srgb, var(--primary), transparent 90%);
+  color: var(--primary);
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+/* An arrow, matching the `>>` that inserts a reference. */
+.stash-ref::before {
+  content: "→";
+  opacity: 0.7;
+}
+
+.stash-ref[role="link"]:hover,
+.stash-ref[role="link"]:focus-visible {
+  background-color: color-mix(in srgb, var(--primary), transparent 80%);
+  outline: none;
+}
+
+.stash-ref-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stash-ref-note {
+  font-size: 0.85em;
+  font-weight: 400;
+  opacity: 0.7;
+  white-space: nowrap;
+}
+
+.stash-ref-completed .stash-ref-label {
+  text-decoration: line-through;
+}
+
+.stash-ref-completed::before {
+  content: "✓";
+}
+
+.stash-ref-other_context {
+  border-style: dashed;
+}
+
+.stash-ref-gone {
+  border-style: dashed;
+  border-color: var(--border);
+  background-color: transparent;
+  color: var(--muted-foreground);
+  font-style: italic;
+  cursor: default;
+}
+
+/* Brief highlight on a stash revealed by clicking a reference to it. */
+.stash-ref-target {
+  border-radius: 0.5rem;
+  box-shadow: 0 0 0 2px var(--primary);
+  transition: box-shadow 0.3s;
+}
+
 
 
 /* External links in prose containers: Cmd/Ctrl+Click to open */

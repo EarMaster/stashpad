@@ -145,6 +145,10 @@ export class DesktopStorageAdapter implements IStorageService {
         await invoke('copy_to_clipboard', { text });
     }
 
+    async writeReferenceFile(contextId: string, stashId: string, targetId: string, content: string): Promise<string> {
+        return await invoke('write_reference_file', { contextId, stashId, targetId, content });
+    }
+
     async startDrag(text: string, files: string[]): Promise<void> {
         await invoke('start_drag', { text, files });
     }

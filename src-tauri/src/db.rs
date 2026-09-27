@@ -101,7 +101,7 @@ impl DbManager {
         Ok(())
     }
 
-    fn init_tables(&self) -> Result<()> {
+    pub(crate) fn init_tables(&self) -> Result<()> {
         // Contexts table
         self.conn.execute(
             "CREATE TABLE IF NOT EXISTS contexts (

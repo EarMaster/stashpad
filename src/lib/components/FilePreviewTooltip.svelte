@@ -74,7 +74,6 @@
     let error = $state("");
     let tooltipX = $state(0);
     let tooltipY = $state(0);
-    let xOffset = $state(0);
     let showBelow = $state(false);
 
     let hoverTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -170,24 +169,7 @@
             showBelow = false;
             tooltipY = rect.top - TOOLTIP_OFFSET;
         }
-
-        // Calculate horizontal offset to keep tooltip centered on element
-        const TOOLTIP_MAX_WIDTH = 280;
-        const viewportPadding = 8;
-
-        // Calculate if tooltip would overflow
-        const tooltipLeft = centerX - TOOLTIP_MAX_WIDTH / 2;
-        const tooltipRight = centerX + TOOLTIP_MAX_WIDTH / 2;
-
-        if (tooltipLeft < viewportPadding) {
-            // Would overflow left
-            xOffset = tooltipLeft - viewportPadding;
-        } else if (tooltipRight > window.innerWidth - viewportPadding) {
-            // Would overflow right
-            xOffset = tooltipRight - (window.innerWidth - viewportPadding);
-        } else {
-            xOffset = 0;
-        }
+        // Keeping it inside the window horizontally is Tooltip's job: it knows its width.
     }
 
     function handleDragStart(event: DragEvent) {
@@ -256,7 +238,6 @@
     x={tooltipX}
     y={tooltipY}
     position={showBelow ? "bottom" : "top"}
-    {xOffset}
 >
     {#snippet children()}
         {#if isLoading}
