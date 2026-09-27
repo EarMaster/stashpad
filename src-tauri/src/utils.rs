@@ -487,8 +487,8 @@ pub struct InstallSignals<'a> {
 /// Decide which install channel the signals describe.
 ///
 /// Order matters. The App Store checks come first because a store copy also lives at a
-/// perfectly ordinary path - `/Applications/stashpad.app`, `C:\Program Files\WindowsApps\...`
-/// - and misreading one as standalone would offer it a self-update that replaces a signed,
+/// perfectly ordinary path (`/Applications/stashpad.app`, `C:\Program Files\WindowsApps\...`),
+/// and misreading one as standalone would offer it a self-update that replaces a signed,
 /// sandboxed bundle and gets the app killed on next launch.
 pub fn classify_installation(signals: &InstallSignals) -> &'static str {
     let path = signals.exe_path;
@@ -707,16 +707,19 @@ fn show_in_folder_blocking(path: String) {
         Ok(p) => p,
         Err(_) => return, // Silently fail if path doesn't exist
     };
-    let safe_path = canonical.to_string_lossy();
 
+    // Windows and macOS select the file itself; Linux has no portable way to, so it opens
+    // the folder instead and needs no string form of the path.
     #[cfg(target_os = "windows")]
     {
+        let safe_path = canonical.to_string_lossy();
         let _ = std::process::Command::new("explorer")
             .args(["/select,", &safe_path])
             .spawn();
     }
     #[cfg(target_os = "macos")]
     {
+        let safe_path = canonical.to_string_lossy();
         let _ = std::process::Command::new("open")
             .args(["-R", &safe_path])
             .spawn();
@@ -854,7 +857,6 @@ pub async fn get_autostart_enabled(app: tauri::AppHandle) -> Result<bool, UiErro
             .map_err(|e| format!("Failed to check autostart status: {}", e).into())
     })
     .await
-    .map_err(UiError::from)
 }
 
 #[tauri::command]

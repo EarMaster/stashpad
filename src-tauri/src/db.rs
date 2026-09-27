@@ -532,10 +532,8 @@ impl DbManager {
         })?;
 
         let mut stashes_to_migrate = Vec::new();
-        for r in rows {
-            if let Ok(val) = r {
-                stashes_to_migrate.push(val);
-            }
+        for val in rows.flatten() {
+            stashes_to_migrate.push(val);
         }
 
         if stashes_to_migrate.is_empty() {
@@ -562,7 +560,7 @@ impl DbManager {
                     .unwrap_or_default()
                     .to_string_lossy()
                     .to_string();
-                let metadata = std::fs::metadata(&path);
+                let metadata = std::fs::metadata(path);
                 let file_size = metadata.map(|m| m.len()).unwrap_or(0) as i64;
 
                 // Generate ID (simple UUID v4 like)
@@ -570,7 +568,7 @@ impl DbManager {
                 let att_id = Uuid::new_v4().to_string();
 
                 // Extension mime guess
-                let mime_type = mime_guess::from_path(&path).first().map(|m| m.to_string());
+                let mime_type = mime_guess::from_path(path).first().map(|m| m.to_string());
 
                 self.conn.execute(
                      "INSERT OR IGNORE INTO attachments (id, stash_id, file_path, file_name, file_size, mime_type, syntax, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
@@ -811,13 +809,11 @@ impl DbManager {
         // Group by stash_id
         let mut attachments_map: std::collections::HashMap<String, Vec<Attachment>> =
             std::collections::HashMap::new();
-        for att in att_rows {
-            if let Ok(a) = att {
-                attachments_map
-                    .entry(a.stash_id.clone())
-                    .or_default()
-                    .push(a);
-            }
+        for a in att_rows.flatten() {
+            attachments_map
+                .entry(a.stash_id.clone())
+                .or_default()
+                .push(a);
         }
 
         // 3. Assign attachments to stashes
@@ -892,13 +888,11 @@ impl DbManager {
 
         let mut attachments_map: std::collections::HashMap<String, Vec<Attachment>> =
             std::collections::HashMap::new();
-        for att in att_rows {
-            if let Ok(a) = att {
-                attachments_map
-                    .entry(a.stash_id.clone())
-                    .or_default()
-                    .push(a);
-            }
+        for a in att_rows.flatten() {
+            attachments_map
+                .entry(a.stash_id.clone())
+                .or_default()
+                .push(a);
         }
 
         for stash in &mut stashes {
@@ -1324,7 +1318,7 @@ impl DbManager {
     ///
     /// Only rows whose position actually changes are stamped, so re-persisting an
     /// unchanged list is free and does not queue a pointless push.
-    pub fn update_stash_positions(&mut self, stashes: &Vec<StashItem>) -> Result<()> {
+    pub fn update_stash_positions(&mut self, stashes: &[StashItem]) -> Result<()> {
         let tx = self.conn.transaction()?;
         let now = now_ts();
         for (i, stash) in stashes.iter().enumerate() {
@@ -1536,7 +1530,7 @@ mod tests {
 
         // Default context should be created automatically
         let contexts = db.get_contexts().expect("Failed to get contexts");
-        assert!(contexts.len() >= 1, "Should have at least default context");
+        assert!(!contexts.is_empty(), "Should have at least default context");
 
         let default_ctx = contexts.iter().find(|c| c.id == "default");
         assert!(default_ctx.is_some(), "Default context should exist");
@@ -1850,7 +1844,7 @@ mod tests {
 
         assert!(saved.is_some(), "Stash should be saved");
         assert_eq!(saved.unwrap().content, "Test stash content");
-        assert_eq!(saved.unwrap().completed, false);
+        assert!(!saved.unwrap().completed);
     }
 
     #[test]
@@ -2268,12 +2262,8 @@ mod tests {
         db.save_stash(&stash, Some(0.0), WriteOrigin::SyncImport)
             .expect("save should succeed");
 
-        db.update_stash_positions(&vec![stash_with_updated_at(
-            "s-still",
-            "content",
-            Some(1_000),
-        )])
-        .expect("reorder should succeed");
+        db.update_stash_positions(&[stash_with_updated_at("s-still", "content", Some(1_000))])
+            .expect("reorder should succeed");
 
         let pending: i64 = db
             .conn
@@ -2302,7 +2292,7 @@ mod tests {
         )
         .expect("save should succeed");
 
-        db.update_stash_positions(&vec![
+        db.update_stash_positions(&[
             stash_with_updated_at("filler", "", None),
             stash_with_updated_at("s-race", "content", Some(1_000)),
         ])
@@ -2312,12 +2302,8 @@ mod tests {
         assert_eq!(claimed.len(), 1);
 
         // The user moves it again while the push is in flight.
-        db.update_stash_positions(&vec![stash_with_updated_at(
-            "s-race",
-            "content",
-            Some(1_000),
-        )])
-        .expect("second reorder should succeed");
+        db.update_stash_positions(&[stash_with_updated_at("s-race", "content", Some(1_000))])
+            .expect("second reorder should succeed");
 
         db.mark_positions_synced(&["s-race".to_string()])
             .expect("ack should succeed");
@@ -2716,7 +2702,7 @@ mod tests {
 
     #[test]
     fn conversion_progress_reaches_zero_once_the_server_has_everything() {
-        let mut db = create_test_db();
+        let db = create_test_db();
         // Whatever the starter stashes left pending, acknowledge all of it.
         db.conn
             .execute("UPDATE stashes SET pending_sync = 0", [])

@@ -581,13 +581,12 @@ pub fn run() {
         // Anything that needs to happen at startup belongs in that one hook.
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|app_handle, event| match event {
-            tauri::RunEvent::Exit => {
+        .run(|app_handle, event| {
+            if let tauri::RunEvent::Exit = event {
                 println!("App exiting, cleaning up...");
                 cleanup_websocket_state(app_handle);
                 cleanup_database_state(app_handle);
             }
-            _ => {}
         });
 }
 

@@ -420,7 +420,7 @@ pub fn perform_startup_cleanup(db: &mut DbManager, settings: &Settings) -> usize
             // Previously an empty stub: the setting existed, was selectable, and did
             // nothing at all. A setting that silently has no effect is worse than one
             // that is not offered.
-            let days = settings.clear_completed_days.max(0) as i64;
+            let days = settings.clear_completed_days as i64;
             let cutoff = (chrono::Utc::now() - chrono::Duration::days(days)).to_rfc3339();
 
             let stale = completed_stashes(db, Some(&cutoff));

@@ -1079,14 +1079,16 @@ pub async fn connect_websocket(
             // stopped looping: the app kept believing a connection was pending and
             // fell back to the 15-minute poll, which reads as sync being broken.
             let attempt = tokio::time::timeout(WS_CONNECT_TIMEOUT, connect_async(ws_url.clone()));
-            match attempt.await.unwrap_or_else(|_| {
-                Err(tokio_tungstenite::tungstenite::Error::Io(
+            let connected = match attempt.await {
+                Ok(result) => result,
+                Err(_elapsed) => Err(tokio_tungstenite::tungstenite::Error::Io(
                     std::io::Error::new(
                         std::io::ErrorKind::TimedOut,
                         "WebSocket handshake timed out",
                     ),
-                ))
-            }) {
+                )),
+            };
+            match connected {
                 Ok((ws_stream, _)) => {
                     log::info!("[WebSocket] Connected successfully");
 

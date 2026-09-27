@@ -170,33 +170,27 @@ jobs:
         working-directory: src-tauri
         run: cargo test --verbose
 
-      # Both lint steps below are ADVISORY and named so, because this suite now decides whether
-      # a merge to main ships a binary and "Tests passed" must not be read as "lint passed".
+      # Both lints gate. They were advisory while the tree was not clean - and an advisory step
+      # that fails on every run is noise nobody reads, so findings piled up: by v1.9.0 clippy had
+      # 14 in the lib and 6 in its tests, and fmt 324 diffs, each run showing two red "exit code"
+      # annotations on a green pipeline. The tree is clean now, so a new finding fails the job.
       #
-      # Neither is currently clean: `cargo clippy -- -D warnings` reports 11 findings in the lib
-      # and 14 in lib tests across 10 lint families (len_zero, single_match, manual_flatten,
-      # ptr_arg, result_large_err and friends - all cosmetic, no correctness issues), and
-      # `cargo fmt --check` reports 231 diffs, meaning the tree has never been rustfmt'd.
+      # `--all-targets` so test code is held to the same bar: without it clippy checks only the
+      # lib and bins, and the test findings above were never reported at all.
       #
-      # Gating them is the right end state and it is cheap - one `cargo fmt` commit plus a pass
-      # over ten lint families - but it is a tree-wide reformat that would bury `git blame`, so
-      # it belongs in its own commit rather than riding along with a CI change. When that lands,
-      # drop the `continue-on-error` and the "(advisory)" from both names.
-      #
-      # One OS, not three. Neither lint is platform-dependent, and clippy's check-mode
-      # artifacts carry different fingerprints from the test build's - so on every leg it
-      # was a second near-full compile, for a result the other two legs had already given.
-      - name: Run Clippy (advisory, non-gating)
+      # One OS, not three. Both lints are mostly platform-independent, and clippy's check-mode
+      # artifacts carry different fingerprints from the test build's - so on every leg it was a
+      # second near-full compile. The price: code behind `#[cfg(target_os = "windows")]` or
+      # `"macos"` is not linted here. Run `cargo clippy --all-targets` locally on those.
+      - name: Run Clippy
         if: matrix.os == 'ubuntu-latest'
         working-directory: src-tauri
-        run: cargo clippy -- -D warnings
-        continue-on-error: true
+        run: cargo clippy --all-targets -- -D warnings
 
-      - name: Check formatting (advisory, non-gating)
+      - name: Check formatting
         if: matrix.os == 'ubuntu-latest'
         working-directory: src-tauri
         run: cargo fmt --check
-        continue-on-error: true
 
   type-check:
     name: TypeScript Type Check

@@ -533,10 +533,8 @@ fn parse_section_header(line: &str) -> Option<bool> {
     let rest = line.strip_prefix("## ")?;
     let (kind, tail) = if let Some(t) = rest.strip_prefix("Active Stashes (") {
         (false, t)
-    } else if let Some(t) = rest.strip_prefix("Completed Stashes (") {
-        (true, t)
     } else {
-        return None;
+        (true, rest.strip_prefix("Completed Stashes (")?)
     };
 
     let count = tail.strip_suffix(')')?;

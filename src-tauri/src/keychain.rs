@@ -303,13 +303,7 @@ pub fn store_cloud_token_in_keychain(token: &str) -> bool {
 pub fn get_secret_from_keychain(
     create_entry: fn() -> Result<keyring::Entry, keyring::Error>,
 ) -> Option<String> {
-    match create_entry() {
-        Ok(entry) => match entry.get_password() {
-            Ok(password) => Some(password),
-            Err(_) => None,
-        },
-        Err(_) => None,
-    }
+    create_entry().ok()?.get_password().ok()
 }
 
 /// Retrieve API key from system keychain
