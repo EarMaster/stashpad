@@ -46,4 +46,5 @@ TAGS: <Only hashtags present in original input, space-separated. Omit section en
 12. Keep the empty lines as they ensure correct markdown rendering.
 13. Return ONLY the enhanced prompt following the template. Do not include any meta-commentary or conversational filler.
 14. Answer in the same language as the input.
+15. Links of the form [label](stash:<id>) point to other stashes: copy every one EXACTLY, unchanged.
 </rules>`;

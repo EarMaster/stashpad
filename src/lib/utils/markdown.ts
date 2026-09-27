@@ -14,6 +14,35 @@ import { Marked } from "marked";
 import { markedHighlight } from "marked-highlight";
 import hljs from "highlight.js";
 import DOMPurify from "dompurify";
+import type { RefState } from "./stash-refs";
+
+/**
+ * How a `stash:` link should look, supplied by the component rendering it.
+ *
+ * `label` is the target's live first line; without it the label stored in the link
+ * is shown. `note` is a short, already translated suffix such as "moved to Work".
+ */
+export interface RefDisplay {
+    state: RefState | "unknown";
+    label?: string;
+    note?: string;
+}
+
+export type RefResolver = (id: string) => RefDisplay;
+
+// Set only for the duration of one synchronous `safeParse` call. marked renders
+// synchronously, so no other parse can observe it.
+let activeRefResolver: RefResolver | null = null;
+
+const STASH_HREF = /^stash:([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/;
+
+function escapeHtml(text: string): string {
+    return text
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+}
 
 // Initialize marked with syntax highlighting
 // Using a singleton ensures we don't accidentally stack extensions if we used marked.use() repeatedly in components
@@ -26,6 +55,26 @@ const markedInstance = new Marked(
         }
     }),
     {
+        renderer: {
+            // A `stash:` link becomes a reference chip. It is emitted as a span with the
+            // id in `title`, because DOMPurify drops the scheme from `href` and every
+            // data attribute; `injectRefs` turns it into the interactive chip after
+            // sanitizing. Any other link renders as marked always did.
+            link(token) {
+                const match = STASH_HREF.exec(token.href ?? "");
+                if (!match) return false;
+                const id = match[1].toLowerCase();
+                const display = activeRefResolver?.(id) ?? { state: "unknown" as const };
+                const label = display.label || token.text || id.slice(0, 8);
+                const note = display.note
+                    ? `<span class="stash-ref-note">${escapeHtml(display.note)}</span>`
+                    : "";
+                return (
+                    `<span class="stash-ref stash-ref-${display.state}" title="stash:${id}">` +
+                    `<span class="stash-ref-label">${escapeHtml(label)}</span>${note}</span>`
+                );
+            },
+        },
         extensions: [
             {
                 name: 'mention',
@@ -286,6 +335,23 @@ function injectBadges(html: string): string {
 }
 
 /**
+ * Give the reference placeholders left by the link renderer their behaviour.
+ *
+ * Only the exact shape the renderer emits is matched, and the id must be a UUID,
+ * so nothing a user typed can smuggle an attribute through. A hand-written span of
+ * the same shape just becomes a chip, which is harmless.
+ */
+function injectRefs(html: string): string {
+    return html.replace(
+        /<span class="stash-ref stash-ref-(open|completed|other_context|gone|unknown)" title="stash:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})">/g,
+        (_, state: string, id: string) =>
+            `<span class="stash-ref stash-ref-${state}" data-ref-id="${id}"` +
+            (state === "gone" ? "" : ` role="link" tabindex="0"`) +
+            `>`,
+    );
+}
+
+/**
  * Parse markdown content and sanitize the output to prevent XSS.
  * Use this instead of raw `marked.parse()` + `{@html}`.
  *
@@ -293,11 +359,20 @@ function injectBadges(html: string): string {
  *  1. marked  – tokenises markdown, emits placeholders
  *  2. DOMPurify – strips anything unsafe (XSS prevention)
  *  3. injectBadges – expands placeholders into fully-styled badge HTML
+ *  4. injectRefs – makes `stash:` reference chips clickable
+ *
+ * `resolveRef` supplies the live label and state of each referenced stash.
  */
-export function safeParse(content: string): string {
-    const raw = markedInstance.parse(content) as string;
+export function safeParse(content: string, resolveRef?: RefResolver): string {
+    activeRefResolver = resolveRef ?? null;
+    let raw: string;
+    try {
+        raw = markedInstance.parse(content) as string;
+    } finally {
+        activeRefResolver = null;
+    }
     const sanitized = sanitizeHtml(raw);
-    return injectBadges(sanitized);
+    return injectRefs(injectBadges(sanitized));
 }
 
 

@@ -287,6 +287,10 @@ fn build_markdown(
 
         for stash in group.iter() {
             out.push_str(&format!("### {}\n\n", format_heading_date(&stash.created_at)));
+            // The id, so references between stashes in this archive can be pointed at
+            // the new ids an import gives them. A comment renders as nothing, so the
+            // document still reads cleanly, and older builds import it as invisible text.
+            out.push_str(&format!("{}{} -->\n\n", STASH_ID_MARKER, stash.id));
 
             if !stash.content.trim().is_empty() {
                 out.push_str(stash.content.trim_end());
@@ -369,6 +373,35 @@ fn strip_archive_prefix(name: &str) -> String {
 /// Deliberately reproduces the previous parser's behaviour, quirks included: blank lines
 /// inside a stash's content are dropped, and a bare `---` ends the stash. Changing either
 /// would change how already-exported archives import, which is a separate decision.
+/// Opens the line under each stash heading that records the stash's id.
+const STASH_ID_MARKER: &str = "<!-- stash-id: ";
+
+/// The id recorded on a marker line, if this is one.
+fn parse_stash_id_marker(line: &str) -> Option<&str> {
+    let id = line.trim().strip_prefix(STASH_ID_MARKER)?.strip_suffix(" -->")?;
+    (!id.is_empty() && !id.contains(char::is_whitespace)).then_some(id)
+}
+
+/// Point `stash:<old>` references at the ids an import gave their targets.
+///
+/// Only targets inside the archive are rewritten. A reference to anything else keeps
+/// its id, which still resolves if that stash exists on this device.
+fn remap_references(stashes: &mut [StashItem], new_ids: &HashMap<String, String>) {
+    if new_ids.is_empty() {
+        return;
+    }
+    for stash in stashes.iter_mut() {
+        if !stash.content.contains("stash:") {
+            continue;
+        }
+        let mut content = stash.content.clone();
+        for (old, new) in new_ids {
+            content = content.replace(&format!("(stash:{})", old), &format!("(stash:{})", new));
+        }
+        stash.content = content;
+    }
+}
+
 fn parse_markdown(content: &str, context_id: &str) -> ParsedDocument {
     let mut metadata = ArchiveMetadata::default();
     let mut body = content;
@@ -391,6 +424,7 @@ fn parse_markdown(content: &str, context_id: &str) -> ParsedDocument {
     let mut files: Vec<String> = Vec::new();
     let mut in_attachments = false;
     let mut section_completed = false;
+    let mut new_ids: HashMap<String, String> = HashMap::new();
 
     // Close the stash under construction and push it.
     macro_rules! flush {
@@ -450,6 +484,13 @@ fn parse_markdown(content: &str, context_id: &str) -> ParsedDocument {
             continue;
         }
 
+        if content_lines.is_empty() {
+            if let (Some(old), Some(stash)) = (parse_stash_id_marker(line), current.as_ref()) {
+                new_ids.insert(old.to_lowercase(), stash.id.clone());
+                continue;
+            }
+        }
+
         if line.starts_with("**Attachments:**") {
             in_attachments = true;
             continue;
@@ -473,6 +514,7 @@ fn parse_markdown(content: &str, context_id: &str) -> ParsedDocument {
     }
 
     flush!();
+    remap_references(&mut stashes, &new_ids);
 
     ParsedDocument {
         stashes,
@@ -1061,6 +1103,29 @@ mod tests {
         assert_eq!(done.content, "second entry");
         assert!(active.created_at.starts_with("2026-08-18T10:00:00"));
         assert!(done.created_at.starts_with("2026-08-17T09:30:00"));
+    }
+
+    #[test]
+    fn references_inside_the_archive_follow_their_targets_to_new_ids() {
+        let a = "aaaaaaaa-0000-4000-8000-000000000001";
+        let b = "bbbbbbbb-0000-4000-8000-000000000002";
+        let outside = "cccccccc-0000-4000-8000-000000000003";
+        let stashes = vec![
+            stash(a, &format!("see [b](stash:{b}) and [c](stash:{outside})"), "2026-08-18T10:00:00Z", false),
+            stash(b, "the target", "2026-08-17T09:30:00Z", true),
+        ];
+
+        let md = build_markdown("Work", &metadata(), &stashes, None, Utc::now());
+        let parsed = parse_markdown(&md, "ctx");
+
+        let referrer = parsed.stashes.iter().find(|s| !s.completed).unwrap();
+        let target = parsed.stashes.iter().find(|s| s.completed).unwrap();
+        assert_ne!(target.id, b, "an import mints new ids");
+        assert_eq!(target.content, "the target", "the id marker is not content");
+        assert_eq!(
+            referrer.content,
+            format!("see [b](stash:{}) and [c](stash:{outside})", target.id)
+        );
     }
 
     /// Non-ASCII names are left intact rather than mistaken for a prefixed one.

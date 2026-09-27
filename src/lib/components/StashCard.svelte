@@ -58,7 +58,19 @@
   import { stat } from "@tauri-apps/plugin-fs";
   import { open, message } from "@tauri-apps/plugin-dialog";
   import { getRelativeTime } from "$lib/utils/date";
-  import { safeParse, isHexColor, extractTagsAndColors } from "$lib/utils/markdown";
+  import {
+    safeParse,
+    isHexColor,
+    extractTagsAndColors,
+    type RefDisplay,
+  } from "$lib/utils/markdown";
+  import {
+    formatCopyRefs,
+    planCopyRefs,
+    refLabel,
+    type ResolvedRef,
+  } from "$lib/utils/stash-refs";
+  import StashRefPreview from "./StashRefPreview.svelte";
   import ActionButton from "./ActionButton.svelte";
   import TagBadge from "./TagBadge.svelte";
   import ColorBadge from "./ColorBadge.svelte";
@@ -88,6 +100,10 @@
     aiConfig,
     currentContext,
     autoDetectedWindowTitle,
+    resolveRef,
+    contextName,
+    onReferenceClick,
+    refCandidates = [],
   } = $props<{
     item: StashItem;
     mode: "Drag" | "Copy";
@@ -111,6 +127,14 @@
     currentContext?: Context;
     /** Window title from auto-detection (only set when auto-detection matched) */
     autoDetectedWindowTitle?: string;
+    /** Resolve a `stash:` reference in this stash's content */
+    resolveRef?: (id: string) => ResolvedRef;
+    /** Display name of a context, for references to a stash moved elsewhere */
+    contextName?: (id: string) => string;
+    /** Follow a reference to the stash it points at */
+    onReferenceClick?: (ref: ResolvedRef) => void;
+    /** Stashes the editor's `>>` picker offers */
+    refCandidates?: StashItem[];
   }>();
 
   const adapter = new DesktopStorageAdapter();
@@ -188,6 +212,87 @@
     }
   }
 
+  // How each reference chip reads. Derived from the resolver, which reads the
+  // queue's stashes, so a chip updates when its target is completed or edited.
+  function displayRef(id: string): RefDisplay {
+    const ref = resolveRef?.(id);
+    if (!ref) return { state: "unknown" };
+    if (!ref.stash) return { state: "gone", note: $_("stashRef.gone") };
+    const label = refLabel(ref.stash.content) || undefined;
+    if (ref.state === "other_context") {
+      return {
+        state: ref.state,
+        label,
+        note: $_("stashRef.inContext", {
+          values: {
+            name: contextName?.(ref.stash.contextId) ?? ref.stash.contextId,
+          },
+        }),
+      };
+    }
+    return { state: ref.state, label };
+  }
+
+  let renderedContent = $derived(safeParse(displayContent, displayRef));
+
+  function refIdAt(target: EventTarget | null): string | null {
+    const el = (target as HTMLElement | null)?.closest?.("[data-ref-id]");
+    return el?.getAttribute("data-ref-id") ?? null;
+  }
+
+  /** Follow a clicked chip, and keep the click from copying the card. */
+  function handleContentClick(e: MouseEvent) {
+    const id = refIdAt(e.target);
+    if (!id) return;
+    e.stopPropagation();
+    e.preventDefault();
+    hideRefPreview();
+    const ref = resolveRef?.(id);
+    if (ref && ref.state !== "gone") onReferenceClick?.(ref);
+  }
+
+  function handleContentKeydown(e: KeyboardEvent) {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    const id = refIdAt(e.target);
+    if (!id) return;
+    e.stopPropagation();
+    e.preventDefault();
+    const ref = resolveRef?.(id);
+    if (ref && ref.state !== "gone") onReferenceClick?.(ref);
+  }
+
+  // One hover card per stash card, moved to whichever chip is hovered or focused.
+  let hoveredRef = $state<ResolvedRef | null>(null);
+  let refPreviewX = $state(0);
+  let refPreviewY = $state(0);
+  let refPreviewBelow = $state(false);
+  let refHoverTimeout: ReturnType<typeof setTimeout> | undefined;
+  let refHoverChip: Element | null = null;
+
+  function showRefPreview(target: EventTarget | null) {
+    const chip = (target as HTMLElement | null)?.closest?.("[data-ref-id]") ?? null;
+    if (chip === refHoverChip) return;
+    hideRefPreview();
+    if (!chip) return;
+    refHoverChip = chip;
+    const id = chip.getAttribute("data-ref-id");
+    refHoverTimeout = setTimeout(() => {
+      if (!id || !resolveRef) return;
+      const rect = chip.getBoundingClientRect();
+      refPreviewX = rect.left + rect.width / 2;
+      refPreviewBelow = rect.top < window.innerHeight / 2;
+      refPreviewY = refPreviewBelow ? rect.bottom + 8 : rect.top - 8;
+      hoveredRef = resolveRef(id);
+    }, 300);
+  }
+
+  function hideRefPreview() {
+    clearTimeout(refHoverTimeout);
+    refHoverTimeout = undefined;
+    refHoverChip = null;
+    hoveredRef = null;
+  }
+
   let stashData = $derived(extractTagsAndColors(item.content));
   let stashTags = $derived(() => stashData.tags);
   let stashColors = $derived(() => stashData.colors);
@@ -207,18 +312,45 @@
 
     // Strip tags if setting is enabled (and not inverted) or disabled (and inverted)
     const shouldStrip = stripTagsOnCopy ? !invert : invert;
-
-    if (shouldStrip) {
-      content = content
+    const stripTags = (text: string) =>
+      text
         .replace(/TAGS:[\s\S]*$/, "")
         .replace(/#[\w-]+/g, "")
         .trim();
+
+    if (shouldStrip) {
+      content = stripTags(content);
     }
 
-    const text =
-      item.attachments.length > 0
-        ? `${content}\n\n---\n# SYSTEM CONTEXT - LOCAL FILES\n${item.attachments.map((a) => a.filePath).join("\n")}`
-        : content;
+    // Referenced stashes travel with the copy, one level deep and size-capped. One
+    // too long to inline is written to a file beside this stash's attachments, so
+    // the AI tool can read it when it needs to without it flooding the clipboard.
+    const { body, refs } = resolveRef
+      ? planCopyRefs(content, resolveRef, shouldStrip ? stripTags : undefined)
+      : { body: content, refs: [] };
+    const refFiles = new Map<string, string>();
+    for (const ref of refs) {
+      if (!ref.full) continue;
+      try {
+        refFiles.set(
+          ref.id,
+          await adapter.writeReferenceFile(item.contextId, item.id, ref.id, ref.full),
+        );
+      } catch (err) {
+        console.error("Failed to write referenced stash to a file", err);
+      }
+    }
+
+    let text = body;
+    const refSection = formatCopyRefs(refs, refFiles);
+    if (refSection) text += `\n\n---\n${refSection}`;
+    const localFiles = [
+      ...item.attachments.map((a) => a.filePath),
+      ...refFiles.values(),
+    ];
+    if (localFiles.length > 0) {
+      text += `\n\n---\n# SYSTEM CONTEXT - LOCAL FILES\n${localFiles.join("\n")}`;
+    }
     await adapter.copyToClipboard(text);
     copied = true;
     setTimeout(() => (copied = false), 2000);
@@ -506,6 +638,7 @@
             saveLabel={$_("common.save")}
             autoFocus={true}
             {availableTags}
+            {refCandidates}
             minHeight={stashHeight}
           />
         </div>
@@ -587,6 +720,9 @@
           class="relative {isClamped ? 'overflow-hidden' : ''}"
           style:max-height={isClamped ? `${COLLAPSED_MAX_PX}px` : undefined}
         >
+          <!-- The reference hover card also opens for keyboard users: focusin is
+               the bubbling form of focus, which is what reaches this container. -->
+          <!-- svelte-ignore a11y_mouse_events_have_key_events -->
           <div
             bind:this={contentRef}
             class="prose dark:prose-invert prose-xs max-w-none text-sm text-foreground/90 leading-relaxed font-sans break-words {item.completed
@@ -594,9 +730,15 @@
               : ''}"
             use:externalLinks
             ondblclick={handleDoubleClick}
+            onclick={handleContentClick}
+            onkeydown={handleContentKeydown}
+            onmouseover={(e) => showRefPreview(e.target)}
+            onmouseleave={hideRefPreview}
+            onfocusin={(e) => showRefPreview(e.target)}
+            onfocusout={hideRefPreview}
             role="presentation"
           >
-            {@html safeParse(displayContent)}
+            {@html renderedContent}
           </div>
           {#if isClamped}
             <div
@@ -845,6 +987,15 @@
     </div>
   </div>
 </div>
+
+<StashRefPreview
+  ref={hoveredRef}
+  visible={!!hoveredRef}
+  x={refPreviewX}
+  y={refPreviewY}
+  position={refPreviewBelow ? "bottom" : "top"}
+  {contextName}
+/>
 
 <!-- File Preview Modal -->
 <FilePreviewModal

@@ -131,7 +131,8 @@
       "description": "Erledigte Stashes automatisch entfernen",
       "never": "Nie",
       "onClose": "Beim Neustart",
-      "afterNDays": "Nach {days} Tagen"
+      "afterNDays": "Nach {days} Tagen",
+      "referencedHint": "Erledigte Stashes, auf die ein offener Stash noch verweist, bleiben erhalten, bis auch dieser erledigt ist."
     },
     "clearCompletedDays": {
       "label": "Aufbewahrungsdauer",
@@ -482,7 +483,17 @@
     "regenerate": "Neu generieren",
     "keepEnhanced": "Beibehalten"
   },
+  "stashRef": {
+    "stateOpen": "Offen",
+    "stateCompleted": "Erledigt",
+    "stateCompletedAt": "Erledigt {time}",
+    "inContext": "in {name}",
+    "gone": "gelöscht oder nicht verfügbar",
+    "deleteReferenced": "Diesen Stash löschen? {count, plural, one {# anderer Stash verweist darauf} other {# andere Stashes verweisen darauf}}, diese Verweise funktionieren danach nicht mehr.",
+    "clearReferenced": "Auf einige davon verweisen noch andere Stashes."
+  },
   "editor": {
+    "referenceStash": "Auf einen Stash verweisen",
     "placeholder": "Stash hier eingeben… (Cmd+Enter zum Speichern)",
     "addStash": "Stashen",
     "saving": "Speichere…",

@@ -174,6 +174,11 @@ export interface IStorageService {
     getPreviousAppInfo(): Promise<AppContext>;
     getSmartTransferTarget(): Promise<'GUI' | 'CLI'>;
     copyToClipboard(text: string): Promise<void>;
+    /**
+     * Write the full text of a referenced stash that was too long to copy inline, into
+     * the referring stash's cache folder, and return the file's path.
+     */
+    writeReferenceFile(contextId: string, stashId: string, targetId: string, content: string): Promise<string>;
     // WebSockets
     connectWebSocket(): Promise<void>;
     disconnectWebSocket(): Promise<void>;

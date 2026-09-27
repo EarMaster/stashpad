@@ -1145,6 +1145,14 @@
             <div class="text-xs text-muted-foreground">
               {$_("settings.clearCompleted.description")}
             </div>
+            {#if (settings.clearCompletedStrategy ?? "never") !== "never"}
+              <div
+                class="text-[11px] text-muted-foreground/80"
+                transition:fade={{ duration: 150 }}
+              >
+                {$_("settings.clearCompleted.referencedHint")}
+              </div>
+            {/if}
           </div>
           <div class="flex bg-muted p-1 rounded-lg border border-border">
             {#each ["never", "on-close", "after-n-days"] as strategy}

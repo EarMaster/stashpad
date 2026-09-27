@@ -195,6 +195,8 @@ export function installMockBackend(overrides: Partial<DemoState> = {}): void {
                 return true;
             case 'get_system_prompt':
                 return 'You are a precise engineering assistant. Rewrite the note as a task.';
+            case 'write_reference_file':
+                return `/home/dev/.stashpad/cache/${payload?.contextId}/${payload?.stashId}/refs/${payload?.targetId}.md`;
             case 'get_system_prompt_path_str':
                 return '/home/dev/.stashpad/system-prompt.md';
             default:

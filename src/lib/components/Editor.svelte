@@ -37,6 +37,12 @@
   } from "lucide-svelte";
   import { getCaretCoordinates } from "$lib/utils/caret";
   import {
+    findRefTrigger,
+    makeRefLink,
+    rankRefCandidates,
+    refLabel,
+  } from "$lib/utils/stash-refs";
+  import {
     applyWrap,
     applyCode,
     applyLinePrefix,
@@ -75,6 +81,7 @@
     saveLabel,
     autoFocus = false,
     availableTags = [],
+    refCandidates = [],
     pasteAsAttachmentThreshold = 500,
     resizeImages = true,
     minHeight,
@@ -93,6 +100,8 @@
     saveLabel?: string;
     autoFocus?: boolean;
     availableTags?: string[];
+    /** Stashes of this context that `>>` can reference */
+    refCandidates?: StashItem[];
     /** Number of bytes before pasted text becomes an attachment. 0 = ask user */
     pasteAsAttachmentThreshold?: number;
     resizeImages?: boolean;
@@ -134,6 +143,12 @@
   });
   let triggerStart = $state<number | null>(null);
   let hoveringSuggestions = $state(false);
+
+  // Stash reference picker, opened by `>>`
+  let showRefSuggestions = $state(false);
+  let refSuggestions = $state<StashItem[]>([]);
+  let focusedRefIndex = $state(0);
+  let refTriggerStart = $state<number | null>(null);
 
   // File preview state
   let previewModalOpen = $state(false);
@@ -331,6 +346,50 @@
 
   function handleInput() {
     checkForTagTrigger();
+    checkForRefTrigger();
+  }
+
+  function checkForRefTrigger() {
+    if (!textareaRef) return;
+
+    const end = getCursorParams().end;
+    const trigger = findRefTrigger(content.slice(0, end));
+    if (!trigger) {
+      showRefSuggestions = false;
+      return;
+    }
+
+    refSuggestions = rankRefCandidates(
+      trigger.query,
+      refCandidates,
+      existingStashId,
+    );
+    if (refSuggestions.length === 0) {
+      showRefSuggestions = false;
+      return;
+    }
+    showSuggestions = false;
+    showRefSuggestions = true;
+    focusedRefIndex = 0;
+    refTriggerStart = trigger.start;
+    updateSuggestionPosition(end);
+  }
+
+  function insertRef(target: StashItem) {
+    if (!textareaRef || refTriggerStart === null) return;
+
+    const before = content.slice(0, refTriggerStart);
+    const after = content.slice(textareaRef.selectionEnd);
+    const link = makeRefLink(target);
+    content = before + link + " " + after;
+
+    const newCursorPos = before.length + link.length + 1;
+    showRefSuggestions = false;
+
+    setTimeout(() => {
+      textareaRef?.focus();
+      textareaRef?.setSelectionRange(newCursorPos, newCursorPos);
+    }, 0);
   }
 
   function checkForTagTrigger() {
@@ -713,6 +772,32 @@
   }
 
   function handleKeydown(e: KeyboardEvent) {
+    if (showRefSuggestions && refSuggestions.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        focusedRefIndex = (focusedRefIndex + 1) % refSuggestions.length;
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        focusedRefIndex =
+          (focusedRefIndex - 1 + refSuggestions.length) % refSuggestions.length;
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        if (refSuggestions[focusedRefIndex]) {
+          insertRef(refSuggestions[focusedRefIndex]);
+        }
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        showRefSuggestions = false;
+        return;
+      }
+    }
+
     if (showSuggestions && filteredTags.length > 0) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
@@ -882,7 +967,6 @@
 
   let tooltipX = $state(0);
   let tooltipY = $state(0);
-  let xOffset = $state(0);
   let showBelow = $state(false);
 
   function updateTooltipPosition(target: HTMLElement) {
@@ -905,24 +989,7 @@
       showBelow = false;
       tooltipY = rect.top - TOOLTIP_OFFSET;
     }
-
-    // Calculate horizontal offset to keep tooltip centered on element
-    const TOOLTIP_MAX_WIDTH = 280;
-    const viewportPadding = 8;
-
-    // Calculate if tooltip would overflow
-    const tooltipLeft = centerX - TOOLTIP_MAX_WIDTH / 2;
-    const tooltipRight = centerX + TOOLTIP_MAX_WIDTH / 2;
-
-    if (tooltipLeft < viewportPadding) {
-      // Would overflow left
-      xOffset = tooltipLeft - viewportPadding;
-    } else if (tooltipRight > window.innerWidth - viewportPadding) {
-      // Would overflow right
-      xOffset = tooltipRight - (window.innerWidth - viewportPadding);
-    } else {
-      xOffset = 0;
-    }
+    // Keeping it inside the window horizontally is Tooltip's job: it knows its width.
   }
 
   /**
@@ -1207,7 +1274,10 @@
     onpaste={handlePaste}
     onblur={() =>
       setTimeout(() => {
-        if (!hoveringSuggestions) showSuggestions = false;
+        if (!hoveringSuggestions) {
+          showSuggestions = false;
+          showRefSuggestions = false;
+        }
       }, 200)}
     use:focusOnMount
   ></textarea>
@@ -1232,6 +1302,39 @@
           }}
         >
           {tag}
+        </button>
+      {/each}
+    </div>
+  {/if}
+
+  {#if showRefSuggestions}
+    <div
+      class="absolute z-50 bg-popover border border-border rounded-md shadow-lg flex flex-col w-64 max-h-[220px] overflow-y-auto"
+      style="top: {suggestionPosition.top}px; left: {suggestionPosition.left}px;"
+      onmouseenter={() => (hoveringSuggestions = true)}
+      onmouseleave={() => (hoveringSuggestions = false)}
+      role="listbox"
+      aria-label={$_("editor.referenceStash")}
+      tabindex="-1"
+    >
+      {#each refSuggestions as candidate, i (candidate.id)}
+        <button
+          type="button"
+          role="option"
+          aria-selected={i === focusedRefIndex}
+          class="flex items-center gap-1.5 text-xs px-2 py-1.5 text-left hover:bg-muted transition-colors {i ===
+          focusedRefIndex
+            ? 'bg-primary/10 text-primary'
+            : ''}"
+          onclick={() => {
+            insertRef(candidate);
+            hoveringSuggestions = false;
+          }}
+        >
+          <span class="shrink-0 opacity-60">{candidate.completed ? "✓" : "→"}</span>
+          <span class="truncate {candidate.completed ? 'line-through opacity-70' : ''}"
+            >{refLabel(candidate.content)}</span
+          >
         </button>
       {/each}
     </div>
@@ -1294,7 +1397,6 @@
               x={tooltipX}
               y={tooltipY}
               position={showBelow ? "bottom" : "top"}
-              {xOffset}
             >
               {#snippet children()}
                 {#if isLoadingHoverPreview}

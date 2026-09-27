@@ -301,17 +301,37 @@ fn purge_stash_files(db: &DbManager, stashes: &[(String, Option<String>)]) {
     }
 }
 
-/// Completed, not-yet-deleted stashes, optionally only those completed before `cutoff`
-/// (an RFC3339 timestamp).
+/// Keeps auto-clear away from a completed stash that an open stash in the same context
+/// still references.
+///
+/// Auto-clear's "clear" is a soft delete that syncs as a tombstone, and the cloud purges
+/// tombstones for good 30 days later, so without this a working reference would quietly
+/// turn into a dead one. It reaches one level only: the referrer must itself be open, so
+/// a completed stash protects nothing, and a chain of old completed stashes cannot keep
+/// each other alive. Once the open referrer is completed, its targets clear on the next
+/// run.
+///
+/// References are `[label](stash:<id>)` links in the content (`src/lib/utils/stash-refs.ts`).
+/// Matching `stash:<id>` anywhere, including inside code, errs towards keeping a stash.
+const NOT_REFERENCED_BY_OPEN_STASH: &str = "AND NOT EXISTS (\
+     SELECT 1 FROM stashes r \
+     WHERE r.deleted = 0 AND r.completed = 0 AND r.id <> s.id \
+     AND r.context_id = s.context_id \
+     AND (instr(lower(r.content), 'stash:' || lower(s.id)) > 0 \
+          OR instr(lower(COALESCE(r.enhanced_content, '')), 'stash:' || lower(s.id)) > 0))";
+
+/// Completed, not-yet-deleted stashes that auto-clear may remove, optionally only those
+/// completed before `cutoff` (an RFC3339 timestamp).
 fn completed_stashes(db: &DbManager, cutoff: Option<&str>) -> Vec<(String, Option<String>)> {
     let result = match cutoff {
         Some(before) => db
             .conn
-            .prepare(
-                "SELECT id, context_id FROM stashes \
-                 WHERE completed = 1 AND deleted = 0 AND completed_at IS NOT NULL \
-                 AND completed_at < ?1",
-            )
+            .prepare(&format!(
+                "SELECT s.id, s.context_id FROM stashes s \
+                 WHERE s.completed = 1 AND s.deleted = 0 AND s.completed_at IS NOT NULL \
+                 AND s.completed_at < ?1 {}",
+                NOT_REFERENCED_BY_OPEN_STASH
+            ))
             .and_then(|mut stmt| {
                 let rows = stmt.query_map(params![before], |row| {
                     Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
@@ -320,7 +340,11 @@ fn completed_stashes(db: &DbManager, cutoff: Option<&str>) -> Vec<(String, Optio
             }),
         None => db
             .conn
-            .prepare("SELECT id, context_id FROM stashes WHERE completed = 1 AND deleted = 0")
+            .prepare(&format!(
+                "SELECT s.id, s.context_id FROM stashes s \
+                 WHERE s.completed = 1 AND s.deleted = 0 {}",
+                NOT_REFERENCED_BY_OPEN_STASH
+            ))
             .and_then(|mut stmt| {
                 let rows = stmt.query_map([], |row| {
                     Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
@@ -344,7 +368,13 @@ pub fn perform_startup_cleanup(db: &mut DbManager, settings: &Settings) -> usize
             let stale = completed_stashes(db, None);
             log::info!("Startup cleanup: clearing {} completed stash(es)", stale.len());
             purge_stash_files(db, &stale);
-            let _ = db.delete_completed_stashes(None);
+            // One by one rather than `delete_completed_stashes`, which clears every
+            // completed stash and would ignore the references that kept some back.
+            for (id, _) in &stale {
+                if let Err(e) = db.delete_stash(id) {
+                    log::error!("Cleanup: could not delete stash {}: {}", id, e);
+                }
+            }
             stale.len()
         }
         "after-n-days" => {
@@ -375,6 +405,31 @@ pub fn perform_startup_cleanup(db: &mut DbManager, settings: &Settings) -> usize
         }
         _ => 0,
     }
+}
+
+/// Write the full text of a referenced stash that was too long to copy inline, and
+/// return where it went.
+///
+/// The file lives in the referring stash's own cache folder, under `refs/`, so it is
+/// removed with that stash like any attachment. It is rewritten on every copy, so it
+/// always holds the target as it was when the copy was made.
+#[tauri::command]
+pub async fn write_reference_file(
+    context_id: String,
+    stash_id: String,
+    target_id: String,
+    content: String,
+) -> Result<String, UiError> {
+    let dir = get_stash_cache_path(&stash_id, Some(&context_id)).join("refs");
+    let path = dir.join(format!("{}.md", safe_component(&target_id)));
+    tauri::async_runtime::spawn_blocking(move || {
+        fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        fs::write(&path, content).map_err(|e| e.to_string())?;
+        Ok::<_, String>(path.to_string_lossy().into_owned())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(UiError::from)
 }
 
 #[tauri::command]
@@ -998,4 +1053,85 @@ pub async fn import_positions(
         .map(|n| n as u32)
         .map_err(|e| e.to_string())
         .map_err(UiError::from)
+}
+
+#[cfg(test)]
+mod reference_cleanup_tests {
+    use super::*;
+    use rusqlite::Connection;
+
+    const A: &str = "aaaaaaaa-0000-4000-8000-000000000001";
+    const B: &str = "bbbbbbbb-0000-4000-8000-000000000002";
+    const C: &str = "cccccccc-0000-4000-8000-000000000003";
+
+    fn db() -> DbManager {
+        let db = DbManager { conn: Connection::open_in_memory().unwrap() };
+        db.init_tables().unwrap();
+        db
+    }
+
+    fn insert(db: &DbManager, id: &str, content: &str, completed: bool) {
+        db.conn
+            .execute(
+                "INSERT INTO stashes (id, context_id, content, files, created_at, completed, completed_at) \
+                 VALUES (?1, 'default', ?2, '[]', '2026-01-01T00:00:00Z', ?3, ?4)",
+                params![
+                    id,
+                    content,
+                    completed,
+                    completed.then_some("2026-01-02T00:00:00Z")
+                ],
+            )
+            .unwrap();
+    }
+
+    fn clearable(db: &DbManager) -> Vec<String> {
+        let mut ids: Vec<String> = completed_stashes(db, Some("2026-06-01T00:00:00Z"))
+            .into_iter()
+            .map(|(id, _)| id)
+            .collect();
+        ids.sort();
+        ids
+    }
+
+    #[test]
+    fn an_open_referrer_keeps_a_completed_stash() {
+        let db = db();
+        insert(&db, A, &format!("see [b](stash:{B})"), false);
+        insert(&db, B, "done", true);
+        assert!(clearable(&db).is_empty());
+    }
+
+    #[test]
+    fn a_completed_referrer_keeps_nothing() {
+        let db = db();
+        insert(&db, A, &format!("see [b](stash:{B})"), true);
+        insert(&db, B, "done", true);
+        assert_eq!(clearable(&db), vec![A.to_string(), B.to_string()]);
+    }
+
+    #[test]
+    fn protection_reaches_one_level_only() {
+        // A (open) -> B (completed) -> C (completed): B is kept for A, and C, referenced
+        // only by the completed B, clears on schedule.
+        let db = db();
+        insert(&db, A, &format!("[b](stash:{B})"), false);
+        insert(&db, B, &format!("[c](stash:{C})"), true);
+        insert(&db, C, "old", true);
+        assert_eq!(clearable(&db), vec![C.to_string()]);
+    }
+
+    #[test]
+    fn a_deleted_referrer_or_another_context_keeps_nothing() {
+        let db = db();
+        insert(&db, A, &format!("[b](stash:{B})"), false);
+        insert(&db, B, "done", true);
+        db.conn.execute("UPDATE stashes SET deleted = 1 WHERE id = ?1", params![A]).unwrap();
+        assert_eq!(clearable(&db), vec![B.to_string()]);
+
+        db.conn
+            .execute("UPDATE stashes SET deleted = 0, context_id = 'other' WHERE id = ?1", params![A])
+            .unwrap();
+        assert_eq!(clearable(&db), vec![B.to_string()]);
+    }
 }

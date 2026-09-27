@@ -11,7 +11,25 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+### Added
+- **A stash can now link to other stashes in the same context.** Type `>>` in the editor and
+  pick one. The link shows as a chip with the other stash's current first line. Hover it to
+  preview that stash, or click it to scroll there. A completed stash is unfolded first, and a
+  stash that was moved is followed into its new context. A deleted stash's link stays in the
+  text, marked as gone, and deleting a stash that others link to warns you first
+- **Copying a stash to an AI tool brings the stashes it links to.** Each linked stash is added
+  under the text, one level deep, up to 2,000 characters each and 8,000 in all. A longer one
+  is cut short, and its full text is saved as a file listed next to the attachments. Links
+  inside a linked stash are not followed
+- **Auto Clear Completed keeps completed stashes that an open stash still links to.** They
+  are cleared as usual once that stash is completed too. Only a direct link from an open
+  stash counts, so a chain of old completed stashes cannot keep each other forever.
+  Clearing completed stashes by hand still clears them all, after a warning
+
 ### Fixed
+- **Attachment previews stay inside a narrow window.** Hovering an attachment near the edge
+  of the window pushed its preview further off the edge instead of back in, so part of the
+  picture or text was cut off. This applies to attachments in the queue and in the editor
 - **Importing a context whose rules match your current ones no longer reports a conflict.**
   The check compared the imported and current rules as JSON text, and an export writes a
   rule's fields in a different order than the app does - so any context with auto-switch
