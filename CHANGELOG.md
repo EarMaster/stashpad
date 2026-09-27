@@ -11,6 +11,8 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-09-27
+
 ### Added
 - **A stash can now link to other stashes in the same context.** Type `>>` in the editor and
   pick one. The link shows as a chip with the other stash's current first line. Hover it to
