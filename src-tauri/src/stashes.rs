@@ -11,20 +11,24 @@
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 // See the GNU Affero General Public License for more details.
 
+use crate::db::{DbManager, WriteOrigin};
+use crate::models::{Attachment, Context, SaveOptions, Settings, StashItem};
+use crate::state::{DbState, SettingsState};
+use crate::uierror::UiError;
+use crate::utils::get_app_dir;
+use rusqlite::params;
+use rusqlite::OptionalExtension;
 use std::fs;
 use std::sync::Arc;
 use tauri::State;
-use rusqlite::params;
-use rusqlite::OptionalExtension;
-use crate::models::{StashItem, SaveOptions, Attachment, Context, Settings};
-use crate::state::{DbState, SettingsState};
-use crate::utils::get_app_dir;
-use crate::db::{DbManager, WriteOrigin};
-use crate::uierror::UiError;
 
 pub fn get_effective_position(invert: bool, default_pos: &str) -> &str {
     if invert {
-        if default_pos == "bottom" { "top" } else { "bottom" }
+        if default_pos == "bottom" {
+            "top"
+        } else {
+            "bottom"
+        }
     } else {
         default_pos
     }
@@ -38,26 +42,26 @@ pub fn calculate_stash_update(
 ) -> (StashItem, Option<f64>) {
     let mut new_stash = stash.clone();
     let position_val: Option<f64>;
-    
+
     if let Some(old) = existing {
         let status_changed = old.completed != stash.completed;
-        
+
         if status_changed {
-             if new_stash.completed {
-                 new_stash.completed_at = Some(chrono::Utc::now().to_rfc3339());
-             } else {
-                 new_stash.completed_at = None;
-             }
-             // Status changed -> Move to top/bottom
-             if effective_position_str == "bottom" {
-                 position_val = None; // Append to end
-             } else {
-                 // Top: min pos - 1
-                 position_val = Some(min_pos.unwrap_or(0.0) - 1.0);
-             }
+            if new_stash.completed {
+                new_stash.completed_at = Some(chrono::Utc::now().to_rfc3339());
+            } else {
+                new_stash.completed_at = None;
+            }
+            // Status changed -> Move to top/bottom
+            if effective_position_str == "bottom" {
+                position_val = None; // Append to end
+            } else {
+                // Top: min pos - 1
+                position_val = Some(min_pos.unwrap_or(0.0) - 1.0);
+            }
         } else if new_stash.completed && new_stash.completed_at.is_none() {
-             new_stash.completed_at = old.completed_at.clone();
-             position_val = None; // Keep existing pos
+            new_stash.completed_at = old.completed_at.clone();
+            position_val = None; // Keep existing pos
         } else {
             position_val = None; // Keep existing pos
         }
@@ -66,12 +70,12 @@ pub fn calculate_stash_update(
         if new_stash.completed && new_stash.completed_at.is_none() {
             new_stash.completed_at = Some(chrono::Utc::now().to_rfc3339());
         }
-        
+
         if effective_position_str == "bottom" {
             position_val = None; // Append
         } else {
-             // Top
-             position_val = Some(min_pos.unwrap_or(0.0) - 1.0);
+            // Top
+            position_val = Some(min_pos.unwrap_or(0.0) - 1.0);
         }
     }
     (new_stash, position_val)
@@ -79,51 +83,63 @@ pub fn calculate_stash_update(
 
 #[tauri::command]
 pub async fn save_stash(
-    state: State<'_, Arc<DbState>>, 
-    settings_state: State<'_, Arc<SettingsState>>, 
-    options: SaveOptions
+    state: State<'_, Arc<DbState>>,
+    settings_state: State<'_, Arc<SettingsState>>,
+    options: SaveOptions,
 ) -> Result<(), UiError> {
     let stash = options.stash;
     let invert = options.invert_position;
-    
+
     // Position Logic for DB
     let settings = settings_state.lock_settings();
     let default_pos = settings.new_stash_position.clone();
-    drop(settings); 
+    drop(settings);
 
     let effective_position_str = get_effective_position(invert, &default_pos);
-    
+
     let mut db = state.lock_db();
-    
+
     // 1. Get existing stash to check changes
-    let existing: Option<StashItem> = db.conn.query_row(
-        "SELECT id, completed, completed_at FROM stashes WHERE id = ?1",
-        params![stash.id],
-        |row| {
-             // Minimal struct for check
-             Ok(StashItem {
-                id: row.get(0)?,
-                context_id: crate::models::DEFAULT_CONTEXT_ID.to_string(),
-                content: "".into(), 
-                enhanced_content: None,
-                files: vec![], 
-                attachments: vec![],
-                created_at: "".into(),
-                completed: row.get(1)?,
-                completed_at: row.get(2)?,
-                updated_at: None,
-                deleted: false,
-            })
-        }
-    ).optional().unwrap_or(None);
-    
+    let existing: Option<StashItem> = db
+        .conn
+        .query_row(
+            "SELECT id, completed, completed_at FROM stashes WHERE id = ?1",
+            params![stash.id],
+            |row| {
+                // Minimal struct for check
+                Ok(StashItem {
+                    id: row.get(0)?,
+                    context_id: crate::models::DEFAULT_CONTEXT_ID.to_string(),
+                    content: "".into(),
+                    enhanced_content: None,
+                    files: vec![],
+                    attachments: vec![],
+                    created_at: "".into(),
+                    completed: row.get(1)?,
+                    completed_at: row.get(2)?,
+                    updated_at: None,
+                    deleted: false,
+                })
+            },
+        )
+        .optional()
+        .unwrap_or(None);
+
     let min_pos: Option<f64> = if effective_position_str == "top" {
-        db.conn.query_row("SELECT MIN(position) FROM stashes WHERE deleted=0", [], |row| row.get(0)).optional().unwrap_or(None)
+        db.conn
+            .query_row(
+                "SELECT MIN(position) FROM stashes WHERE deleted=0",
+                [],
+                |row| row.get(0),
+            )
+            .optional()
+            .unwrap_or(None)
     } else {
         None
     };
 
-    let (new_stash, position_val) = calculate_stash_update(&stash, existing.as_ref(), effective_position_str, min_pos);
+    let (new_stash, position_val) =
+        calculate_stash_update(&stash, existing.as_ref(), effective_position_str, min_pos);
 
     if let Err(e) = db.save_stash(&new_stash, position_val, WriteOrigin::LocalEdit) {
         println!("Failed to save stash: {}", e);
@@ -137,18 +153,29 @@ pub async fn load_stashes(state: State<'_, Arc<DbState>>) -> Result<Vec<StashIte
 }
 
 #[tauri::command]
-pub async fn load_stashes_for_sync(state: State<'_, Arc<DbState>>) -> Result<Vec<StashItem>, UiError> {
+pub async fn load_stashes_for_sync(
+    state: State<'_, Arc<DbState>>,
+) -> Result<Vec<StashItem>, UiError> {
     Ok(state.lock_db().get_stashes_for_sync().unwrap_or_default())
 }
 
 #[tauri::command]
-pub async fn get_contexts_for_sync(state: State<'_, Arc<DbState>>) -> Result<Vec<Context>, UiError> {
+pub async fn get_contexts_for_sync(
+    state: State<'_, Arc<DbState>>,
+) -> Result<Vec<Context>, UiError> {
     Ok(state.lock_db().get_contexts_for_sync().unwrap_or_default())
 }
 
 #[tauri::command]
-pub async fn import_stashes(state: State<'_, Arc<DbState>>, stashes_list: Vec<StashItem>) -> Result<(), UiError> {
-    state.lock_db().import_stashes(&stashes_list).map_err(|e| e.to_string()).map_err(UiError::from)
+pub async fn import_stashes(
+    state: State<'_, Arc<DbState>>,
+    stashes_list: Vec<StashItem>,
+) -> Result<(), UiError> {
+    state
+        .lock_db()
+        .import_stashes(&stashes_list)
+        .map_err(|e| e.to_string())
+        .map_err(UiError::from)
 }
 
 pub fn get_stash_cache_path(id: &str, context_id: Option<&str>) -> std::path::PathBuf {
@@ -163,23 +190,27 @@ pub fn get_stash_cache_path(id: &str, context_id: Option<&str>) -> std::path::Pa
 #[tauri::command]
 pub async fn delete_stash(state: State<'_, Arc<DbState>>, id: String) -> Result<(), UiError> {
     let mut db = state.lock_db();
-    
+
     // File cleanup logic (requires querying stash first)
     // We can do a quick SELECT to get context_id
-    let stash_info: Option<(String, Option<String>)> = db.conn.query_row(
-        "SELECT id, context_id FROM stashes WHERE id = ?1", 
-        params![id],
-        |row| Ok((row.get(0)?, row.get(1)?))
-    ).optional().unwrap_or(None);
+    let stash_info: Option<(String, Option<String>)> = db
+        .conn
+        .query_row(
+            "SELECT id, context_id FROM stashes WHERE id = ?1",
+            params![id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .unwrap_or(None);
 
     if let Some((_, context_id)) = stash_info {
         let stash_path = get_stash_cache_path(&id, context_id.as_deref());
 
         // delete directory recursively
         if stash_path.exists() {
-             if let Err(e) = fs::remove_dir_all(&stash_path) {
-                 println!("Failed to delete stash attachments: {}", e);
-             }
+            if let Err(e) = fs::remove_dir_all(&stash_path) {
+                println!("Failed to delete stash attachments: {}", e);
+            }
         }
 
         // The files are gone, so the rows must stop claiming to hold them. Left as-is
@@ -192,7 +223,7 @@ pub async fn delete_stash(state: State<'_, Arc<DbState>>, id: String) -> Result<
     }
 
     if let Err(e) = db.delete_stash(&id) {
-         println!("Failed to delete stash from DB: {}", e);
+        println!("Failed to delete stash from DB: {}", e);
     }
     Ok(())
 }
@@ -203,7 +234,10 @@ fn safe_component(value: &str) -> String {
 }
 
 #[tauri::command]
-pub async fn delete_completed_stashes(state: State<'_, Arc<DbState>>, context_id: Option<String>) -> Result<(), UiError> {
+pub async fn delete_completed_stashes(
+    state: State<'_, Arc<DbState>>,
+    context_id: Option<String>,
+) -> Result<(), UiError> {
     // Collect under the lock, delete files with the lock released, then write back.
     //
     // This used to hold the global database mutex across a `remove_dir_all` per stash -
@@ -243,7 +277,9 @@ pub async fn delete_completed_stashes(state: State<'_, Arc<DbState>>, context_id
         .iter()
         .map(|(id, ctx_id_opt)| {
             let ctx_id = ctx_id_opt.as_deref().unwrap_or("default");
-            cache_dir.join(safe_component(ctx_id)).join(safe_component(id))
+            cache_dir
+                .join(safe_component(ctx_id))
+                .join(safe_component(id))
         })
         .collect();
 
@@ -366,7 +402,10 @@ pub fn perform_startup_cleanup(db: &mut DbManager, settings: &Settings) -> usize
     match settings.clear_completed_strategy.as_str() {
         "on-close" => {
             let stale = completed_stashes(db, None);
-            log::info!("Startup cleanup: clearing {} completed stash(es)", stale.len());
+            log::info!(
+                "Startup cleanup: clearing {} completed stash(es)",
+                stale.len()
+            );
             purge_stash_files(db, &stale);
             // One by one rather than `delete_completed_stashes`, which clears every
             // completed stash and would ignore the references that kept some back.
@@ -433,7 +472,10 @@ pub async fn write_reference_file(
 }
 
 #[tauri::command]
-pub async fn save_stashes(state: State<'_, Arc<DbState>>, stashes_list: Vec<StashItem>) -> Result<(), UiError> {
+pub async fn save_stashes(
+    state: State<'_, Arc<DbState>>,
+    stashes_list: Vec<StashItem>,
+) -> Result<(), UiError> {
     // This is used for REORDERING, which rewrites a row per visible stash.
     println!("Saving stash order ({} items)", stashes_list.len());
     let mut db = state.lock_db();
@@ -442,9 +484,12 @@ pub async fn save_stashes(state: State<'_, Arc<DbState>>, stashes_list: Vec<Stas
     }
     Ok(())
 }
- 
+
 #[tauri::command]
-pub async fn trigger_auto_cleanup(state: State<'_, Arc<DbState>>, settings_state: State<'_, Arc<SettingsState>>) -> Result<u32, UiError> {
+pub async fn trigger_auto_cleanup(
+    state: State<'_, Arc<DbState>>,
+    settings_state: State<'_, Arc<SettingsState>>,
+) -> Result<u32, UiError> {
     // Copy the settings out before taking the database lock. Holding both at once was
     // the only place in the codebase that established the reverse ordering, and this
     // command fires every five minutes from the frontend, so it was a standing
@@ -453,14 +498,14 @@ pub async fn trigger_auto_cleanup(state: State<'_, Arc<DbState>>, settings_state
     let mut db = state.lock_db();
     Ok(perform_startup_cleanup(&mut db, &settings) as u32)
 }
- 
+
 /// Saves an asset file to the cache directory.
-/// 
+///
 /// Files are organized in a hierarchical folder structure:
 /// - If both context_id and stash_id are provided: `cache/<context_id>/<stash_id>/<filename>`
 /// - If only context_id is provided: `cache/<context_id>/<filename>`
 /// - Otherwise: `cache/<filename>` (backwards compatibility)
-/// 
+///
 /// This structure prevents file name collisions and allows for proper cleanup
 /// when stashes or contexts are deleted.
 /// Metadata that travels alongside a raw asset upload.
@@ -595,7 +640,9 @@ async fn write_asset(
     };
 
     // Simple mime guess or default
-    let mime_type = mime_guess::from_path(&file_path).first().map(|m| m.to_string());
+    let mime_type = mime_guess::from_path(&file_path)
+        .first()
+        .map(|m| m.to_string());
     use uuid::Uuid;
     let att_id = Uuid::new_v4().to_string();
     let created_at = chrono::Utc::now().to_rfc3339();
@@ -640,7 +687,7 @@ async fn write_asset(
 }
 
 /// Imports an asset from an external file path into the cache directory.
-/// 
+///
 /// Files are organized in a hierarchical folder structure:
 /// - If both context_id and stash_id are provided: `cache/<context_id>/<stash_id>/<filename>`
 /// - If only context_id is provided: `cache/<context_id>/<filename>`
@@ -648,13 +695,13 @@ async fn write_asset(
 #[tauri::command]
 pub async fn save_asset_from_path(
     state: State<'_, Arc<DbState>>,
-    path: String, 
-    context_id: Option<String>, 
+    path: String,
+    context_id: Option<String>,
     stash_id: Option<String>,
-    syntax: Option<String>
+    syntax: Option<String>,
 ) -> Result<Attachment, UiError> {
     println!(
-        "Importing asset from path: {} context: {:?} stash: {:?}", 
+        "Importing asset from path: {} context: {:?} stash: {:?}",
         path, context_id, stash_id
     );
     let source_path = std::path::Path::new(&path);
@@ -728,7 +775,9 @@ pub async fn save_asset_from_path(
     };
 
     // Simple mime guess or default
-    let mime_type = mime_guess::from_path(&dest_path).first().map(|m| m.to_string());
+    let mime_type = mime_guess::from_path(&dest_path)
+        .first()
+        .map(|m| m.to_string());
     use uuid::Uuid;
     let att_id = Uuid::new_v4().to_string();
     let created_at = chrono::Utc::now().to_rfc3339();
@@ -750,9 +799,12 @@ pub async fn save_asset_from_path(
         );
 
         if let Err(e) = res {
-             println!("Failed to save attachment metadata (likely due to missing stash parent): {}", e);
-             // Suppress error so frontend receives the Attachment object.
-             // The attachment will be saved to DB when save_stash is called.
+            println!(
+                "Failed to save attachment metadata (likely due to missing stash parent): {}",
+                e
+            );
+            // Suppress error so frontend receives the Attachment object.
+            // The attachment will be saved to DB when save_stash is called.
         }
     }
 
@@ -841,8 +893,7 @@ pub async fn delete_asset(
     }
 
     if file_path.exists() {
-        fs::remove_file(file_path)
-            .map_err(|e| format!("Failed to delete file: {}", e))?;
+        fs::remove_file(file_path).map_err(|e| format!("Failed to delete file: {}", e))?;
     }
 
     println!("Successfully deleted asset: {}", path);
@@ -855,7 +906,9 @@ pub async fn delete_asset(
 /// - Text files: Returns first 10KB of content
 /// - Other: Returns unsupported type indicator
 #[tauri::command]
-pub async fn read_file_for_preview(path: String) -> Result<crate::models::FilePreviewData, UiError> {
+pub async fn read_file_for_preview(
+    path: String,
+) -> Result<crate::models::FilePreviewData, UiError> {
     // On the blocking pool, not the async worker: this canonicalizes a path, reads a
     // whole file, and base64-encodes it into a String. A large screenshot is tens of
     // megabytes of allocation and encoding, and Tokio does not move a task that blocks
@@ -868,16 +921,18 @@ pub async fn read_file_for_preview(path: String) -> Result<crate::models::FilePr
 
 fn read_file_for_preview_blocking(path: String) -> Result<crate::models::FilePreviewData, UiError> {
     let file_path = std::path::Path::new(&path);
-    
+
     // Security: validate that the path is within the cache directory
     // to prevent arbitrary file reads via IPC
     let cache_dir = get_app_dir().join("cache");
-    let canonical_path = file_path.canonicalize().map_err(|_| "File does not exist")?;
+    let canonical_path = file_path
+        .canonicalize()
+        .map_err(|_| "File does not exist")?;
     let canonical_cache = cache_dir.canonicalize().unwrap_or(cache_dir);
     if !canonical_path.starts_with(&canonical_cache) {
         return Err("Access denied: file outside cache directory".into());
     }
-    
+
     if !file_path.exists() {
         return Err("File does not exist".into());
     }
@@ -906,7 +961,7 @@ fn read_file_for_preview_blocking(path: String) -> Result<crate::models::FilePre
         "svg" => ("image", "image/svg+xml"),
         "bmp" => ("image", "image/bmp"),
         "ico" => ("image", "image/x-icon"),
-        
+
         // Video types
         "mp4" => ("video", "video/mp4"),
         "webm" => ("video", "video/webm"),
@@ -914,7 +969,7 @@ fn read_file_for_preview_blocking(path: String) -> Result<crate::models::FilePre
         "mov" => ("video", "video/quicktime"),
         "avi" => ("video", "video/x-msvideo"),
         "mkv" => ("video", "video/x-matroska"),
-        
+
         // Text and code types
         "txt" | "md" | "markdown" => ("text", "text/plain"),
         "json" => ("text", "application/json"),
@@ -942,7 +997,7 @@ fn read_file_for_preview_blocking(path: String) -> Result<crate::models::FilePre
         "sql" => ("text", "text/x-sql"),
         "svelte" => ("text", "text/x-svelte"),
         "vue" => ("text", "text/x-vue"),
-        
+
         _ => ("unsupported", "application/octet-stream"),
     };
 
@@ -951,7 +1006,7 @@ fn read_file_for_preview_blocking(path: String) -> Result<crate::models::FilePre
             // Read image and convert to base64
             match fs::read(file_path) {
                 Ok(data) => {
-                    use base64::{Engine as _, engine::general_purpose};
+                    use base64::{engine::general_purpose, Engine as _};
                     let b64 = general_purpose::STANDARD.encode(&data);
                     format!("data:{};base64,{}", mime_type, b64)
                 }
@@ -994,7 +1049,9 @@ fn read_file_for_preview_blocking(path: String) -> Result<crate::models::FilePre
 /// Sync pushes only these instead of the whole table: with a few hundred stashes a full
 /// push means a database round-trip per record on the server, on every local edit.
 #[tauri::command]
-pub async fn claim_pending_stashes(state: State<'_, Arc<DbState>>) -> Result<Vec<StashItem>, UiError> {
+pub async fn claim_pending_stashes(
+    state: State<'_, Arc<DbState>>,
+) -> Result<Vec<StashItem>, UiError> {
     Ok(state.lock_db().claim_pending_stashes().unwrap_or_default())
 }
 
@@ -1065,7 +1122,9 @@ mod reference_cleanup_tests {
     const C: &str = "cccccccc-0000-4000-8000-000000000003";
 
     fn db() -> DbManager {
-        let db = DbManager { conn: Connection::open_in_memory().unwrap() };
+        let db = DbManager {
+            conn: Connection::open_in_memory().unwrap(),
+        };
         db.init_tables().unwrap();
         db
     }
@@ -1126,11 +1185,16 @@ mod reference_cleanup_tests {
         let db = db();
         insert(&db, A, &format!("[b](stash:{B})"), false);
         insert(&db, B, "done", true);
-        db.conn.execute("UPDATE stashes SET deleted = 1 WHERE id = ?1", params![A]).unwrap();
+        db.conn
+            .execute("UPDATE stashes SET deleted = 1 WHERE id = ?1", params![A])
+            .unwrap();
         assert_eq!(clearable(&db), vec![B.to_string()]);
 
         db.conn
-            .execute("UPDATE stashes SET deleted = 0, context_id = 'other' WHERE id = ?1", params![A])
+            .execute(
+                "UPDATE stashes SET deleted = 0, context_id = 'other' WHERE id = ?1",
+                params![A],
+            )
             .unwrap();
         assert_eq!(clearable(&db), vec![B.to_string()]);
     }

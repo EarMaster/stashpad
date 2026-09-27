@@ -39,8 +39,8 @@ use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
 use crate::state::lock_or_recover;
-use crate::utils::get_app_dir;
 use crate::uierror::UiError;
+use crate::utils::get_app_dir;
 
 /// Proves a passphrase is the right one without storing anything that reveals it.
 const VERIFIER_PLAINTEXT: &[u8] = b"stashpad-device-key-v1";
@@ -124,7 +124,13 @@ pub fn is_configured() -> bool {
 }
 
 /// Stretch a passphrase into the 32-byte device-protection key.
-fn derive(passphrase: &str, salt: &[u8], m_cost: u32, t_cost: u32, p_cost: u32) -> Result<Zeroizing<[u8; 32]>, UiError> {
+fn derive(
+    passphrase: &str,
+    salt: &[u8],
+    m_cost: u32,
+    t_cost: u32,
+    p_cost: u32,
+) -> Result<Zeroizing<[u8; 32]>, UiError> {
     use argon2::{Algorithm, Argon2, Params, Version};
 
     let params = Params::new(m_cost, t_cost, p_cost, Some(32))
@@ -212,7 +218,13 @@ pub fn set_passphrase(passphrase: &str, remember: bool) -> Result<(), UiError> {
     let mut salt = [0u8; 16];
     rand::thread_rng().fill_bytes(&mut salt);
 
-    let key = derive(passphrase, &salt, DEFAULT_M_COST, DEFAULT_T_COST, DEFAULT_P_COST)?;
+    let key = derive(
+        passphrase,
+        &salt,
+        DEFAULT_M_COST,
+        DEFAULT_T_COST,
+        DEFAULT_P_COST,
+    )?;
     let verifier = seal_with(&key, VERIFIER_PLAINTEXT)?;
 
     write_key_file(&KeyFile {
@@ -293,9 +305,9 @@ pub fn forget_remembered() {
 fn load_or_create_machine_key() -> bool {
     use base64::{engine::general_purpose::STANDARD, Engine as _};
 
-    if let Some(existing) = crate::keychain::get_secret_from_keychain(
-        crate::keychain::create_local_key_entry,
-    ) {
+    if let Some(existing) =
+        crate::keychain::get_secret_from_keychain(crate::keychain::create_local_key_entry)
+    {
         if let Ok(bytes) = STANDARD.decode(existing.trim()) {
             if bytes.len() == 32 {
                 let mut key = Zeroizing::new([0u8; 32]);
@@ -308,7 +320,8 @@ fn load_or_create_machine_key() -> bool {
         // sealed with whatever the old value was, so overwriting it strands that file.
         crate::keychain::early_log(
             log::Level::Error,
-            "The local key in the credential store is not 32 bytes; refusing to replace it".to_string(),
+            "The local key in the credential store is not 32 bytes; refusing to replace it"
+                .to_string(),
         );
         return false;
     }
@@ -538,7 +551,10 @@ mod tests {
     fn a_secret_round_trips_under_a_key() {
         let k = key(7);
         let sealed = seal_with(&k, b"sk_stashpad_value").expect("seal");
-        assert_eq!(open_with(&k, &sealed).as_deref(), Some(&b"sk_stashpad_value"[..]));
+        assert_eq!(
+            open_with(&k, &sealed).as_deref(),
+            Some(&b"sk_stashpad_value"[..])
+        );
     }
 
     #[test]

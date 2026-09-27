@@ -14,44 +14,44 @@
 use std::collections::HashMap;
 use std::fs;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 use std::thread;
+use std::time::Duration;
 
 use tauri::menu::Menu;
 // Only the macOS branch builds a custom menu; importing these unconditionally warns on
 // every other platform.
+use active_win_pos_rs::get_active_window;
 #[cfg(target_os = "macos")]
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::Manager;
-use active_win_pos_rs::get_active_window;
 
-mod models;
-mod state;
-mod uierror;
-mod utils;
 mod account_export;
+mod contexts;
+pub mod db;
 mod e2ee;
 mod e2ee_enrol;
 mod e2ee_session;
 mod envelope;
 mod keychain;
 mod localkey;
+mod models;
 mod settings;
-mod contexts;
-mod sync;
 mod stashes;
+mod state;
+mod sync;
 mod transfer;
-pub mod db;
+mod uierror;
+mod utils;
 
+use db::DbManager;
 use models::{AppContext, Context};
-use state::{DbState, TrackerState, WsState, SettingsState, lock_or_recover};
-use utils::{
-    get_app_dir, ensure_storage_ready, apply_window_effects_to_window, apply_window_background,
-    get_system_prompt_path,
-};
 use settings::load_settings_from_disk;
 use stashes::perform_startup_cleanup;
-use db::DbManager;
+use state::{lock_or_recover, DbState, SettingsState, TrackerState, WsState};
+use utils::{
+    apply_window_background, apply_window_effects_to_window, ensure_storage_ready, get_app_dir,
+    get_system_prompt_path,
+};
 
 /// How often the active window is sampled for auto context detection.
 ///
@@ -182,7 +182,7 @@ pub fn run() {
     let ws_state = Arc::new(WsState {
         task_handle: Mutex::new(None),
     });
-    
+
     // Perform startup cleanup. Settings are copied out first so the two locks are never
     // held at once - the same ordering every command uses.
     {
@@ -190,12 +190,12 @@ pub fn run() {
         let mut db_lock = db_state.lock_db();
         perform_startup_cleanup(&mut db_lock, &settings_snapshot);
     }
-    
+
     let tracker_state_clone = tracker_state.clone();
     let settings_state_clone = settings_state.clone();
     // Clone db state for background thread
     let db_state_clone = db_state.clone();
-    
+
     // Start background polling.
     //
     // This thread used to hold the global DB mutex across `get_contexts()` *and* the
@@ -390,7 +390,7 @@ pub fn run() {
             thread::spawn(move || {
                 let path = get_system_prompt_path();
                 let mut last_mtime = fs::metadata(&path).and_then(|m| m.modified()).ok();
-                
+
                 loop {
                     thread::sleep(Duration::from_secs(2));
                     let current_mtime = fs::metadata(&path).and_then(|m| m.modified()).ok();
@@ -409,7 +409,6 @@ pub fn run() {
         .manage(db_state)
         .manage(settings_state)
         .manage(ws_state);
-
 
     #[cfg(debug_assertions)]
     {
@@ -444,39 +443,46 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, Some(vec![])))
-        .plugin(tauri_plugin_global_shortcut::Builder::new().with_handler(move |app, _shortcut, event| {
-             // Handle global shortcut (toggle window)
-             use tauri_plugin_global_shortcut::ShortcutState;
-             use tauri::Manager; // For get_webview_window
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec![]),
+        ))
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(move |app, _shortcut, event| {
+                    // Handle global shortcut (toggle window)
+                    use tauri::Manager;
+                    use tauri_plugin_global_shortcut::ShortcutState; // For get_webview_window
 
-             if event.state == ShortcutState::Pressed {
-                 if let Some(window) = app.get_webview_window("main") {
-                        let is_shown = window.is_visible().unwrap_or(false)
-                            && window.is_focused().unwrap_or(false)
-                            && !window.is_minimized().unwrap_or(false);
-                        if is_shown {
-                            // On macOS, minimize instead of hide to stay in Cmd+Tab and dock
-                            #[cfg(target_os = "macos")]
-                            {
-                                let _ = window.minimize();
+                    if event.state == ShortcutState::Pressed {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let is_shown = window.is_visible().unwrap_or(false)
+                                && window.is_focused().unwrap_or(false)
+                                && !window.is_minimized().unwrap_or(false);
+                            if is_shown {
+                                // On macOS, minimize instead of hide to stay in Cmd+Tab and dock
+                                #[cfg(target_os = "macos")]
+                                {
+                                    let _ = window.minimize();
+                                }
+                                #[cfg(not(target_os = "macos"))]
+                                {
+                                    let _ = window.hide();
+                                }
+                            } else {
+                                // Restore: unminimize on macOS, show on all platforms
+                                #[cfg(target_os = "macos")]
+                                {
+                                    let _ = window.unminimize();
+                                }
+                                let _ = window.show();
+                                let _ = window.set_focus();
                             }
-                            #[cfg(not(target_os = "macos"))]
-                            {
-                                let _ = window.hide();
-                            }
-                        } else {
-                            // Restore: unminimize on macOS, show on all platforms
-                            #[cfg(target_os = "macos")]
-                            {
-                                let _ = window.unminimize();
-                            }
-                            let _ = window.show();
-                            let _ = window.set_focus();
                         }
-                 }
-             }
-        }).build())
+                    }
+                })
+                .build(),
+        )
         .invoke_handler(tauri::generate_handler![
             utils::get_previous_app_info,
             utils::get_smart_transfer_target,
@@ -575,15 +581,13 @@ pub fn run() {
         // Anything that needs to happen at startup belongs in that one hook.
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|app_handle, event| {
-            match event {
-                tauri::RunEvent::Exit => {
-                    println!("App exiting, cleaning up...");
-                    cleanup_websocket_state(app_handle);
-                    cleanup_database_state(app_handle);
-                }
-                _ => {}
+        .run(|app_handle, event| match event {
+            tauri::RunEvent::Exit => {
+                println!("App exiting, cleaning up...");
+                cleanup_websocket_state(app_handle);
+                cleanup_database_state(app_handle);
             }
+            _ => {}
         });
 }
 

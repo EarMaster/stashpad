@@ -11,13 +11,13 @@
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 // See the GNU Affero General Public License for more details.
 
+use crate::models::AppContext;
+use crate::state::{lock_or_recover, TrackerState};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::sync::{Arc, Mutex};
 use tauri::State;
-use crate::models::AppContext;
-use crate::state::{TrackerState, lock_or_recover};
 
 /// Run blocking work on the blocking pool and flatten the join error away.
 ///
@@ -37,11 +37,11 @@ where
 }
 
 // Window vibrancy effects (Windows and macOS only)
+use crate::uierror::UiError;
 #[cfg(target_os = "windows")]
 use window_vibrancy::{apply_acrylic, apply_mica, clear_acrylic, clear_mica};
 #[cfg(target_os = "macos")]
 use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial};
-use crate::uierror::UiError;
 
 pub fn get_app_dir() -> PathBuf {
     dirs::home_dir()
@@ -194,7 +194,10 @@ pub fn reserve_unique_path(dir: &Path, desired_name: &str) -> std::io::Result<Pa
     // has to end with a usable path rather than an error.
     let random = truncate_chars(&uuid::Uuid::new_v4().simple().to_string(), 8);
     let path = build(&format!(" ({})", random));
-    OpenOptions::new().write(true).create_new(true).open(&path)?;
+    OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)?;
     Ok(path)
 }
 
@@ -270,20 +273,24 @@ pub fn nudge_webview_relayout(window: &tauri::WebviewWindow) {
     }
 }
 
-/// 
+///
 /// Platform support:
 /// - Windows 11: Mica effect (theme handled by OS)
 /// - Windows 10: Acrylic effect with theme-aware background color
 /// - macOS: Vibrancy with HudWindow material
 /// - Linux: No library support (compositor handles transparency)
-pub fn apply_window_effects_to_window(window: &tauri::WebviewWindow, enabled: Option<bool>, _theme: Option<&str>) {
+pub fn apply_window_effects_to_window(
+    window: &tauri::WebviewWindow,
+    enabled: Option<bool>,
+    _theme: Option<&str>,
+) {
     #[cfg(target_os = "linux")]
     {
         let _ = window;
         let _ = _theme;
     }
     let should_enable = enabled.unwrap_or(true);
-    
+
     if should_enable {
         // Apply OS-specific vibrancy effects
         #[cfg(target_os = "windows")]
@@ -291,7 +298,7 @@ pub fn apply_window_effects_to_window(window: &tauri::WebviewWindow, enabled: Op
             // "system" (and an absent setting) has to be resolved against the OS, or a
             // light desktop gets a dark native backdrop underneath a light UI.
             let is_dark = resolve_is_dark(window, _theme);
-            
+
             // Choose Acrylic background color based on theme
             // Dark: zinc-900 (18, 18, 18), Light: zinc-50 (249, 250, 251)
             let acrylic_color = if is_dark {
@@ -299,11 +306,11 @@ pub fn apply_window_effects_to_window(window: &tauri::WebviewWindow, enabled: Op
             } else {
                 (249, 250, 251, 200)
             };
-            
+
             // Clear any existing effects first to ensure color change takes effect
             let _ = clear_mica(window);
             let _ = clear_acrylic(window);
-            
+
             // Try Mica first (Windows 11) - Mica respects system theme automatically
             match apply_mica(window, Some(is_dark)) {
                 Ok(_) => {
@@ -311,7 +318,10 @@ pub fn apply_window_effects_to_window(window: &tauri::WebviewWindow, enabled: Op
                 }
                 Err(_) => {
                     // Mica not available (Windows 10 or earlier), try Acrylic
-                    println!("Mica not available, trying Acrylic (Windows 10, dark={})…", is_dark);
+                    println!(
+                        "Mica not available, trying Acrylic (Windows 10, dark={})…",
+                        is_dark
+                    );
                     match apply_acrylic(window, Some(acrylic_color)) {
                         Ok(_) => {
                             println!("Applied Acrylic effect (Windows 10, dark={})", is_dark);
@@ -324,22 +334,17 @@ pub fn apply_window_effects_to_window(window: &tauri::WebviewWindow, enabled: Op
                 }
             }
         }
-        
+
         #[cfg(target_os = "macos")]
         {
             // Apply vibrancy with a dark appearance
-            if let Err(e) = apply_vibrancy(
-                window,
-                NSVisualEffectMaterial::HudWindow,
-                None,
-                None,
-            ) {
+            if let Err(e) = apply_vibrancy(window, NSVisualEffectMaterial::HudWindow, None, None) {
                 println!("Failed to apply vibrancy effect: {:?}", e);
             } else {
                 println!("Applied vibrancy effect (macOS)");
             }
         }
-        
+
         // Linux: No window-vibrancy support, transparency handled by compositor
         #[cfg(target_os = "linux")]
         {
@@ -354,14 +359,14 @@ pub fn apply_window_effects_to_window(window: &tauri::WebviewWindow, enabled: Op
             let _ = clear_acrylic(window);
             println!("Cleared window effects (Windows)");
         }
-        
+
         #[cfg(target_os = "macos")]
         {
             // On macOS, vibrancy can't be easily cleared programmatically,
             // but the CSS will show an opaque background when effects are disabled
             println!("macOS: Visual effects disabled (CSS will handle opaque background)");
         }
-        
+
         #[cfg(target_os = "linux")]
         {
             println!("Linux: Visual effects disabled");
@@ -419,7 +424,9 @@ fn device_id_path() -> PathBuf {
 /// A device id is a UUID we wrote ourselves; anything else in the file is not one.
 fn looks_like_device_id(value: &str) -> bool {
     let value = value.trim();
-    !value.is_empty() && value.len() <= 64 && value.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+    !value.is_empty()
+        && value.len() <= 64
+        && value.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
 }
 
 /// The stable identifier the server knows this installation by.
@@ -453,8 +460,7 @@ pub async fn get_device_id(migrate_from: Option<String>) -> Result<String, UiErr
             .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|e| format!("Failed to create app dir: {}", e))?;
+            fs::create_dir_all(parent).map_err(|e| format!("Failed to create app dir: {}", e))?;
         }
         fs::write(&path, &id).map_err(|e| format!("Failed to store device id: {}", e))?;
 
@@ -496,7 +502,8 @@ pub fn classify_installation(signals: &InstallSignals) -> &'static str {
     // Microsoft Store installs live in WindowsApps *and* carry an Appx manifest. A bare
     // WindowsApps hit without one is winget's execution-alias directory, which is a
     // normal winget install and updates with a different command.
-    if path.contains("\\program files\\windowsapps\\") || path.contains("/program files/windowsapps/")
+    if path.contains("\\program files\\windowsapps\\")
+        || path.contains("/program files/windowsapps/")
     {
         if signals.appx_manifest {
             return "msstore";
@@ -560,7 +567,9 @@ fn resolve_installation_source() -> String {
 
 #[tauri::command]
 pub fn get_installation_source() -> String {
-    INSTALL_SOURCE.get_or_init(resolve_installation_source).clone()
+    INSTALL_SOURCE
+        .get_or_init(resolve_installation_source)
+        .clone()
 }
 
 /// Put text on the system clipboard.
@@ -585,7 +594,10 @@ pub async fn copy_to_clipboard(text: String) -> Result<(), UiError> {
 pub async fn read_clipboard_text() -> Result<String, UiError> {
     run_blocking(|| {
         let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
-        clipboard.get_text().map_err(|e| e.to_string()).map_err(UiError::from)
+        clipboard
+            .get_text()
+            .map_err(|e| e.to_string())
+            .map_err(UiError::from)
     })
     .await
 }
@@ -608,17 +620,25 @@ pub fn start_drag(window: tauri::Window, text: String, files: Vec<String>) -> Re
         // Create temporary text file for text-only stashes
         let cache_dir = get_app_dir().join("cache").join("drags");
         let _ = fs::create_dir_all(&cache_dir);
-        
+
         // Use a hash or sanitized content for filename
-        let safe_name = text.chars().take(20).filter(|c| c.is_alphanumeric()).collect::<String>();
-        let filename = if safe_name.is_empty() { "stash.txt".to_string() } else { format!("{}.txt", safe_name) };
+        let safe_name = text
+            .chars()
+            .take(20)
+            .filter(|c| c.is_alphanumeric())
+            .collect::<String>();
+        let filename = if safe_name.is_empty() {
+            "stash.txt".to_string()
+        } else {
+            format!("{}.txt", safe_name)
+        };
         let temp_path = cache_dir.join(filename);
-        
+
         if let Err(e) = fs::write(&temp_path, &text) {
-             println!("Failed to write temp drag file: {}", e);
-             return Err("Failed to create drag data".into());
+            println!("Failed to write temp drag file: {}", e);
+            return Err("Failed to create drag data".into());
         }
-        
+
         drag::DragItem::Files(vec![temp_path])
     };
 
@@ -688,7 +708,7 @@ fn show_in_folder_blocking(path: String) {
         Err(_) => return, // Silently fail if path doesn't exist
     };
     let safe_path = canonical.to_string_lossy();
-    
+
     #[cfg(target_os = "windows")]
     {
         let _ = std::process::Command::new("explorer")
@@ -704,9 +724,7 @@ fn show_in_folder_blocking(path: String) {
     #[cfg(target_os = "linux")]
     {
         if let Some(parent) = canonical.parent() {
-            let _ = std::process::Command::new("xdg-open")
-                .arg(parent)
-                .spawn();
+            let _ = std::process::Command::new("xdg-open").arg(parent).spawn();
         }
     }
 }
@@ -764,9 +782,9 @@ pub async fn is_windows_10() -> bool {
 fn detect_windows_10() -> bool {
     #[cfg(target_os = "windows")]
     {
-        use std::process::Command;
         use std::os::windows::process::CommandExt;
-        
+        use std::process::Command;
+
         const CREATE_NO_WINDOW: u32 = 0x08000000;
         let output = Command::new("cmd")
             .args(["/c", "ver"])
@@ -782,10 +800,13 @@ fn detect_windows_10() -> bool {
                 let rest = &s[start..];
                 // rest starts with build number, e.g. "19045.3693]"
                 // find the next dot or closing bracket
-                let end = rest.find('.').or_else(|| rest.find(']')).unwrap_or(rest.len());
+                let end = rest
+                    .find('.')
+                    .or_else(|| rest.find(']'))
+                    .unwrap_or(rest.len());
                 if let Ok(build) = rest[..end].parse::<u32>() {
-                     // Windows 11 starts at build 22000
-                     return build < 22000;
+                    // Windows 11 starts at build 22000
+                    return build < 22000;
                 }
             }
         }
@@ -833,7 +854,7 @@ pub async fn get_autostart_enabled(app: tauri::AppHandle) -> Result<bool, UiErro
             .map_err(|e| format!("Failed to check autostart status: {}", e).into())
     })
     .await
-        .map_err(UiError::from)
+    .map_err(UiError::from)
 }
 
 #[tauri::command]
@@ -854,13 +875,19 @@ pub fn check_apple_intelligence_available() -> Result<bool, UiError> {
 }
 
 #[tauri::command]
-pub async fn apple_intelligence_enhance(content: String, system_prompt: String) -> Result<String, UiError> {
+pub async fn apple_intelligence_enhance(
+    content: String,
+    system_prompt: String,
+) -> Result<String, UiError> {
     #[cfg(all(target_os = "macos", feature = "macos-apple-intelligence"))]
     {
-        use fm_rs::{SystemLanguageModel, Session, GenerationOptions};
+        use fm_rs::{GenerationOptions, Session, SystemLanguageModel};
         let model = SystemLanguageModel::new().map_err(|e| e.to_string())?;
-        let session = Session::with_instructions(&model, &system_prompt).map_err(|e| e.to_string())?;
-        let response = session.respond(&content, &GenerationOptions::default()).map_err(|e| e.to_string())?;
+        let session =
+            Session::with_instructions(&model, &system_prompt).map_err(|e| e.to_string())?;
+        let response = session
+            .respond(&content, &GenerationOptions::default())
+            .map_err(|e| e.to_string())?;
         Ok(response.content().to_string())
     }
     #[cfg(any(not(target_os = "macos"), not(feature = "macos-apple-intelligence")))]
@@ -933,7 +960,6 @@ pub fn get_previous_app_info(state: State<Arc<Mutex<TrackerState>>>) -> AppConte
     }
 }
 
-
 /// Record an error the webview could not handle itself.
 ///
 /// In a release build the webview console is discarded, so a render error that killed
@@ -965,7 +991,10 @@ mod reserve_unique_path_tests {
         let dir = tempfile::tempdir().unwrap();
         let path = reserve_unique_path(dir.path(), "image.png").unwrap();
         assert_eq!(name_of(&path), "image.png");
-        assert!(path.exists(), "the reservation is a real file, not just a name");
+        assert!(
+            path.exists(),
+            "the reservation is a real file, not just a name"
+        );
     }
 
     #[test]
@@ -1029,8 +1058,15 @@ mod reserve_unique_path_tests {
 
         let first = reserve_unique_path(dir.path(), &long).unwrap();
         let first_name = name_of(&first);
-        assert!(first_name.chars().count() <= 200, "got {} chars", first_name.chars().count());
-        assert!(first_name.ends_with(".png"), "the extension decides the mime type");
+        assert!(
+            first_name.chars().count() <= 200,
+            "got {} chars",
+            first_name.chars().count()
+        );
+        assert!(
+            first_name.ends_with(".png"),
+            "the extension decides the mime type"
+        );
 
         // The truncated name now collides with itself, which is the case that would fail
         // with a "file name too long" error rather than retrying.
@@ -1073,7 +1109,9 @@ mod tests {
     #[test]
     fn plain_install_is_standalone() {
         assert_eq!(
-            classify_installation(&signals("/applications/stashpad.app/contents/macos/stashpad")),
+            classify_installation(&signals(
+                "/applications/stashpad.app/contents/macos/stashpad"
+            )),
             "standalone"
         );
         assert_eq!(
@@ -1104,7 +1142,9 @@ mod tests {
     #[test]
     fn package_managers_are_recognised() {
         assert_eq!(
-            classify_installation(&signals(r"c:\users\nico\scoop\apps\stashpad\current\stashpad.exe")),
+            classify_installation(&signals(
+                r"c:\users\nico\scoop\apps\stashpad\current\stashpad.exe"
+            )),
             "scoop"
         );
         assert_eq!(

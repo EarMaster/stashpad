@@ -11,8 +11,8 @@
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 // See the GNU Affero General Public License for more details.
 
-use crate::models::{Context, StashItem, StashPosition, Attachment, ContextRule}; 
-use rusqlite::{params, Connection, Result, OptionalExtension};
+use crate::models::{Attachment, Context, ContextRule, StashItem, StashPosition};
+use rusqlite::{params, Connection, OptionalExtension, Result};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -86,7 +86,7 @@ pub struct DbManager {
 impl DbManager {
     pub fn new(path: &Path) -> Result<Self> {
         let conn = Connection::open(path)?;
-        
+
         // Enable WAL mode for better concurrency and performance
         conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;")?;
 
@@ -97,7 +97,8 @@ impl DbManager {
 
     pub fn prepare_shutdown(&self) -> Result<()> {
         // Checkpoint WAL and truncate to clean up -wal and -shm files
-        self.conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")?;
+        self.conn
+            .execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")?;
         Ok(())
     }
 
@@ -117,7 +118,8 @@ impl DbManager {
         )?;
 
         // Check/Migrate description column for contexts
-        let description_exists: bool = self.conn
+        let description_exists: bool = self
+            .conn
             .query_row(
                 "SELECT COUNT(*) FROM pragma_table_info('contexts') WHERE name='description'",
                 [],
@@ -126,7 +128,9 @@ impl DbManager {
             .unwrap_or(false);
 
         if !description_exists {
-            let _ = self.conn.execute("ALTER TABLE contexts ADD COLUMN description TEXT", []);
+            let _ = self
+                .conn
+                .execute("ALTER TABLE contexts ADD COLUMN description TEXT", []);
         }
 
         // Stashes table
@@ -146,8 +150,14 @@ impl DbManager {
             [],
         )?;
 
-        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_stashes_context ON stashes(context_id)", [])?;
-        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_stashes_position ON stashes(position)", [])?;
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_stashes_context ON stashes(context_id)",
+            [],
+        )?;
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_stashes_position ON stashes(position)",
+            [],
+        )?;
 
         // Attachments table
         self.conn.execute(
@@ -166,7 +176,8 @@ impl DbManager {
         )?;
 
         // Check/Migrate syntax column
-        let syntax_exists: bool = self.conn
+        let syntax_exists: bool = self
+            .conn
             .query_row(
                 "SELECT COUNT(*) FROM pragma_table_info('attachments') WHERE name='syntax'",
                 [],
@@ -175,13 +186,16 @@ impl DbManager {
             .unwrap_or(false);
 
         if !syntax_exists {
-            let _ = self.conn.execute("ALTER TABLE attachments ADD COLUMN syntax TEXT", []);
+            let _ = self
+                .conn
+                .execute("ALTER TABLE attachments ADD COLUMN syntax TEXT", []);
         }
 
         // Tracks when this attachment's bytes were successfully pushed to the cloud.
         // Without it every sync re-uploaded every file that ever existed, because the
         // upload path had no idempotency check at all.
-        let uploaded_at_exists: bool = self.conn
+        let uploaded_at_exists: bool = self
+            .conn
             .query_row(
                 "SELECT COUNT(*) FROM pragma_table_info('attachments') WHERE name='uploaded_at'",
                 [],
@@ -190,7 +204,9 @@ impl DbManager {
             .unwrap_or(false);
 
         if !uploaded_at_exists {
-            let _ = self.conn.execute("ALTER TABLE attachments ADD COLUMN uploaded_at INTEGER", []);
+            let _ = self
+                .conn
+                .execute("ALTER TABLE attachments ADD COLUMN uploaded_at INTEGER", []);
         }
 
         // Marks a record as having local changes the server has not acknowledged yet, so
@@ -246,8 +262,14 @@ impl DbManager {
         // been synced and no device's copy is authoritative, so nothing is pushed until
         // the user actually reorders something.
         for (column, ddl) in [
-            ("position_updated_at", "ALTER TABLE stashes ADD COLUMN position_updated_at INTEGER NOT NULL DEFAULT 0"),
-            ("pending_position", "ALTER TABLE stashes ADD COLUMN pending_position INTEGER NOT NULL DEFAULT 0"),
+            (
+                "position_updated_at",
+                "ALTER TABLE stashes ADD COLUMN position_updated_at INTEGER NOT NULL DEFAULT 0",
+            ),
+            (
+                "pending_position",
+                "ALTER TABLE stashes ADD COLUMN pending_position INTEGER NOT NULL DEFAULT 0",
+            ),
         ] {
             let exists: bool = self
                 .conn
@@ -271,10 +293,14 @@ impl DbManager {
             [],
         );
 
-        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_attachments_stash_id ON attachments(stash_id)", [])?;
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_attachments_stash_id ON attachments(stash_id)",
+            [],
+        )?;
 
         // Migrate enhanced_content column for AI enhancement feature
-        let enhanced_content_exists: bool = self.conn
+        let enhanced_content_exists: bool = self
+            .conn
             .query_row(
                 "SELECT COUNT(*) FROM pragma_table_info('stashes') WHERE name='enhanced_content'",
                 [],
@@ -283,7 +309,9 @@ impl DbManager {
             .unwrap_or(false);
 
         if !enhanced_content_exists {
-            let _ = self.conn.execute("ALTER TABLE stashes ADD COLUMN enhanced_content TEXT", []);
+            let _ = self
+                .conn
+                .execute("ALTER TABLE stashes ADD COLUMN enhanced_content TEXT", []);
         }
 
         // Migrate potentially existing files to attachments
@@ -425,7 +453,11 @@ impl DbManager {
                 params![path, actual],
             ) {
                 Ok(changed) => repaired += changed,
-                Err(e) => log::warn!("[Attachments] could not correct the size of {}: {}", path, e),
+                Err(e) => log::warn!(
+                    "[Attachments] could not correct the size of {}: {}",
+                    path,
+                    e
+                ),
             }
         }
 
@@ -439,7 +471,8 @@ impl DbManager {
 
     fn ensure_default_context(&self) -> Result<()> {
         // Check if default context exists
-        let exists: bool = self.conn
+        let exists: bool = self
+            .conn
             .query_row(
                 "SELECT COUNT(*) FROM contexts WHERE id = 'default' AND deleted = 0",
                 [],
@@ -449,7 +482,7 @@ impl DbManager {
 
         if !exists {
             let now = chrono::Utc::now().to_rfc3339();
-            
+
             // Create default context with empty rules
             self.conn.execute(
                 "INSERT OR REPLACE INTO contexts (id, name, rules, last_used, updated_at, deleted) VALUES ('default', 'Default', '[]', ?1, ?2, 0)",
@@ -487,13 +520,15 @@ impl DbManager {
 
     fn migrate_v1_files_to_attachments(&self) -> Result<()> {
         // Query stashes with files
-        let mut stmt = self.conn.prepare("SELECT id, files, created_at FROM stashes WHERE files != '[]' AND files != ''")?;
-        
+        let mut stmt = self.conn.prepare(
+            "SELECT id, files, created_at FROM stashes WHERE files != '[]' AND files != ''",
+        )?;
+
         let rows = stmt.query_map([], |row| {
-             let id: String = row.get(0)?;
-             let files_str: String = row.get(1)?;
-             let created_at: String = row.get(2)?;
-             Ok((id, files_str, created_at))
+            let id: String = row.get(0)?;
+            let files_str: String = row.get(1)?;
+            let created_at: String = row.get(2)?;
+            Ok((id, files_str, created_at))
         })?;
 
         let mut stashes_to_migrate = Vec::new();
@@ -507,30 +542,37 @@ impl DbManager {
             return Ok(());
         }
 
-        println!("Migrating v1 files to attachments for {} stashes...", stashes_to_migrate.len());
-        
+        println!(
+            "Migrating v1 files to attachments for {} stashes...",
+            stashes_to_migrate.len()
+        );
+
         // Transaction for migration
         for (stash_id, files_str, created_at) in stashes_to_migrate {
-             let files: Vec<String> = serde_json::from_str(&files_str).unwrap_or_default();
-             
-             for file_path in files {
-                 let path = Path::new(&file_path);
-                 if !path.exists() {
-                     continue; // Skip non-existent
-                 }
-                 
-                 let file_name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
-                 let metadata = std::fs::metadata(&path);
-                 let file_size = metadata.map(|m| m.len()).unwrap_or(0) as i64;
-                 
-                 // Generate ID (simple UUID v4 like)
-                 use uuid::Uuid;
-                 let att_id = Uuid::new_v4().to_string();
-                 
-                 // Extension mime guess
-                 let mime_type = mime_guess::from_path(&path).first().map(|m| m.to_string());
+            let files: Vec<String> = serde_json::from_str(&files_str).unwrap_or_default();
 
-                 self.conn.execute(
+            for file_path in files {
+                let path = Path::new(&file_path);
+                if !path.exists() {
+                    continue; // Skip non-existent
+                }
+
+                let file_name = path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
+                let metadata = std::fs::metadata(&path);
+                let file_size = metadata.map(|m| m.len()).unwrap_or(0) as i64;
+
+                // Generate ID (simple UUID v4 like)
+                use uuid::Uuid;
+                let att_id = Uuid::new_v4().to_string();
+
+                // Extension mime guess
+                let mime_type = mime_guess::from_path(&path).first().map(|m| m.to_string());
+
+                self.conn.execute(
                      "INSERT OR IGNORE INTO attachments (id, stash_id, file_path, file_name, file_size, mime_type, syntax, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                      params![
                          att_id,
@@ -543,16 +585,23 @@ impl DbManager {
                          created_at // Use stash creation time as fallback
                      ]
                  )?;
-             }
-             
-             // Clear files column to avoid re-migration
-             self.conn.execute("UPDATE stashes SET files = '[]' WHERE id = ?1", params![stash_id])?;
+            }
+
+            // Clear files column to avoid re-migration
+            self.conn.execute(
+                "UPDATE stashes SET files = '[]' WHERE id = ?1",
+                params![stash_id],
+            )?;
         }
 
         Ok(())
     }
 
-    pub fn migrate_from_json(&mut self, stashes: Vec<StashItem>, contexts: Vec<Context>) -> Result<()> {
+    pub fn migrate_from_json(
+        &mut self,
+        stashes: Vec<StashItem>,
+        contexts: Vec<Context>,
+    ) -> Result<()> {
         let tx = self.conn.transaction()?;
 
         // Contexts
@@ -627,7 +676,10 @@ impl DbManager {
             // Force default context to keep its name and empty rules
             ("Default".to_string(), "[]".to_string())
         } else {
-            (ctx.name.clone(), serde_json::to_string(&ctx.rules).unwrap_or_default())
+            (
+                ctx.name.clone(),
+                serde_json::to_string(&ctx.rules).unwrap_or_default(),
+            )
         };
 
         self.conn.execute(
@@ -708,12 +760,12 @@ impl DbManager {
     pub fn get_stashes(&self) -> Result<Vec<StashItem>> {
         // 1. Get all stashes
         let mut stmt = self.conn.prepare("SELECT id, context_id, content, files, created_at, completed, completed_at, position, updated_at, enhanced_content FROM stashes WHERE deleted = 0 ORDER BY position ASC, id ASC")?;
-        
+
         let stash_rows = stmt.query_map([], |row| {
             let files_str: String = row.get(3)?;
             // files_str kept for backward compat or if needed, but we now use attachments table.
             // We'll populate attachments below.
-            
+
             Ok(StashItem {
                 id: row.get(0)?,
                 context_id: row.get(1)?,
@@ -742,25 +794,29 @@ impl DbManager {
              a.syntax, a.created_at FROM attachments a \
              JOIN stashes s ON s.id = a.stash_id WHERE s.deleted = 0",
         )?;
-        
+
         let att_rows = att_stmt.query_map([], |row| {
-             Ok(Attachment {
-                 id: row.get(0)?,
-                 stash_id: row.get(1)?,
-                 file_path: row.get(2)?,
-                 file_name: row.get(3)?,
-                 file_size: row.get(4)?,
-                 mime_type: row.get(5)?,
-                 syntax: row.get(6)?,
-                 created_at: row.get(7)?,
-             })
+            Ok(Attachment {
+                id: row.get(0)?,
+                stash_id: row.get(1)?,
+                file_path: row.get(2)?,
+                file_name: row.get(3)?,
+                file_size: row.get(4)?,
+                mime_type: row.get(5)?,
+                syntax: row.get(6)?,
+                created_at: row.get(7)?,
+            })
         })?;
 
         // Group by stash_id
-        let mut attachments_map: std::collections::HashMap<String, Vec<Attachment>> = std::collections::HashMap::new();
+        let mut attachments_map: std::collections::HashMap<String, Vec<Attachment>> =
+            std::collections::HashMap::new();
         for att in att_rows {
             if let Ok(a) = att {
-                attachments_map.entry(a.stash_id.clone()).or_default().push(a);
+                attachments_map
+                    .entry(a.stash_id.clone())
+                    .or_default()
+                    .push(a);
             }
         }
 
@@ -783,11 +839,11 @@ impl DbManager {
     fn load_stashes_for_sync_where(&mut self, filter: &str) -> Result<Vec<StashItem>> {
         let sql = format!("SELECT id, context_id, content, files, created_at, completed, completed_at, position, updated_at, enhanced_content, deleted FROM stashes {}", filter);
         let mut stmt = self.conn.prepare(&sql)?;
-        
+
         let stash_rows = stmt.query_map([], |row| {
             let files_str: String = row.get(3)?;
             let deleted_int: i32 = row.get(10)?;
-            
+
             Ok(StashItem {
                 id: row.get(0)?,
                 context_id: row.get(1)?,
@@ -820,24 +876,28 @@ impl DbManager {
             filter
         );
         let mut att_stmt = self.conn.prepare(&att_sql)?;
-        
+
         let att_rows = att_stmt.query_map([], |row| {
-             Ok(Attachment {
-                 id: row.get(0)?,
-                 stash_id: row.get(1)?,
-                 file_path: row.get(2)?,
-                 file_name: row.get(3)?,
-                 file_size: row.get(4)?,
-                 mime_type: row.get(5)?,
-                 syntax: row.get(6)?,
-                 created_at: row.get(7)?,
-             })
+            Ok(Attachment {
+                id: row.get(0)?,
+                stash_id: row.get(1)?,
+                file_path: row.get(2)?,
+                file_name: row.get(3)?,
+                file_size: row.get(4)?,
+                mime_type: row.get(5)?,
+                syntax: row.get(6)?,
+                created_at: row.get(7)?,
+            })
         })?;
 
-        let mut attachments_map: std::collections::HashMap<String, Vec<Attachment>> = std::collections::HashMap::new();
+        let mut attachments_map: std::collections::HashMap<String, Vec<Attachment>> =
+            std::collections::HashMap::new();
         for att in att_rows {
             if let Ok(a) = att {
-                attachments_map.entry(a.stash_id.clone()).or_default().push(a);
+                attachments_map
+                    .entry(a.stash_id.clone())
+                    .or_default()
+                    .push(a);
             }
         }
 
@@ -1062,7 +1122,10 @@ impl DbManager {
     /// Shared loader for the context sync payload. `filter` is a trusted, hard-coded SQL
     /// fragment - never caller input.
     fn load_contexts_for_sync_where(&mut self, filter: &str) -> Result<Vec<Context>> {
-        let sql = format!("SELECT id, name, rules, last_used, updated_at, deleted, description FROM contexts {}", filter);
+        let sql = format!(
+            "SELECT id, name, rules, last_used, updated_at, deleted, description FROM contexts {}",
+            filter
+        );
         let mut stmt = self.conn.prepare(&sql)?;
         let rows = stmt.query_map([], |row| {
             let rules_json: String = row.get(2)?;
@@ -1108,9 +1171,9 @@ impl DbManager {
         let tx = self.conn.transaction()?;
         for stash in stashes {
             let files_json = serde_json::to_string(&stash.files).unwrap_or_default();
-            
+
             let existing_pos = read_position(&tx, &stash.id)?;
-            
+
             let final_pos = match existing_pos {
                 Some(p) => p,
                 None => next_position_at_end(&tx)?,
@@ -1176,7 +1239,7 @@ impl DbManager {
         origin: WriteOrigin,
     ) -> Result<()> {
         let files_json = serde_json::to_string(&stash.files).unwrap_or_default();
-        
+
         // An explicit `position` is a deliberate placement - a new stash going to the top
         // or the bottom, or a completed one moving there. Without one the row keeps the
         // ordering it already has, and a brand new row lands at the end.
@@ -1208,7 +1271,11 @@ impl DbManager {
                 if stash.deleted { 1 } else { 0 },
                 // A local edit still needs pushing; data that just came from the server
                 // is already in sync by definition.
-                if origin == WriteOrigin::LocalEdit { 1 } else { 0 },
+                if origin == WriteOrigin::LocalEdit {
+                    1
+                } else {
+                    0
+                },
                 position_stamp,
                 if position_stamp > 0 { 1 } else { 0 }
             ],
@@ -1245,7 +1312,7 @@ impl DbManager {
         Ok(())
     }
 
-    /// Update positions for a list of stashes. 
+    /// Update positions for a list of stashes.
     /// Assuming the input list represents the new order.
     /// Persist a new ordering.
     ///
@@ -1258,28 +1325,28 @@ impl DbManager {
     /// Only rows whose position actually changes are stamped, so re-persisting an
     /// unchanged list is free and does not queue a pointless push.
     pub fn update_stash_positions(&mut self, stashes: &Vec<StashItem>) -> Result<()> {
-         let tx = self.conn.transaction()?;
-         let now = now_ts();
-         for (i, stash) in stashes.iter().enumerate() {
-             let pos = i as f64;
-             tx.execute(
-                 "UPDATE stashes SET position = ?2, position_updated_at = ?3, pending_position = 1 \
+        let tx = self.conn.transaction()?;
+        let now = now_ts();
+        for (i, stash) in stashes.iter().enumerate() {
+            let pos = i as f64;
+            tx.execute(
+                "UPDATE stashes SET position = ?2, position_updated_at = ?3, pending_position = 1 \
                   WHERE id = ?1 AND position IS NOT ?2",
-                 params![stash.id, pos, now]
-             )?;
-         }
-         tx.commit()?;
-         Ok(())
+                params![stash.id, pos, now],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
     }
-    
+
     pub fn delete_completed_stashes(&mut self, context_id: Option<String>) -> Result<()> {
         if let Some(ctx_id) = context_id {
-             self.conn.execute(
+            self.conn.execute(
                 "UPDATE stashes SET deleted = 1, updated_at = ?2, pending_sync = 1 WHERE completed = 1 AND context_id = ?1",
                 params![ctx_id, now_ts()],
             )?;
         } else {
-             self.conn.execute(
+            self.conn.execute(
                 "UPDATE stashes SET deleted = 1, updated_at = ?1, pending_sync = 1 WHERE completed = 1",
                 params![now_ts()],
             )?;
@@ -1341,7 +1408,7 @@ pub fn now_ts() -> u64 {
 mod tests {
     use super::*;
     use rusqlite::Connection;
-    
+
     /// Helper to create an in-memory test database
     fn create_test_db() -> DbManager {
         let conn = Connection::open_in_memory().expect("Failed to create in-memory database");
@@ -1349,7 +1416,7 @@ mod tests {
         manager.init_tables().expect("Failed to initialize tables");
         manager
     }
-    
+
     /// Two attachments sharing one file, as the name-collision bug left them: one
     /// uploaded row whose size matches the surviving file, and one that does not.
     fn seed_shared_path(db: &DbManager, path: &str, sizes: &[(&str, i64, Option<i64>)]) {
@@ -1466,11 +1533,11 @@ mod tests {
     #[test]
     fn test_default_context_creation() {
         let db = create_test_db();
-        
+
         // Default context should be created automatically
         let contexts = db.get_contexts().expect("Failed to get contexts");
         assert!(contexts.len() >= 1, "Should have at least default context");
-        
+
         let default_ctx = contexts.iter().find(|c| c.id == "default");
         assert!(default_ctx.is_some(), "Default context should exist");
         assert_eq!(default_ctx.unwrap().name, "Default");
@@ -1534,7 +1601,8 @@ mod tests {
     #[test]
     fn deleting_a_context_deletes_its_stashes() {
         let mut db = create_test_db();
-        db.save_context(&plain_context("work", false), WriteOrigin::LocalEdit).unwrap();
+        db.save_context(&plain_context("work", false), WriteOrigin::LocalEdit)
+            .unwrap();
         insert_raw_stash(&db, "s-work", Some("work"));
         insert_raw_stash(&db, "s-default", Some("default"));
 
@@ -1545,7 +1613,11 @@ mod tests {
         assert_eq!(stored(&db, "s-default"), ("default".to_string(), false));
         let pending: i32 = db
             .conn
-            .query_row("SELECT pending_sync FROM stashes WHERE id = 's-work'", [], |row| row.get(0))
+            .query_row(
+                "SELECT pending_sync FROM stashes WHERE id = 's-work'",
+                [],
+                |row| row.get(0),
+            )
             .unwrap();
         assert_eq!(pending, 1, "the deletion has to reach the cloud");
     }
@@ -1559,7 +1631,10 @@ mod tests {
         let deleted = db.import_contexts(&[plain_context("work", true)]).unwrap();
 
         assert_eq!(deleted.len(), 1);
-        assert!(stored(&db, "s-work").1, "a stash in a deleted context is deleted");
+        assert!(
+            stored(&db, "s-work").1,
+            "a stash in a deleted context is deleted"
+        );
     }
 
     #[test]
@@ -1567,9 +1642,14 @@ mod tests {
         let mut db = create_test_db();
         insert_raw_stash(&db, "s-default", Some("default"));
 
-        db.import_contexts(&[plain_context("default", true)]).unwrap();
+        db.import_contexts(&[plain_context("default", true)])
+            .unwrap();
 
-        assert!(db.get_contexts().unwrap().iter().any(|c| c.id == "default" && !c.deleted));
+        assert!(db
+            .get_contexts()
+            .unwrap()
+            .iter()
+            .any(|c| c.id == "default" && !c.deleted));
         assert!(!stored(&db, "s-default").1);
     }
 
@@ -1584,9 +1664,10 @@ mod tests {
         assert!(insert.is_err());
 
         insert_raw_stash(&db, "s-raw", Some("default"));
-        let update = db
-            .conn
-            .execute("UPDATE stashes SET context_id = NULL WHERE id = 's-raw'", []);
+        let update = db.conn.execute(
+            "UPDATE stashes SET context_id = NULL WHERE id = 's-raw'",
+            [],
+        );
         assert!(update.is_err());
     }
 
@@ -1601,63 +1682,68 @@ mod tests {
             assert_eq!(stash.context_id, "default", "{}", payload);
         }
     }
-    
+
     #[test]
     fn test_save_and_get_context() {
         let mut db = create_test_db();
-        
+
         let test_context = Context {
             id: "test-project".to_string(),
             name: "Test Project".to_string(),
-            rules: vec![
-                ContextRule {
-                    rule_type: "process".to_string(),
-                    value: "code".to_string(),
-                    match_type: "exact".to_string(),
-                    match_case: false,
-                    use_regex: false,
-                }
-            ],
+            rules: vec![ContextRule {
+                rule_type: "process".to_string(),
+                value: "code".to_string(),
+                match_type: "exact".to_string(),
+                match_case: false,
+                use_regex: false,
+            }],
             last_used: Some(chrono::Utc::now().to_rfc3339()),
             description: Some("Test description".to_string()),
             updated_at: None,
             deleted: false,
         };
-        
-        db.save_context(&test_context, WriteOrigin::LocalEdit).expect("Failed to save context");
-        
+
+        db.save_context(&test_context, WriteOrigin::LocalEdit)
+            .expect("Failed to save context");
+
         let contexts = db.get_contexts().expect("Failed to get contexts");
         let saved = contexts.iter().find(|c| c.id == "test-project");
-        
+
         assert!(saved.is_some(), "Context should be saved");
         assert_eq!(saved.unwrap().name, "Test Project");
-        assert_eq!(saved.unwrap().description, Some("Test description".to_string()));
+        assert_eq!(
+            saved.unwrap().description,
+            Some("Test description".to_string())
+        );
     }
-    
+
     #[test]
     fn test_default_context_protection() {
         let mut db = create_test_db();
-        
+
         // Try to rename default context
         let modified_default = Context {
             id: "default".to_string(),
-            name: "Modified Name".to_string(),  // Should be ignored
+            name: "Modified Name".to_string(), // Should be ignored
             rules: vec![],
             last_used: None,
             description: None,
             updated_at: None,
             deleted: false,
         };
-        
-        db.save_context(&modified_default, WriteOrigin::LocalEdit).expect("Save should succeed");
-        
+
+        db.save_context(&modified_default, WriteOrigin::LocalEdit)
+            .expect("Save should succeed");
+
         let contexts = db.get_contexts().expect("Failed to get contexts");
         let default = contexts.iter().find(|c| c.id == "default").unwrap();
-        
+
         // Name should still be "Default", protected from modification
-        assert_eq!(default.name, "Default", "Default context name should be protected");
+        assert_eq!(
+            default.name, "Default",
+            "Default context name should be protected"
+        );
     }
-    
 
     /// The attachment queries are joined against the stash set now, rather than reading
     /// the whole table. `claim_pending_stashes` reuses that join with a
@@ -1704,7 +1790,10 @@ mod tests {
 
         // The queue view assigns the attachment to its own stash and nobody else's.
         let stashes = db.get_stashes().expect("Failed to get stashes");
-        let with = stashes.iter().find(|s| s.id == "s-with").expect("missing s-with");
+        let with = stashes
+            .iter()
+            .find(|s| s.id == "s-with")
+            .expect("missing s-with");
         let without = stashes
             .iter()
             .find(|s| s.id == "s-without")
@@ -1725,15 +1814,20 @@ mod tests {
         assert_eq!(claimed.attachments.len(), 1);
 
         // And the full sync payload agrees.
-        let all = db.get_stashes_for_sync().expect("get_stashes_for_sync failed");
-        let synced = all.iter().find(|s| s.id == "s-with").expect("missing s-with");
+        let all = db
+            .get_stashes_for_sync()
+            .expect("get_stashes_for_sync failed");
+        let synced = all
+            .iter()
+            .find(|s| s.id == "s-with")
+            .expect("missing s-with");
         assert_eq!(synced.attachments.len(), 1);
     }
 
     #[test]
     fn test_save_and_get_stash() {
         let mut db = create_test_db();
-        
+
         let stash = StashItem {
             id: "test-stash-1".to_string(),
             context_id: "default".to_string(),
@@ -1747,21 +1841,22 @@ mod tests {
             updated_at: None,
             deleted: false,
         };
-        
-        db.save_stash(&stash, None, WriteOrigin::LocalEdit).expect("Failed to save stash");
-        
+
+        db.save_stash(&stash, None, WriteOrigin::LocalEdit)
+            .expect("Failed to save stash");
+
         let stashes = db.get_stashes().expect("Failed to get stashes");
         let saved = stashes.iter().find(|s| s.id == "test-stash-1");
-        
+
         assert!(saved.is_some(), "Stash should be saved");
         assert_eq!(saved.unwrap().content, "Test stash content");
         assert_eq!(saved.unwrap().completed, false);
     }
-    
+
     #[test]
     fn test_delete_stash() {
         let mut db = create_test_db();
-        
+
         let stash = StashItem {
             id: "stash-to-delete".to_string(),
             context_id: "default".to_string(),
@@ -1775,20 +1870,22 @@ mod tests {
             updated_at: None,
             deleted: false,
         };
-        
-        db.save_stash(&stash, None, WriteOrigin::LocalEdit).expect("Failed to save stash");
-        db.delete_stash("stash-to-delete").expect("Failed to delete stash");
-        
+
+        db.save_stash(&stash, None, WriteOrigin::LocalEdit)
+            .expect("Failed to save stash");
+        db.delete_stash("stash-to-delete")
+            .expect("Failed to delete stash");
+
         let stashes = db.get_stashes().expect("Failed to get stashes");
         let deleted = stashes.iter().find(|s| s.id == "stash-to-delete");
-        
+
         assert!(deleted.is_none(), "Stash should be soft-deleted");
     }
-    
+
     #[test]
     fn test_delete_completed_stashes() {
         let mut db = create_test_db();
-        
+
         // Create completed and active stashes
         let completed = StashItem {
             id: "completed-1".to_string(),
@@ -1803,7 +1900,7 @@ mod tests {
             updated_at: None,
             deleted: false,
         };
-        
+
         let active = StashItem {
             id: "active-1".to_string(),
             context_id: "default".to_string(),
@@ -1817,22 +1914,31 @@ mod tests {
             updated_at: None,
             deleted: false,
         };
-        
-        db.save_stash(&completed, None, WriteOrigin::LocalEdit).expect("Failed to save completed stash");
-        db.save_stash(&active, None, WriteOrigin::LocalEdit).expect("Failed to save active stash");
-        
-        db.delete_completed_stashes(None).expect("Failed to delete completed stashes");
-        
+
+        db.save_stash(&completed, None, WriteOrigin::LocalEdit)
+            .expect("Failed to save completed stash");
+        db.save_stash(&active, None, WriteOrigin::LocalEdit)
+            .expect("Failed to save active stash");
+
+        db.delete_completed_stashes(None)
+            .expect("Failed to delete completed stashes");
+
         let stashes = db.get_stashes().expect("Failed to get stashes");
-        
-        assert!(stashes.iter().find(|s| s.id == "completed-1").is_none(), "Completed stash should be deleted");
-        assert!(stashes.iter().find(|s| s.id == "active-1").is_some(), "Active stash should remain");
+
+        assert!(
+            stashes.iter().find(|s| s.id == "completed-1").is_none(),
+            "Completed stash should be deleted"
+        );
+        assert!(
+            stashes.iter().find(|s| s.id == "active-1").is_some(),
+            "Active stash should remain"
+        );
     }
-    
+
     #[test]
     fn test_stash_positioning() {
         let mut db = create_test_db();
-        
+
         let stash1 = StashItem {
             id: "pos-1".to_string(),
             context_id: "default".to_string(),
@@ -1846,7 +1952,7 @@ mod tests {
             updated_at: None,
             deleted: false,
         };
-        
+
         let stash2 = StashItem {
             id: "pos-2".to_string(),
             context_id: "default".to_string(),
@@ -1860,53 +1966,86 @@ mod tests {
             updated_at: None,
             deleted: false,
         };
-        
+
         // Save without explicit position (should append)
-        db.save_stash(&stash1, None, WriteOrigin::LocalEdit).expect("Failed to save stash1");
-        db.save_stash(&stash2, None, WriteOrigin::LocalEdit).expect("Failed to save stash2");
-        
+        db.save_stash(&stash1, None, WriteOrigin::LocalEdit)
+            .expect("Failed to save stash1");
+        db.save_stash(&stash2, None, WriteOrigin::LocalEdit)
+            .expect("Failed to save stash2");
+
         let stashes = db.get_stashes().expect("Failed to get stashes");
-        
+
         // Should be ordered by position
         let pos1_idx = stashes.iter().position(|s| s.id == "pos-1");
         let pos2_idx = stashes.iter().position(|s| s.id == "pos-2");
-        
-        assert!(pos1_idx.is_some() && pos2_idx.is_some(), "Both stashes should exist");
-        assert!(pos1_idx.unwrap() < pos2_idx.unwrap(), "Stashes should be in insertion order");
+
+        assert!(
+            pos1_idx.is_some() && pos2_idx.is_some(),
+            "Both stashes should exist"
+        );
+        assert!(
+            pos1_idx.unwrap() < pos2_idx.unwrap(),
+            "Stashes should be in insertion order"
+        );
     }
 
     #[test]
     fn test_migrate_v1_files_to_attachments() {
         let db = create_test_db();
-        
+
         // Create a temporary file to test migration
         let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
         let file_path = temp_dir.path().join("test_file.txt");
         std::fs::write(&file_path, "test file content").expect("Failed to write test file");
-        
+
         // Manually insert a stash with "v1" style files
         let stash_id = "v1-stash".to_string();
-        let files_json = format!("[\"{}\"]", file_path.to_string_lossy().replace("\\", "\\\\"));
+        let files_json = format!(
+            "[\"{}\"]",
+            file_path.to_string_lossy().replace("\\", "\\\\")
+        );
         let now = chrono::Utc::now().to_rfc3339();
-        
+
         db.conn.execute(
             "INSERT INTO stashes (id, context_id, content, files, created_at, completed, position, updated_at) VALUES (?1, 'default', 'v1 content', ?2, ?3, 0, 1.0, ?4)",
             params![stash_id, files_json, now, now_ts()],
         ).expect("Failed to insert v1 stash");
-        
+
         // Verify it was inserted
-        let files_check: String = db.conn.query_row("SELECT files FROM stashes WHERE id = 'v1-stash'", [], |row| row.get(0)).unwrap();
+        let files_check: String = db
+            .conn
+            .query_row(
+                "SELECT files FROM stashes WHERE id = 'v1-stash'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
         assert_eq!(files_check, files_json);
-        
+
         // Run migration
-        db.migrate_v1_files_to_attachments().expect("Migration failed");
-        
+        db.migrate_v1_files_to_attachments()
+            .expect("Migration failed");
+
         // Check if files column is cleared
-        let files_after: String = db.conn.query_row("SELECT files FROM stashes WHERE id = 'v1-stash'", [], |row| row.get(0)).unwrap();
+        let files_after: String = db
+            .conn
+            .query_row(
+                "SELECT files FROM stashes WHERE id = 'v1-stash'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
         assert_eq!(files_after, "[]");
-        
+
         // Check if attachments were created
-        let count: i32 = db.conn.query_row("SELECT COUNT(*) FROM attachments WHERE stash_id = 'v1-stash'", [], |row| row.get(0)).unwrap();
+        let count: i32 = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM attachments WHERE stash_id = 'v1-stash'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
         assert_eq!(count, 1, "Should have 1 attachment after migration");
     }
 
@@ -1992,7 +2131,10 @@ mod tests {
             "only the stash this device placed should be queued"
         );
         assert_eq!(claimed[0].id, "s-top");
-        assert_eq!(claimed[0].position, -1.0, "the top placement must be the one pushed");
+        assert_eq!(
+            claimed[0].position, -1.0,
+            "the top placement must be the one pushed"
+        );
         assert!(
             claimed[0].position_updated_at > 0,
             "the placement needs a clock or the server's last-write-wins check drops it"
@@ -2054,11 +2196,18 @@ mod tests {
         // overwrite the arrangement the sender actually made.
         let mut db = create_test_db();
 
-        db.import_stashes(&vec![stash_with_updated_at("s-remote", "from elsewhere", Some(1_000))])
-            .expect("import should succeed");
+        db.import_stashes(&vec![stash_with_updated_at(
+            "s-remote",
+            "from elsewhere",
+            Some(1_000),
+        )])
+        .expect("import should succeed");
 
         let claimed = db.claim_pending_positions().expect("claim should succeed");
-        assert!(claimed.is_empty(), "an imported stash must not push an ordering");
+        assert!(
+            claimed.is_empty(),
+            "an imported stash must not push an ordering"
+        );
 
         // And the placeholder ordering must not block the real one from being applied.
         let applied = db
@@ -2078,7 +2227,10 @@ mod tests {
                 |r| r.get(0),
             )
             .expect("row should exist");
-        assert_eq!(position, -5.0, "the sender's placement must win over the local append");
+        assert_eq!(
+            position, -5.0,
+            "the sender's placement must win over the local append"
+        );
     }
 
     #[test]
@@ -2100,9 +2252,11 @@ mod tests {
 
         let position: f64 = db
             .conn
-            .query_row("SELECT position FROM stashes WHERE id = 's-first'", [], |r| {
-                r.get(0)
-            })
+            .query_row(
+                "SELECT position FROM stashes WHERE id = 's-first'",
+                [],
+                |r| r.get(0),
+            )
             .expect("row should exist");
         assert_eq!(position, 1.0);
     }
@@ -2114,8 +2268,12 @@ mod tests {
         db.save_stash(&stash, Some(0.0), WriteOrigin::SyncImport)
             .expect("save should succeed");
 
-        db.update_stash_positions(&vec![stash_with_updated_at("s-still", "content", Some(1_000))])
-            .expect("reorder should succeed");
+        db.update_stash_positions(&vec![stash_with_updated_at(
+            "s-still",
+            "content",
+            Some(1_000),
+        )])
+        .expect("reorder should succeed");
 
         let pending: i64 = db
             .conn
@@ -2154,8 +2312,12 @@ mod tests {
         assert_eq!(claimed.len(), 1);
 
         // The user moves it again while the push is in flight.
-        db.update_stash_positions(&vec![stash_with_updated_at("s-race", "content", Some(1_000))])
-            .expect("second reorder should succeed");
+        db.update_stash_positions(&vec![stash_with_updated_at(
+            "s-race",
+            "content",
+            Some(1_000),
+        )])
+        .expect("second reorder should succeed");
 
         db.mark_positions_synced(&["s-race".to_string()])
             .expect("ack should succeed");
@@ -2251,7 +2413,6 @@ mod tests {
         assert_eq!(row.3, 0, "and must not queue the record for a push");
     }
 
-
     fn stash_with_updated_at(id: &str, content: &str, updated_at: Option<u64>) -> StashItem {
         StashItem {
             id: id.to_string(),
@@ -2325,7 +2486,8 @@ mod tests {
 
         let server_ts = 1_700_000_000_u64;
         let stash = stash_with_updated_at("from-server", "remote content", Some(server_ts));
-        db.import_stashes(&vec![stash]).expect("import should succeed");
+        db.import_stashes(&vec![stash])
+            .expect("import should succeed");
 
         assert_eq!(
             stored_updated_at(&db, "from-server"),
@@ -2546,7 +2708,10 @@ mod tests {
             before, after,
             "claiming moves a record to in flight, which is not the same as converted"
         );
-        assert_eq!(total, total_after, "claiming does not change the corpus size");
+        assert_eq!(
+            total, total_after,
+            "claiming does not change the corpus size"
+        );
     }
 
     #[test]
@@ -2576,7 +2741,8 @@ mod tests {
         let mut db = create_test_db();
         let stash = stash_with_updated_at("s-remote", "from another device", Some(1_700_000_000));
 
-        db.import_stashes(&vec![stash]).expect("import should succeed");
+        db.import_stashes(&vec![stash])
+            .expect("import should succeed");
 
         assert_eq!(pending_flag(&db, "stashes", "s-remote"), 0);
         // Scoped to this record: a fresh database also seeds starter stashes, which are

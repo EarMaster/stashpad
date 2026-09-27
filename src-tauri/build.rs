@@ -28,10 +28,7 @@ fn main() {
             {
                 let lib_path = toolchain.join("lib/swift/macosx");
                 if lib_path.exists() {
-                    println!(
-                        "cargo:rustc-link-arg=-Wl,-rpath,{}",
-                        lib_path.display()
-                    );
+                    println!("cargo:rustc-link-arg=-Wl,-rpath,{}", lib_path.display());
                 }
             }
         }

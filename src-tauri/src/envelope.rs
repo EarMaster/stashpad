@@ -188,7 +188,9 @@ pub fn parse(value: &str) -> Result<Envelope, EnvelopeError> {
         .parse::<u32>()
         .map_err(|_| EnvelopeError::Malformed("epoch is not a number"))?;
 
-    let nonce_b64 = parts.next().ok_or(EnvelopeError::Malformed("missing nonce"))?;
+    let nonce_b64 = parts
+        .next()
+        .ok_or(EnvelopeError::Malformed("missing nonce"))?;
     let ct_b64 = parts
         .next()
         .ok_or(EnvelopeError::Malformed("missing ciphertext"))?;
@@ -210,7 +212,9 @@ pub fn parse(value: &str) -> Result<Envelope, EnvelopeError> {
         .decode(ct_b64)
         .map_err(|_| EnvelopeError::Malformed("ciphertext is not base64url"))?;
     if ciphertext.len() < TAG_LEN {
-        return Err(EnvelopeError::Malformed("ciphertext is too short to carry a tag"));
+        return Err(EnvelopeError::Malformed(
+            "ciphertext is too short to carry a tag",
+        ));
     }
 
     Ok(Envelope {
@@ -384,7 +388,10 @@ mod tests {
             user_id: "99999999-9999-4999-8999-999999999999",
             ..binding()
         };
-        assert_eq!(open(&KEY, 1, &sealed, &other), Err(EnvelopeError::NotAuthentic));
+        assert_eq!(
+            open(&KEY, 1, &sealed, &other),
+            Err(EnvelopeError::NotAuthentic)
+        );
     }
 
     #[test]
@@ -394,7 +401,10 @@ mod tests {
             record_id: "33333333-3333-4333-8333-333333333333",
             ..binding()
         };
-        assert_eq!(open(&KEY, 1, &sealed, &other), Err(EnvelopeError::NotAuthentic));
+        assert_eq!(
+            open(&KEY, 1, &sealed, &other),
+            Err(EnvelopeError::NotAuthentic)
+        );
     }
 
     /// Both are sealed strings on the same row under the same content key, so only the
@@ -406,7 +416,10 @@ mod tests {
             ..binding()
         };
         let sealed = seal(&KEY, "the rewritten copy", &enhanced).expect("seal");
-        assert_eq!(open(&KEY, 1, &sealed, &binding()), Err(EnvelopeError::NotAuthentic));
+        assert_eq!(
+            open(&KEY, 1, &sealed, &binding()),
+            Err(EnvelopeError::NotAuthentic)
+        );
     }
 
     #[test]
@@ -441,7 +454,10 @@ mod tests {
 
     #[test]
     fn an_epoch_this_client_has_no_key_for_is_reported_as_such() {
-        let future = Binding { epoch: 9, ..binding() };
+        let future = Binding {
+            epoch: 9,
+            ..binding()
+        };
         let sealed = seal(&KEY, "secret", &future).expect("seal");
         assert_eq!(
             open(&KEY, 1, &sealed, &binding()),
@@ -457,7 +473,10 @@ mod tests {
         let last = raw.len() - 1;
         raw[last] ^= 0xff;
         let tampered = format!("{}.{}", head, URL_SAFE_NO_PAD.encode(&raw));
-        assert_eq!(open(&KEY, 1, &tampered, &binding()), Err(EnvelopeError::NotAuthentic));
+        assert_eq!(
+            open(&KEY, 1, &tampered, &binding()),
+            Err(EnvelopeError::NotAuthentic)
+        );
     }
 
     #[test]
@@ -473,7 +492,10 @@ mod tests {
     #[test]
     fn plaintext_is_not_mistaken_for_an_envelope() {
         assert!(!is_envelope("just a normal stash"));
-        assert_eq!(parse("just a normal stash"), Err(EnvelopeError::NotAnEnvelope));
+        assert_eq!(
+            parse("just a normal stash"),
+            Err(EnvelopeError::NotAnEnvelope)
+        );
     }
 
     /// A stash whose text genuinely starts with the marker looks like an envelope to the
@@ -488,7 +510,10 @@ mod tests {
 
     #[test]
     fn malformed_shapes_are_refused() {
-        assert!(matches!(parse("SPE1.1.onlythree"), Err(EnvelopeError::Malformed(_))));
+        assert!(matches!(
+            parse("SPE1.1.onlythree"),
+            Err(EnvelopeError::Malformed(_))
+        ));
         assert!(matches!(
             parse("SPE1.notanumber.AAAA.AAAA"),
             Err(EnvelopeError::Malformed(_))
@@ -516,7 +541,10 @@ mod tests {
         let a = seal(&KEY, "same", &binding()).expect("seal");
         let b = seal(&KEY, "same", &binding()).expect("seal");
         assert_ne!(a, b);
-        assert_eq!(open(&KEY, 1, &a, &binding()).unwrap(), open(&KEY, 1, &b, &binding()).unwrap());
+        assert_eq!(
+            open(&KEY, 1, &a, &binding()).unwrap(),
+            open(&KEY, 1, &b, &binding()).unwrap()
+        );
     }
 
     #[test]

@@ -11,14 +11,14 @@
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 // See the GNU Affero General Public License for more details.
 
-use std::sync::Arc;
-use tauri::State;
-use std::time::{SystemTime, UNIX_EPOCH};
-use rusqlite::params;
+use crate::db::WriteOrigin;
 use crate::models::Context;
 use crate::state::DbState;
-use crate::db::WriteOrigin;
 use crate::uierror::UiError;
+use rusqlite::params;
+use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
+use tauri::State;
 
 #[tauri::command]
 pub async fn get_contexts(state: State<'_, Arc<DbState>>) -> Result<Vec<Context>, UiError> {
@@ -36,7 +36,10 @@ pub async fn get_contexts(state: State<'_, Arc<DbState>>) -> Result<Vec<Context>
 }
 
 #[tauri::command]
-pub async fn save_contexts(state: State<'_, Arc<DbState>>, contexts: Vec<Context>) -> Result<(), UiError> {
+pub async fn save_contexts(
+    state: State<'_, Arc<DbState>>,
+    contexts: Vec<Context>,
+) -> Result<(), UiError> {
     println!("Saving {} contexts", contexts.len());
     let mut db = state.lock_db();
     let tx_result = db.conn.transaction().and_then(|tx| {
@@ -85,7 +88,10 @@ pub async fn save_context(state: State<'_, Arc<DbState>>, context: Context) -> R
 /// stamping it with the local clock here would make every pulled record look locally
 /// edited and push it straight back on the next sync.
 #[tauri::command]
-pub async fn import_contexts(state: State<'_, Arc<DbState>>, contexts: Vec<Context>) -> Result<(), UiError> {
+pub async fn import_contexts(
+    state: State<'_, Arc<DbState>>,
+    contexts: Vec<Context>,
+) -> Result<(), UiError> {
     let mut db = state.lock_db();
     // A context deleted on another device takes its stashes with it here too.
     let deleted = db.import_contexts(&contexts).map_err(|e| e.to_string())?;
@@ -108,7 +114,9 @@ pub async fn delete_context(state: State<'_, Arc<DbState>>, id: String) -> Resul
 
 /// Contexts with local changes the server has not acknowledged yet.
 #[tauri::command]
-pub async fn claim_pending_contexts(state: State<'_, Arc<DbState>>) -> Result<Vec<Context>, UiError> {
+pub async fn claim_pending_contexts(
+    state: State<'_, Arc<DbState>>,
+) -> Result<Vec<Context>, UiError> {
     Ok(state.lock_db().claim_pending_contexts().unwrap_or_default())
 }
 

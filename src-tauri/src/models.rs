@@ -73,7 +73,10 @@ pub struct StashItem {
     /// it goes when there is no other. A missing, `null` or empty value - from an older
     /// build, an older export, or a server that still stored NULL - reads as that one,
     /// which is also where the queue always showed such a stash.
-    #[serde(default = "default_context_id", deserialize_with = "context_or_default")]
+    #[serde(
+        default = "default_context_id",
+        deserialize_with = "context_or_default"
+    )]
     pub context_id: String,
     #[serde(default)]
     pub completed: bool,
