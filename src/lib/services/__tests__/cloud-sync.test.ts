@@ -202,6 +202,34 @@ describe('CloudSyncService', () => {
 
             expect(adapter.syncStashesApi).not.toHaveBeenCalled();
         });
+
+        it('does not sync for enterprise tier alone - that only names who is billed, not who has a seat', async () => {
+            const adapter = createAdapter({
+                fetchCloudAccount: vi.fn().mockResolvedValue(cloudConfig({ subscriptionTier: 'enterprise' })),
+            });
+            const service = new CloudSyncService(adapter);
+
+            await service.initialize(settingsWith(cloudConfig({ subscriptionTier: 'enterprise' })));
+            await flushPromises();
+
+            expect(adapter.syncStashesApi).not.toHaveBeenCalled();
+        });
+
+        it('syncs once a seat is consumed, even for the owner pointed at their own id', async () => {
+            const adapter = createAdapter({
+                fetchCloudAccount: vi.fn().mockResolvedValue(
+                    cloudConfig({ subscriptionTier: 'enterprise', enterpriseOwnerId: 'user-1' }),
+                ),
+            });
+            const service = new CloudSyncService(adapter);
+
+            await service.initialize(
+                settingsWith(cloudConfig({ subscriptionTier: 'enterprise', enterpriseOwnerId: 'user-1' })),
+            );
+            await flushPromises();
+
+            expect(adapter.syncStashesApi).toHaveBeenCalled();
+        });
     });
 
     describe('outgoing payload', () => {

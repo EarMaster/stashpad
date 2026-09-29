@@ -11,6 +11,13 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+### Fixed
+- **An Enterprise-billed account no longer syncs on its own, without an assigned seat.**
+  The Enterprise tier used to turn on Cloud Sync by itself, so the account a subscription is
+  billed to - the owner - got full access before ever assigning themselves one of their own
+  seats. Cloud Sync now needs a Pro subscription or an actually assigned Enterprise seat, and
+  an owner gets one the same way a teammate does
+
 ## [1.9.0] - 2026-09-27
 
 ### Added

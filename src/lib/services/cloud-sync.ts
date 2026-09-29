@@ -187,8 +187,17 @@ interface ContextSyncResponse {
     partial?: boolean;
 }
 
-/** Subscription tiers entitled to cloud sync */
-const SYNC_ENTITLED_TIERS = ['pro', 'enterprise'];
+/**
+ * Subscription tiers entitled to cloud sync on their own.
+ *
+ * Deliberately excludes 'enterprise': that tier only names who an enterprise
+ * subscription is billed to, not who has consumed a seat. An owner who has not accepted a
+ * seat - including one of their own - has no entitlement either, same as any teammate; see
+ * `enterpriseOwnerId` below, which is what actually grants it. Matches
+ * `has_cloud_storage` in `cloud/src/quota.rs` and the check in the website's
+ * `AccountDashboard.svelte` - all three have to move together.
+ */
+const SYNC_ENTITLED_TIERS = ['pro'];
 
 /**
  * Does the server know about attachments this device does not have?
