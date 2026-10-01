@@ -888,7 +888,7 @@
                     <span class="text-purple-500 font-medium">Enterprise</span>
                     — {$_("settings.cloudSync.subscription.active")}
                   {:else}
-                    <span class="text-muted-foreground">Free</span>
+                    <span class="text-muted-foreground">{$_("settings.cloudSync.subscription.free")}</span>
                     — {$_("settings.cloudSync.subscription.freeNote")}
                   {/if}
                 </div>
@@ -899,8 +899,8 @@
                 {/snippet}
                 {settings.cloudConfig.subscriptionTier === "free" ||
                 !settings.cloudConfig.subscriptionTier
-                  ? "Upgrade"
-                  : "Manage"}
+                  ? $_("settings.cloudSync.subscription.upgrade")
+                  : $_("settings.cloudSync.subscription.manage")}
               </SettingsButton>
             </div>
           {/if}

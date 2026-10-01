@@ -79,7 +79,11 @@
 
 /* Tailwind Theme Extensions */
 @theme {
-  --font-sans: "Inter", system-ui, Avenir, Helvetica, Arial, sans-serif;
+  /* Inter has no CJK glyphs. Naming the system Chinese fonts before `system-ui` makes Chinese
+     render in PingFang (macOS), Microsoft YaHei (Windows) or Noto (Linux) rather than in whatever
+     the platform's generic fallback picks, while Latin text stays in Inter. */
+  --font-sans: "Inter", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC",
+    "Noto Sans SC", system-ui, Avenir, Helvetica, Arial, sans-serif;
   --color-background: var(--background);
 }
 

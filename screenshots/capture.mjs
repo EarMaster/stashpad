@@ -19,7 +19,7 @@
  * `screenshots/out/`. The website's release job picks those up; nothing here writes
  * outside this folder.
  *
- *   npm run screenshots                 every scene, both locales
+ *   npm run screenshots                 every scene, every locale
  *   npm run screenshots -- --lang en    one locale
  *   npm run screenshots -- --scene queue,settings
  *   npm run screenshots -- --headed     watch it happen
@@ -31,6 +31,7 @@
  */
 
 import { spawn } from 'node:child_process';
+import { readFileSync, readdirSync } from 'node:fs';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -46,7 +47,27 @@ const VIEWPORT = { width: 800, height: 600 };
 const SCALE = 2;
 const PORT = Number(process.env.SCREENSHOT_PORT ?? 5199);
 
-const LOCALES = ['en', 'de'];
+/**
+ * Every locale the app ships, read from its locale files so a new language is captured
+ * without anyone remembering this list.
+ */
+const LOCALE_FILES = Object.fromEntries(
+    readdirSync(join(APP_ROOT, 'src/lib/i18n/locales'))
+        .filter((f) => f.endsWith('.json'))
+        .map((f) => [f.slice(0, -5), JSON.parse(readFileSync(join(APP_ROOT, 'src/lib/i18n/locales', f), 'utf8'))]),
+);
+const LOCALES = Object.keys(LOCALE_FILES).sort((a, b) => (a === 'en' ? -1 : b === 'en' ? 1 : a.localeCompare(b)));
+
+/**
+ * The UI text for an i18n key in every locale, as patterns for `clickByText`. Matching on
+ * the translations themselves, rather than a hand-written English and German pattern, is
+ * what lets a scene drive the app in a language this file has never heard of.
+ */
+function labels(key) {
+    return LOCALES.map((locale) => key.split('.').reduce((node, part) => node?.[part], LOCALE_FILES[locale]))
+        .filter((text) => typeof text === 'string')
+        .map((text) => new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'));
+}
 
 /**
  * What to photograph.
@@ -92,7 +113,7 @@ const SCENES = [
         id: 'contexts',
         async drive(page) {
             await openSettings(page);
-            await clickByText(page, [/manage contexts/i, /kontexte verwalten/i]);
+            await clickByText(page, labels('settings.contextManagement.manageContexts'));
             await page.waitForTimeout(400);
             // Sort by last used, so the context the demo is sitting in leads instead of
             // whichever one happens to sort first alphabetically.

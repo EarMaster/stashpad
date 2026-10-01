@@ -73,7 +73,7 @@ jobs:
         run: |
           rm -rf website/public/screenshots
           mkdir -p website/public/screenshots website/src/data
-          cp -r screenshots/out/en screenshots/out/de website/public/screenshots/
+          cp -r screenshots/out/en screenshots/out/de screenshots/out/zh website/public/screenshots/
           cp screenshots/out/manifest.json website/src/data/screenshots.json
 
       - name: Commit and push, if anything actually changed

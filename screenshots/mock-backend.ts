@@ -200,6 +200,20 @@ export function installMockBackend(overrides: Partial<DemoState> = {}): void {
                 return `/home/dev/.stashpad/cache/${payload?.contextId}/${payload?.stashId}/refs/${payload?.targetId}.md`;
             case 'get_system_prompt_path_str':
                 return '/home/dev/.stashpad/system-prompt.md';
+            case 'e2ee_status':
+                // Encryption never turned on: the panel offers to turn it on, which is the
+                // state almost every account is in. Without an answer the panel renders its
+                // error line into the settings capture.
+                return {
+                    epoch: 0,
+                    state: 'off',
+                    unlocked: false,
+                    enrolled: false,
+                    hasRecovery: false,
+                    recoveryAcknowledged: false,
+                    fingerprint: '',
+                    devices: [],
+                };
             default:
                 if (NO_OP.has(cmd)) return null;
                 console.warn(`[demo] unhandled command: ${cmd}`);

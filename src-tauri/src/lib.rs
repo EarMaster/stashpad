@@ -328,6 +328,7 @@ pub fn run() {
                     let _ = (|| -> Result<(), Box<dyn std::error::Error>> {
                         let check_updates_label = match locale.as_deref() {
                             Some("de") => "Nach Updates suchen…",
+                            Some("zh") => "检查更新…",
                             _ => "Check for Updates…",
                         };
                         let check_updates_item = MenuItemBuilder::new(check_updates_label)

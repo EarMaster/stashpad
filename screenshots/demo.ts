@@ -20,7 +20,7 @@
  * bottom rather than a static one at the top.
  *
  * Query parameters, all optional:
- *   ?lang=en|de     locale to boot in (default: en)
+ *   ?lang=en|de|zh  locale to boot in (default: en)
  *   ?theme=dark|light
  *   ?signedOut=1    cloud sync signed out, for the "connect" state
  */

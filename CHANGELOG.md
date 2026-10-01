@@ -11,6 +11,15 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-10-01
+
+### Added
+- **Stashpad is now available in Simplified Chinese.** Pick 简体中文 under Settings ›
+  General, or leave the language on automatic: a system set to Chinese for mainland China or
+  Singapore switches over by itself. A system set to Traditional Chinese (Taiwan, Hong Kong,
+  Macau) stays in English, because the translation is in Simplified characters only, and
+  you can still choose it by hand
+
 ## [1.9.1] - 2026-10-01
 
 ### Fixed

@@ -71,30 +71,43 @@ function registerLocales(): void {
 }
 
 /**
+ * Whether a language tag asks for Traditional Chinese: the `Hant` script, or a region that
+ * writes it (Taiwan, Hong Kong, Macau).
+ *
+ * The app ships Simplified Chinese only, as `zh`. Matching on the primary subtag alone would
+ * hand it to a `zh-TW` system, and many Traditional readers would rather read English than be
+ * served the other script - so those fall through to the default instead.
+ */
+export function isTraditionalChinese(tag: string): boolean {
+    const parts = tag.toLowerCase().split(/[-_]/);
+    if (parts[0] !== "zh") return false;
+    return parts.slice(1).some((p) => p === "hant" || p === "tw" || p === "hk" || p === "mo");
+}
+
+/**
+ * The supported locale for a language tag, or `null` when there is none.
+ */
+export function matchLocale(tag: string): SupportedLocale | null {
+    // First try exact match (e.g. en-US)
+    if (SUPPORTED_LOCALES.includes(tag)) {
+        return tag;
+    }
+    if (isTraditionalChinese(tag)) {
+        return null;
+    }
+
+    // Extract the primary language code (e.g., "en-US" -> "en")
+    const primaryLanguage = tag.split(/[-_]/)[0].toLowerCase();
+    return SUPPORTED_LOCALES.includes(primaryLanguage) ? primaryLanguage : null;
+}
+
+/**
  * Determines the best locale to use based on browser/OS settings.
  * Falls back to DEFAULT_LOCALE if the browser's locale is not supported.
  */
 export function getAutoDetectedLocale(): SupportedLocale {
     const browserLocale = getLocaleFromNavigator();
-
-    if (!browserLocale) {
-        return DEFAULT_LOCALE;
-    }
-
-    // First try exact match (e.g. en-US)
-    if (SUPPORTED_LOCALES.includes(browserLocale)) {
-        return browserLocale;
-    }
-
-    // Extract the primary language code (e.g., "en-US" -> "en")
-    const primaryLanguage = browserLocale.split("-")[0].toLowerCase();
-
-    // Check if the primary language is supported
-    if (SUPPORTED_LOCALES.includes(primaryLanguage)) {
-        return primaryLanguage;
-    }
-
-    return DEFAULT_LOCALE;
+    return (browserLocale && matchLocale(browserLocale)) || DEFAULT_LOCALE;
 }
 
 /**
