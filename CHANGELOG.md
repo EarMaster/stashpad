@@ -11,6 +11,15 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+## [1.10.1] - 2026-10-01
+
+### Changed
+- **Turning on encryption now says what happens to your existing access keys.** A key made
+  before encryption cannot read the encrypted account, because it carries no copy of the new
+  key, so it has to be replaced afterwards. AI tools connected by signing in, such as a
+  Claude connector, are disconnected when you turn encryption on and ask you to connect
+  again. Keys you made by hand are kept, and the account page marks the ones to replace
+
 ## [1.10.0] - 2026-10-01
 
 ### Added

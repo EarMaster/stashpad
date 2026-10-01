@@ -365,6 +365,7 @@ See the GNU Affero General Public License for more details.
         <ul class="list-disc space-y-1 pl-4 text-xs text-muted-foreground">
             <li>{$_("encryption.costRecovery")}</li>
             <li>{$_("encryption.costMcp")}</li>
+            <li>{$_("encryption.costExistingKeys")}</li>
             <li>{$_("encryption.costLocal")}</li>
         </ul>
         <button

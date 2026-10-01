@@ -288,6 +288,7 @@
     "offExplainer": "Your stashes are stored on our server so your devices see the same thing. Turn this on and they are encrypted on this machine first, with a key we do not keep.",
     "costRecovery": "You get a recovery code. Lose every installation and that code, and nobody can get your stashes back — not you, and not us.",
     "costMcp": "An access key for AI tools carries its own copy of the key, so our server can read that account while such a request is being served. Create no access key and we cannot read it at all.",
+    "costExistingKeys": "Access keys you already made cannot read anything once this is on - create new ones afterwards. AI tools connected through sign-in, such as a Claude connector, are disconnected and ask you to connect again.",
     "costLocal": "This protects what is stored on our server. What is on this computer is unchanged.",
     "turnOn": "Turn on encryption",
     "recoveryIntro": "Write this down now, or put it in your password manager. It is shown once and cannot be shown again.",
