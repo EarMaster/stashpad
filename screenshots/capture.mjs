@@ -262,8 +262,8 @@ async function startDevServer() {
     child.stderr.on('data', (d) => process.stderr.write(d));
 
     // Cold, Vite spends most of a minute pre-bundling before it answers.
-    const deadline = Date.now() + 180_000;
-    while (Date.now() < deadline) {
+    const deadline = performance.now() + 180_000;
+    while (performance.now() < deadline) {
         if (await demoPageIsUp()) return child;
         if (child.exitCode !== null) throw new Error(`the dev server exited (${child.exitCode})`);
         await new Promise((r) => setTimeout(r, 500));

@@ -29,6 +29,7 @@ import type { InvokeArgs } from '@tauri-apps/api/core';
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks';
 import type { Attachment, Context, Settings, StashItem } from '../src/lib/types';
 import * as fixtures from './fixtures';
+import { toCanonical } from '../src/lib/utils/time';
 
 /** Commands whose answer is "nothing happened, carry on". */
 const NO_OP = new Set([
@@ -172,7 +173,7 @@ export function installMockBackend(overrides: Partial<DemoState> = {}): void {
             case 'sync_stashes_api':
                 return {
                     synced: [],
-                    serverTime: fixtures.NOW.toISOString(),
+                    serverTime: toCanonical(fixtures.NOW),
                     rejected: [],
                     partial: true,
                     positions: [],
@@ -180,7 +181,7 @@ export function installMockBackend(overrides: Partial<DemoState> = {}): void {
             case 'sync_contexts_api':
                 return {
                     synced: [],
-                    serverTime: fixtures.NOW.toISOString(),
+                    serverTime: toCanonical(fixtures.NOW),
                     rejected: [],
                 };
             case 'upload_attachment_to_cloud':
@@ -263,7 +264,7 @@ export function installMockBackend(overrides: Partial<DemoState> = {}): void {
             fileName,
             fileSize: 2_048,
             mimeType: 'text/plain',
-            createdAt: fixtures.NOW.toISOString(),
+            createdAt: toCanonical(fixtures.NOW),
         };
     }
 }

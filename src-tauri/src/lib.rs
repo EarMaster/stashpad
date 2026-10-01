@@ -39,6 +39,7 @@ mod settings;
 mod stashes;
 mod state;
 mod sync;
+mod time;
 mod transfer;
 mod uierror;
 mod utils;

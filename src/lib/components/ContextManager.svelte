@@ -5,6 +5,7 @@
 
 <script lang="ts">
     import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
+    import { compareTimestamps, nowIso } from "$lib/utils/time";
     import type { Settings, StashItem, Context } from "$lib/types";
     import { _ } from "$lib/i18n";
     import { tick } from "svelte";
@@ -62,11 +63,11 @@
                     ? a.name.localeCompare(b.name)
                     : b.name.localeCompare(a.name);
             } else {
-                const dateA = new Date(a.lastUsed || 0).getTime();
-                const dateB = new Date(b.lastUsed || 0).getTime();
                 // For dates, usually we want newest first (desc) as default "top",
                 // but if user selects ASC, they want oldest first.
-                return sortDirection === "asc" ? dateA - dateB : dateB - dateA;
+                return sortDirection === "asc"
+                    ? compareTimestamps(a.lastUsed, b.lastUsed)
+                    : compareTimestamps(b.lastUsed, a.lastUsed);
             }
         }),
     );
@@ -141,7 +142,7 @@
             id: crypto.randomUUID(),
             name: $_("contexts.newContext"),
             rules: [],
-            lastUsed: new Date().toISOString(),
+            lastUsed: nowIso(),
         };
         contexts = [...contexts, newContext];
         newlyCreatedContextId = newContext.id;

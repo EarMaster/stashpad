@@ -11,13 +11,14 @@
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 // See the GNU Affero General Public License for more details.
+import { localTimeZone, now, parseInstant } from "./time";
 
 export function getRelativeTime(dateString: string, translate: (key: string, values?: any) => string) {
-    if (!dateString) return "";
-    const date = new Date(dateString);
-    const now = new Date();
+    const instant = parseInstant(dateString);
+    if (!instant) return "";
+    const current = now();
     const diffInSeconds = Math.floor(
-        (now.getTime() - date.getTime()) / 1000,
+        (current.epochMilliseconds - instant.epochMilliseconds) / 1000,
     );
 
     if (diffInSeconds < 60) {
@@ -56,16 +57,21 @@ export function getRelativeTime(dateString: string, translate: (key: string, val
         });
     }
 
-    // Check if same year
-    if (date.getFullYear() === now.getFullYear()) {
-        return date.toLocaleDateString(undefined, {
+    // Check if same year, on the computer's own calendar
+    const timeZone = localTimeZone();
+    const sameYear =
+        instant.toZonedDateTimeISO(timeZone).year === current.toZonedDateTimeISO(timeZone).year;
+    if (sameYear) {
+        return instant.toLocaleString(undefined, {
             month: "short",
             day: "numeric",
+            timeZone,
         });
     }
 
-    return date.toLocaleDateString(undefined, {
+    return instant.toLocaleString(undefined, {
         month: "short",
         year: "numeric",
+        timeZone,
     });
 }

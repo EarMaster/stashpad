@@ -17,7 +17,6 @@ use crate::state::DbState;
 use crate::uierror::UiError;
 use rusqlite::params;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::State;
 
 #[tauri::command]
@@ -52,10 +51,10 @@ pub async fn save_contexts(
                     ctx.id,
                     ctx.name,
                     rules_json,
-                    ctx.last_used,
+                    crate::time::canonical_opt(ctx.last_used.as_deref()),
                     // Local edit: always stamp now, never echo the value the UI just
                     // read back, or the server's last-write-wins check will reject it.
-                    SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs(),
+                    crate::time::now_ts(),
                     ctx.description,
                     ctx.deleted as i32
                 ],

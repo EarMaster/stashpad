@@ -24,6 +24,7 @@
  */
 
 import type { Settings } from '../types';
+import { nowMs } from "$lib/utils/time";
 import { installKindFor, type InstallKind } from '../utils/installation';
 import { errorText } from "$lib/errors";
 
@@ -182,7 +183,7 @@ export class UpdateChecker {
         if (this.dismissedVersion && normalizeVersion(version) === normalizeVersion(this.dismissedVersion)) {
             return false;
         }
-        const now = this.deps?.now() ?? Date.now();
+        const now = this.deps?.now() ?? nowMs();
         return now >= (this.remindAfter ?? 0);
     }
 
@@ -219,7 +220,7 @@ export class UpdateChecker {
 
     private tick(): void {
         if (!this.autoChecksEnabled) return;
-        const now = this.deps?.now() ?? Date.now();
+        const now = this.deps?.now() ?? nowMs();
         const due = Math.max((this.lastCheckedAt ?? 0) + CHECK_INTERVAL_MS, this.nextAttemptAt);
         if (now >= due) void this.check();
     }
@@ -325,7 +326,7 @@ export class UpdateChecker {
     /** Hide the notice for a week, then show it again even for the same version. */
     remindLater(): void {
         if (!this.indicatorVersion) return;
-        const until = (this.deps?.now() ?? Date.now()) + REMIND_LATER_MS;
+        const until = (this.deps?.now() ?? nowMs()) + REMIND_LATER_MS;
         this.remindAfter = until;
         this.deps?.persist({ updateRemindAfter: until });
     }

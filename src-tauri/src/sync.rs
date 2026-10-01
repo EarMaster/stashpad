@@ -720,7 +720,7 @@ pub async fn upload_attachment_to_cloud(
         db.conn
             .execute(
                 "UPDATE attachments SET uploaded_at = ?2 WHERE id = ?1",
-                params![attachment.id, crate::db::now_ts()],
+                params![attachment.id, crate::time::now_ts()],
             )
             .map_err(|e| e.to_string())?;
     }
@@ -921,7 +921,7 @@ pub async fn download_attachment_from_cloud(
         db.conn
             .execute(
                 "UPDATE attachments SET file_path = ?2, uploaded_at = ?3 WHERE id = ?1",
-                params![attachment_id, path_str, crate::db::now_ts()],
+                params![attachment_id, path_str, crate::time::now_ts()],
             )
             .map_err(|e| e.to_string())?;
     }

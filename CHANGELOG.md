@@ -11,6 +11,19 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+## [1.9.1] - 2026-10-01
+
+### Fixed
+- **An Enterprise-billed account no longer syncs on its own, without an assigned seat.**
+  The Enterprise tier used to turn on Cloud Sync by itself, so the account a subscription is
+  billed to - the owner - got full access before ever assigning themselves one of their own
+  seats. Cloud Sync now needs a Pro subscription or an actually assigned Enterprise seat, and
+  an owner gets one the same way a teammate does
+- **An export's suggested file name carries the right date around midnight.** The name took
+  its date from UTC and its time from your own clock, so an export made in the hours between
+  your midnight and UTC's was named with the day before or the day after. Both now come from
+  your own calendar
+
 ## [1.9.0] - 2026-09-27
 
 ### Added

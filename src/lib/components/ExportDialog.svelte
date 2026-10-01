@@ -5,6 +5,7 @@
 
 <script lang="ts">
     import { _, locale } from "$lib/i18n";
+    import { compareTimestamps, localTimeZone, now } from "$lib/utils/time";
     import { portal } from "$lib/actions/portal";
     import { trapFocus } from "$lib/actions/trapFocus";
     import { save } from "@tauri-apps/plugin-dialog";
@@ -67,18 +68,14 @@
         stashes
             .filter((s) => !s.completed)
             .sort(
-                (a, b) =>
-                    new Date(b.createdAt).getTime() -
-                    new Date(a.createdAt).getTime(),
+                (a, b) => compareTimestamps(b.createdAt, a.createdAt),
             ),
     );
     let completedStashes = $derived(
         stashes
             .filter((s) => s.completed)
             .sort(
-                (a, b) =>
-                    new Date(b.createdAt).getTime() -
-                    new Date(a.createdAt).getTime(),
+                (a, b) => compareTimestamps(b.createdAt, a.createdAt),
             ),
     );
     let selectedStashes = $derived(
@@ -192,9 +189,12 @@
         const safeName = context.name
             .replace(/[^a-zA-Z0-9_-]/g, "_")
             .toLowerCase();
-        const now = new Date();
-        const date = now.toISOString().slice(0, 10);
-        const time = now.toTimeString().slice(0, 5).replace(":", "-");
+        // Both halves on the local calendar. The date used to be cut from the UTC string
+        // and the time from the local one, so an evening export in Berlin was dated a day
+        // early whenever local midnight had passed and UTC midnight had not, or vice versa.
+        const local = now().toZonedDateTimeISO(localTimeZone());
+        const date = local.toPlainDate().toString();
+        const time = `${String(local.hour).padStart(2, "0")}-${String(local.minute).padStart(2, "0")}`;
         const defaultFileName = `${safeName}_${date}_${time}.${asZip ? "zip" : "md"}`;
 
         const filePath = await save({

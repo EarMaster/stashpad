@@ -146,10 +146,7 @@ pub fn validate_settings(mut settings: Settings) -> Settings {
     // Discard update timestamps that sit implausibly far in the future. A clock that
     // jumped forward once would otherwise suppress every later update check - the 48h
     // deadline and the "remind me later" deadline would both never be reached again.
-    let now_ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0);
+    let now_ms = crate::time::now_ms();
     let horizon = now_ms.saturating_add(24 * 60 * 60 * 1000);
     if settings.last_update_check_at.is_some_and(|t| t > horizon) {
         println!("Warning: last_update_check_at is in the future, resetting");

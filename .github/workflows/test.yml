@@ -80,6 +80,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Not a test, but cheap and with nothing else to gate it: a stray `Date` passes every
+      # test that does not happen to compare two timestamps as strings.
+      - name: Check Temporal is the only date API
+        run: npm run check:temporal
+
       # Split by OS rather than run both: `test:coverage` is `vitest run --coverage`, the
       # same fourteen files end to end, so ubuntu was running the whole suite twice.
       - name: Run tests

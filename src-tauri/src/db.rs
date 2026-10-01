@@ -12,9 +12,10 @@
 // See the GNU Affero General Public License for more details.
 
 use crate::models::{Attachment, Context, ContextRule, StashItem, StashPosition};
+pub use crate::time::now_ts;
+use crate::time::{canonical, canonical_opt};
 use rusqlite::{params, Connection, OptionalExtension, Result};
 use std::path::Path;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Which clock owns `updated_at` for a given write.
 ///
@@ -336,7 +337,60 @@ impl DbManager {
         // Repair rows left behind by the name-collision bug.
         self.reconcile_colliding_attachment_sizes();
 
+        // Last, so it also covers whatever the migrations above just wrote.
+        self.canonicalize_timestamps()?;
+
         Ok(())
+    }
+
+    /// Rewrite every text timestamp into the canonical format, once.
+    ///
+    /// These columns used to hold two formats at once: the backend wrote chrono's
+    /// `+00:00` with up to nine fractional digits, the frontend `Date`'s `Z` with three.
+    /// SQLite compares them as text, and within one second the two do not order the same
+    /// way (`.5Z` sorts after `.500000001+00:00`), so the completed-stash cleanup and the
+    /// newest-first export could each misjudge a pair of rows. Every writer now produces
+    /// the one format and normalises what it is handed, so only rows from before this need
+    /// converting.
+    ///
+    /// `PRAGMA user_version` records that it ran, because nothing else uses it and it
+    /// lives in the database file itself. A value that does not parse is left as it is:
+    /// inventing a time would be worse than keeping an unreadable one.
+    fn canonicalize_timestamps(&self) -> Result<()> {
+        const CANONICAL_TIMESTAMPS: i64 = 1;
+        let version: i64 = self
+            .conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))?;
+        if version >= CANONICAL_TIMESTAMPS {
+            return Ok(());
+        }
+
+        let tx = self.conn.unchecked_transaction()?;
+        for (table, column) in [
+            ("stashes", "created_at"),
+            ("stashes", "completed_at"),
+            ("contexts", "last_used"),
+            ("attachments", "created_at"),
+        ] {
+            let rows: Vec<(String, String)> = {
+                let mut stmt = tx.prepare(&format!(
+                    "SELECT id, {column} FROM {table} WHERE {column} IS NOT NULL"
+                ))?;
+                let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+                rows.collect::<Result<_>>()?
+            };
+            for (id, raw) in rows {
+                let fixed = canonical(&raw);
+                if fixed != raw {
+                    tx.execute(
+                        &format!("UPDATE {table} SET {column} = ?1 WHERE id = ?2"),
+                        params![fixed, id],
+                    )?;
+                }
+            }
+        }
+        tx.execute_batch(&format!("PRAGMA user_version = {CANONICAL_TIMESTAMPS}"))?;
+        tx.commit()
     }
 
     /// Apply the rules that decide where a stash lives, and return the stashes it deleted.
@@ -481,7 +535,7 @@ impl DbManager {
             .unwrap_or(false);
 
         if !exists {
-            let now = chrono::Utc::now().to_rfc3339();
+            let now = crate::time::now_iso();
 
             // Create default context with empty rules
             self.conn.execute(
@@ -611,7 +665,7 @@ impl DbManager {
                     ctx.id,
                     ctx.name,
                     rules_json,
-                    ctx.last_used,
+                    canonical_opt(ctx.last_used.as_deref()),
                     now_ts(),
                     ctx.description
                 ],
@@ -630,9 +684,9 @@ impl DbManager {
                     stash.context_id,
                     stash.content,
                     files_json,
-                    stash.created_at,
+                    canonical(&stash.created_at),
                     stash.completed,
-                    stash.completed_at,
+                    canonical_opt(stash.completed_at.as_deref()),
                     position,
                     now_ts()
                 ],
@@ -686,7 +740,7 @@ impl DbManager {
                 ctx.id,
                 name,
                 rules_json,
-                ctx.last_used,
+                canonical_opt(ctx.last_used.as_deref()),
                 origin.stamp(ctx.updated_at),
                 ctx.description,
                 if ctx.deleted { 1 } else { 0 },
@@ -727,7 +781,7 @@ impl DbManager {
                     ctx.id,
                     name,
                     rules_json,
-                    ctx.last_used,
+                    canonical_opt(ctx.last_used.as_deref()),
                     WriteOrigin::SyncImport.stamp(ctx.updated_at),
                     ctx.description,
                     if ctx.deleted { 1 } else { 0 }
@@ -1187,9 +1241,9 @@ impl DbManager {
                     stash.content,
                     stash.enhanced_content,
                     files_json,
-                    stash.created_at,
+                    canonical(&stash.created_at),
                     stash.completed,
-                    stash.completed_at,
+                    canonical_opt(stash.completed_at.as_deref()),
                     final_pos,
                     // Server-supplied value preserved verbatim on a sync import; stamped
                     // now for a local one.
@@ -1215,7 +1269,7 @@ impl DbManager {
                         att.file_size,
                         att.mime_type,
                         att.syntax,
-                        att.created_at
+                        canonical(&att.created_at)
                     ]
                 )?;
             }
@@ -1257,9 +1311,9 @@ impl DbManager {
                 stash.content,
                 stash.enhanced_content,
                 files_json,
-                stash.created_at,
+                canonical(&stash.created_at),
                 stash.completed,
-                stash.completed_at,
+                canonical_opt(stash.completed_at.as_deref()),
                 final_pos,
                 origin.stamp(stash.updated_at),
                 if stash.deleted { 1 } else { 0 },
@@ -1290,7 +1344,7 @@ impl DbManager {
                     att.file_size,
                     att.mime_type,
                     att.syntax,
-                    att.created_at
+                    canonical(&att.created_at)
                 ]
             )?;
         }
@@ -1391,13 +1445,6 @@ fn placement_stamp(origin: WriteOrigin, existing_pos: Option<f64>, final_pos: f6
     }
 }
 
-pub fn now_ts() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1409,6 +1456,84 @@ mod tests {
         let manager = DbManager { conn };
         manager.init_tables().expect("Failed to initialize tables");
         manager
+    }
+
+    #[test]
+    fn timestamps_written_before_temporal_are_rewritten_once() {
+        let db = create_test_db();
+        // As the old writers left them: chrono from the backend, Date from the frontend.
+        db.conn
+            .execute_batch(
+                "PRAGMA user_version = 0;
+                 INSERT INTO contexts (id, name, rules, last_used, updated_at)
+                     VALUES ('c1', 'Work', '[]', '2026-08-22T10:00:00.5+00:00', 1);
+                 INSERT INTO stashes (id, context_id, content, files, created_at, completed, completed_at)
+                     VALUES ('s1', 'c1', 'x', '[]', '2026-08-22T10:00:00.123Z', 1, 'not a date');
+                 INSERT INTO attachments (id, stash_id, file_path, file_name, file_size, created_at)
+                     VALUES ('a1', 's1', '', 'f.txt', 1, '2026-08-22 10:00:00');",
+            )
+            .unwrap();
+
+        db.canonicalize_timestamps().unwrap();
+
+        let read = |sql: &str| -> String { db.conn.query_row(sql, [], |r| r.get(0)).unwrap() };
+        assert_eq!(
+            read("SELECT last_used FROM contexts WHERE id = 'c1'"),
+            "2026-08-22T10:00:00.500000000Z"
+        );
+        assert_eq!(
+            read("SELECT created_at FROM stashes WHERE id = 's1'"),
+            "2026-08-22T10:00:00.123000000Z"
+        );
+        assert_eq!(
+            read("SELECT created_at FROM attachments WHERE id = 'a1'"),
+            "2026-08-22T10:00:00.000000000Z"
+        );
+        // Unreadable is kept, not replaced with a made-up time.
+        assert_eq!(
+            read("SELECT completed_at FROM stashes WHERE id = 's1'"),
+            "not a date"
+        );
+
+        // And it does not run a second time.
+        db.conn
+            .execute(
+                "UPDATE contexts SET last_used = '2026-08-22T10:00:00Z' WHERE id = 'c1'",
+                [],
+            )
+            .unwrap();
+        db.canonicalize_timestamps().unwrap();
+        assert_eq!(
+            read("SELECT last_used FROM contexts WHERE id = 'c1'"),
+            "2026-08-22T10:00:00Z"
+        );
+    }
+
+    #[test]
+    fn writers_store_the_canonical_format_whatever_they_are_handed() {
+        let mut db = create_test_db();
+        let mut ctx = Context {
+            id: "c-fmt".to_string(),
+            name: "Fmt".to_string(),
+            rules: vec![],
+            last_used: Some("2026-08-22T12:00:00+02:00".to_string()),
+            updated_at: None,
+            description: None,
+            deleted: false,
+        };
+        db.save_context(&ctx, WriteOrigin::LocalEdit).unwrap();
+        let stored: String = db
+            .conn
+            .query_row(
+                "SELECT last_used FROM contexts WHERE id = 'c-fmt'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(stored, "2026-08-22T10:00:00.000000000Z");
+
+        ctx.last_used = None;
+        db.save_context(&ctx, WriteOrigin::LocalEdit).unwrap();
     }
 
     /// Two attachments sharing one file, as the name-collision bug left them: one
@@ -1691,7 +1816,7 @@ mod tests {
                 match_case: false,
                 use_regex: false,
             }],
-            last_used: Some(chrono::Utc::now().to_rfc3339()),
+            last_used: Some(crate::time::now_iso()),
             description: Some("Test description".to_string()),
             updated_at: None,
             deleted: false,
@@ -1761,9 +1886,9 @@ mod tests {
                 file_size: 10,
                 mime_type: Some("image/png".to_string()),
                 syntax: None,
-                created_at: chrono::Utc::now().to_rfc3339(),
+                created_at: crate::time::now_iso(),
             }],
-            created_at: chrono::Utc::now().to_rfc3339(),
+            created_at: crate::time::now_iso(),
             completed: false,
             completed_at: None,
             updated_at: None,
@@ -1829,7 +1954,7 @@ mod tests {
             enhanced_content: None,
             files: vec![],
             attachments: vec![],
-            created_at: chrono::Utc::now().to_rfc3339(),
+            created_at: crate::time::now_iso(),
             completed: false,
             completed_at: None,
             updated_at: None,
@@ -1858,7 +1983,7 @@ mod tests {
             enhanced_content: None,
             files: vec![],
             attachments: vec![],
-            created_at: chrono::Utc::now().to_rfc3339(),
+            created_at: crate::time::now_iso(),
             completed: false,
             completed_at: None,
             updated_at: None,
@@ -1888,9 +2013,9 @@ mod tests {
             enhanced_content: None,
             files: vec![],
             attachments: vec![],
-            created_at: chrono::Utc::now().to_rfc3339(),
+            created_at: crate::time::now_iso(),
             completed: true,
-            completed_at: Some(chrono::Utc::now().to_rfc3339()),
+            completed_at: Some(crate::time::now_iso()),
             updated_at: None,
             deleted: false,
         };
@@ -1902,7 +2027,7 @@ mod tests {
             enhanced_content: None,
             files: vec![],
             attachments: vec![],
-            created_at: chrono::Utc::now().to_rfc3339(),
+            created_at: crate::time::now_iso(),
             completed: false,
             completed_at: None,
             updated_at: None,
@@ -1940,7 +2065,7 @@ mod tests {
             enhanced_content: None,
             files: vec![],
             attachments: vec![],
-            created_at: chrono::Utc::now().to_rfc3339(),
+            created_at: crate::time::now_iso(),
             completed: false,
             completed_at: None,
             updated_at: None,
@@ -1954,7 +2079,7 @@ mod tests {
             enhanced_content: None,
             files: vec![],
             attachments: vec![],
-            created_at: chrono::Utc::now().to_rfc3339(),
+            created_at: crate::time::now_iso(),
             completed: false,
             completed_at: None,
             updated_at: None,
@@ -1998,7 +2123,7 @@ mod tests {
             "[\"{}\"]",
             file_path.to_string_lossy().replace("\\", "\\\\")
         );
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = crate::time::now_iso();
 
         db.conn.execute(
             "INSERT INTO stashes (id, context_id, content, files, created_at, completed, position, updated_at) VALUES (?1, 'default', 'v1 content', ?2, ?3, 0, 1.0, ?4)",
@@ -2407,7 +2532,7 @@ mod tests {
             enhanced_content: None,
             files: vec![],
             attachments: vec![],
-            created_at: chrono::Utc::now().to_rfc3339(),
+            created_at: crate::time::now_iso(),
             completed: false,
             completed_at: None,
             updated_at,

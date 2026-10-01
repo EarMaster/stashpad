@@ -15,6 +15,7 @@
 
 <script lang="ts">
   import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
+  import { nowIso } from "$lib/utils/time";
   import type { AppContext, Settings, Context } from "$lib/types";
   import type { SyncStatus, SyncStatusDetail } from "$lib/services/cloud-sync";
   import { _ } from "$lib/i18n";
@@ -130,7 +131,7 @@
           // Update lastUsed timestamp for the detected context
           const ctx = contexts.find((c) => c.id === detectedId);
           if (ctx) {
-            ctx.lastUsed = new Date().toISOString();
+            ctx.lastUsed = nowIso();
             adapter.saveContext(ctx);
           }
         }

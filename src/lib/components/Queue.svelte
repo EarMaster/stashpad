@@ -15,6 +15,7 @@
 
 <script lang="ts">
    import { tick, untrack } from "svelte";
+   import { compareTimestamps } from "$lib/utils/time";
    import { dragHandleZone, TRIGGERS } from "svelte-dnd-action";
    import { flip } from "svelte/animate";
    import { fade, fly } from "svelte/transition";
@@ -260,9 +261,9 @@
       }
 
       const sorted = [...activeStashes].sort((a, b) => {
-         const dateA = new Date(a.createdAt).getTime();
-         const dateB = new Date(b.createdAt).getTime();
-         return direction === "asc" ? dateA - dateB : dateB - dateA;
+         return direction === "asc"
+            ? compareTimestamps(a.createdAt, b.createdAt)
+            : compareTimestamps(b.createdAt, a.createdAt);
       });
       activeStashes = sorted;
 

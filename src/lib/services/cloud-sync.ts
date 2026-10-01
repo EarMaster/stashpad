@@ -30,6 +30,7 @@ import type { IStorageService, StashItem, Context, CloudConfig, Settings, StashP
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { attachmentSync } from '../stores/attachment-sync.svelte';
 import { errorText } from "$lib/errors";
+import { fromEpochMs, nowIso, nowMs, toEpochMs } from "$lib/utils/time";
 
 // Fallback polling interval, used when the WebSocket is unavailable.
 const FALLBACK_SYNC_INTERVAL_MS = 15 * 60 * 1000;
@@ -187,8 +188,17 @@ interface ContextSyncResponse {
     partial?: boolean;
 }
 
-/** Subscription tiers entitled to cloud sync */
-const SYNC_ENTITLED_TIERS = ['pro', 'enterprise'];
+/**
+ * Subscription tiers entitled to cloud sync on their own.
+ *
+ * Deliberately excludes 'enterprise': that tier only names who an enterprise
+ * subscription is billed to, not who has consumed a seat. An owner who has not accepted a
+ * seat - including one of their own - has no entitlement either, same as any teammate; see
+ * `enterpriseOwnerId` below, which is what actually grants it. Matches
+ * `has_cloud_storage` in `cloud/src/quota.rs` and the check in the website's
+ * `AccountDashboard.svelte` - all three have to move together.
+ */
+const SYNC_ENTITLED_TIERS = ['pro'];
 
 /**
  * Does the server know about attachments this device does not have?
@@ -232,16 +242,7 @@ function mergeAttachments(
  * milliseconds for comparison. Returns 0 when nothing usable is present.
  */
 function localTimeToMs(value: string | number | undefined | null, fallback?: string): number {
-    if (typeof value === 'number') return value * 1000;
-    if (typeof value === 'string' && value.trim() !== '') {
-        const parsed = new Date(value).getTime();
-        if (!Number.isNaN(parsed)) return parsed;
-    }
-    if (fallback) {
-        const parsed = new Date(fallback).getTime();
-        if (!Number.isNaN(parsed)) return parsed;
-    }
-    return 0;
+    return toEpochMs(value, toEpochMs(fallback));
 }
 
 /**
@@ -571,12 +572,12 @@ export class CloudSyncService {
         // A burst is already pending; the sync it will run covers this notification too.
         if (this.remoteSyncTimer) return;
 
-        const sinceLast = Date.now() - this.lastRemoteSyncAt;
+        const sinceLast = nowMs() - this.lastRemoteSyncAt;
         const wait = Math.max(DEBOUNCE_DELAY_MS, REMOTE_SYNC_MIN_INTERVAL_MS - sinceLast);
 
         this.remoteSyncTimer = setTimeout(() => {
             this.remoteSyncTimer = null;
-            this.lastRemoteSyncAt = Date.now();
+            this.lastRemoteSyncAt = nowMs();
             void this.sync();
         }, wait);
     }
@@ -642,9 +643,7 @@ export class CloudSyncService {
                     completed: !!stash.completed,
                     completedAt: stash.completedAt || null,
                     createdAt: stash.createdAt,
-                    updatedAt: new Date(
-                        localTimeToMs(stash.updatedAt, stash.createdAt)
-                    ).toISOString(),
+                    updatedAt: fromEpochMs(localTimeToMs(stash.updatedAt, stash.createdAt)),
                     deleted: !!stash.deleted,
                     attachments: (stash.attachments || []).map(att => ({
                         id: att.id,
@@ -670,9 +669,7 @@ export class CloudSyncService {
                     description: ctx.description || null,
                     rules: ctx.rules || [],
                     lastUsed: ctx.lastUsed || null,
-                    updatedAt: new Date(
-                        localTimeToMs(ctx.updatedAt, ctx.lastUsed) || Date.now()
-                    ).toISOString(),
+                    updatedAt: fromEpochMs(localTimeToMs(ctx.updatedAt, ctx.lastUsed) || nowMs()),
                     deleted: !!ctx.deleted,
                 })),
             };
@@ -757,7 +754,7 @@ export class CloudSyncService {
                 this.settings.cloudConfig.lastSyncAt =
                     stashResponse?.serverTime ||
                     contextResponse?.serverTime ||
-                    new Date().toISOString();
+                    nowIso();
                 await this.adapter.saveSettings(this.settings);
             }
 
@@ -1146,7 +1143,7 @@ export class CloudSyncService {
 
         let uploaded = false;
         const failures: { fileName: string; message: string; retryAt: number }[] = [];
-        const now = Date.now();
+        const now = nowMs();
         const deadline = now + ATTACHMENT_PHASE_BUDGET_MS;
         let attempted = 0;
         let deferred = 0;
@@ -1160,7 +1157,7 @@ export class CloudSyncService {
             // Bounded per cycle, by count and by wall clock. Uploads are serial and each
             // one can take the full transfer timeout, so an unbounded loop held the sync
             // lock - and with it stash and context sync - for as long as the backlog took.
-            if (attempted >= MAX_UPLOADS_PER_CYCLE || Date.now() >= deadline) {
+            if (attempted >= MAX_UPLOADS_PER_CYCLE || nowMs() >= deadline) {
                 deferred++;
                 continue;
             }
@@ -1187,7 +1184,7 @@ export class CloudSyncService {
                 const attempts = (this.attachmentFailures.get(att.id) ?? 0) + 1;
                 this.attachmentFailures.set(att.id, attempts);
                 const retryAt =
-                    Date.now() +
+                    nowMs() +
                     Math.min(
                         UPLOAD_RETRY_BASE_MS * 2 ** (attempts - 1),
                         UPLOAD_RETRY_MAX_MS
@@ -1216,7 +1213,7 @@ export class CloudSyncService {
             // scheduled, which is the impression this is here to correct.
             const minutes = Math.max(
                 1,
-                Math.ceil((first.retryAt - Date.now()) / 60_000)
+                Math.ceil((first.retryAt - nowMs()) / 60_000)
             );
             this.lastAttachmentDetail = {
                 key:
