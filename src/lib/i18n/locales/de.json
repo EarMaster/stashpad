@@ -288,6 +288,7 @@
     "offExplainer": "Deine Stashes liegen auf unserem Server, damit deine Geräte denselben Stand sehen. Schaltest du das ein, werden sie vorher auf diesem Rechner verschlüsselt — mit einem Schlüssel, den wir nicht aufbewahren.",
     "costRecovery": "Du bekommst einen Wiederherstellungscode. Verlierst du alle Installationen und diesen Code, kommt niemand mehr an deine Stashes — weder du noch wir.",
     "costMcp": "Ein Zugriffsschlüssel für KI-Werkzeuge trägt eine eigene Kopie des Schlüssels, unser Server kann dieses Konto also lesen, solange er eine solche Anfrage bearbeitet. Legst du keinen Zugriffsschlüssel an, können wir es gar nicht lesen.",
+    "costExistingKeys": "Bereits angelegte Zugriffsschlüssel können danach nichts mehr lesen - leg anschließend neue an. Per Anmeldung verbundene KI-Werkzeuge, etwa ein Claude-Connector, werden getrennt und bitten dich, sie neu zu verbinden.",
     "costLocal": "Das schützt, was auf unserem Server liegt. Was auf diesem Rechner liegt, bleibt unverändert.",
     "turnOn": "Verschlüsselung einschalten",
     "recoveryIntro": "Schreib ihn jetzt auf oder leg ihn in deinen Passwort-Manager. Er wird einmal angezeigt und lässt sich nicht noch einmal anzeigen.",
