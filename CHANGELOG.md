@@ -11,6 +11,8 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+## [1.10.1] - 2026-10-01
+
 ### Changed
 - **Turning on encryption now says what happens to your existing access keys.** A key made
   before encryption cannot read the encrypted account, because it carries no copy of the new
