@@ -11,6 +11,8 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-10-01
+
 ### Added
 - **Stashpad is now available in Simplified Chinese.** Pick 简体中文 under Settings ›
   General, or leave the language on automatic: a system set to Chinese for mainland China or
