@@ -45,6 +45,7 @@
    import { APP_VERSION } from "$lib/utils/version";
    import UpdateNotice from "$lib/components/UpdateNotice.svelte";
    import { errorText } from "$lib/errors";
+   import { nowIso, nowMs } from "$lib/utils/time";
 
    /**
     * Hand a caught render error to the reporter.
@@ -100,7 +101,7 @@
       check: (options) => check(options),
       installationSource: () => invoke<string>("get_installation_source"),
       relaunch,
-      now: () => Date.now(),
+      now: () => nowMs(),
       // Mutate the shared settings object rather than replacing it: Header and Settings
       // hold bindings into this one, and a fresh object would detach them.
       persist: (patch) => {
@@ -482,7 +483,7 @@
          // Update lastUsed timestamp for selected context
          const ctx = contexts.find((c) => c.id === ctxId);
          if (ctx) {
-            ctx.lastUsed = new Date().toISOString();
+            ctx.lastUsed = nowIso();
             // Save context update
             adapter.saveContext(ctx);
          }
@@ -503,7 +504,7 @@
                ...item,
                id: crypto.randomUUID(),
                contextId: targetId,
-               createdAt: new Date().toISOString(),
+               createdAt: nowIso(),
             };
             await adapter.saveStash(copy);
          } else {
@@ -703,7 +704,7 @@
                   id: crypto.randomUUID(),
                   name,
                   rules: [],
-                  lastUsed: new Date().toISOString(),
+                  lastUsed: nowIso(),
                };
                await adapter.saveContext(newContext);
                contexts = [...contexts, newContext];

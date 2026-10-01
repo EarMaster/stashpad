@@ -28,14 +28,15 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
 use serde::{Deserialize, Serialize};
 use tauri::State;
+use temporal_rs::Instant;
 use uuid::Uuid;
 
 use crate::models::{Attachment, Context, StashItem};
 use crate::stashes::get_stash_cache_path;
 use crate::state::DbState;
+use crate::time;
 use crate::uierror::UiError;
 use crate::utils::get_app_dir;
 
@@ -100,19 +101,24 @@ pub struct ExportSummary {
 // Dates
 // ---------------------------------------------------------------------------
 
-/// How a `###` heading is written from now on.
+/// An instant as `YYYY-MM-DD HH:MM:SS` in UTC: how a `###` heading is written, and the
+/// "Exported from Stashpad on" line.
 ///
 /// The previous exporter used JavaScript's `toLocaleString()`, whose output depends on
 /// the machine's locale - the same archive read on another machine could not be parsed
-/// back reliably. This format is unambiguous, and `new Date("2026-08-20 10:14:32")`
-/// still accepts it, so archives written here stay readable by older builds.
-const HEADING_FORMAT: &str = "%Y-%m-%d %H:%M:%S";
+/// back reliably. This format is unambiguous, and older builds, which read headings with
+/// JavaScript's date parser, still accept it, so archives written here stay readable by
+/// them.
+fn format_utc(instant: &Instant) -> String {
+    let (y, mo, d, h, mi, s) = time::utc_fields(instant);
+    format!("{y:04}-{mo:02}-{d:02} {h:02}:{mi:02}:{s:02}")
+}
 
 /// Formats a stored RFC3339 timestamp for a heading, falling back to the raw string.
 fn format_heading_date(created_at: &str) -> String {
-    match DateTime::parse_from_rfc3339(created_at) {
-        Ok(dt) => dt.with_timezone(&Utc).format(HEADING_FORMAT).to_string(),
-        Err(_) => created_at.to_string(),
+    match time::parse(created_at) {
+        Some(instant) => format_utc(&instant),
+        None => created_at.to_string(),
     }
 }
 
@@ -121,38 +127,78 @@ fn format_heading_date(created_at: &str) -> String {
 ///
 /// Returns `None` rather than substituting the current time, so the caller can report
 /// how much of an archive it could not read.
-fn parse_heading_date(raw: &str) -> Option<DateTime<Utc>> {
+fn parse_heading_date(raw: &str) -> Option<Instant> {
     let text = raw.trim();
 
-    if let Ok(dt) = DateTime::parse_from_rfc3339(text) {
-        return Some(dt.with_timezone(&Utc));
+    // RFC 3339, the current `YYYY-MM-DD HH:MM:SS`, ISO without a zone, and a bare
+    // `YYYY-MM-DD`. Zoneless forms are treated as UTC: the exporter writes UTC, and an
+    // older archive carries no zone at all, so there is nothing better to assume.
+    if let Some(instant) = time::parse(text) {
+        return Some(instant);
     }
 
-    // Naive formats are treated as UTC: the exporter writes UTC, and an older archive
-    // carries no zone at all, so there is nothing better to assume.
-    const NAIVE_FORMATS: &[&str] = &[
-        "%Y-%m-%d %H:%M:%S",     // what this build writes
-        "%Y-%m-%dT%H:%M:%S",     // ISO without a zone
-        "%m/%d/%Y, %I:%M:%S %p", // en-US
-        "%m/%d/%Y, %H:%M:%S",
-        "%d.%m.%Y, %H:%M:%S", // de-DE
-        "%d.%m.%Y %H:%M:%S",
-        "%d/%m/%Y, %H:%M:%S", // en-GB and similar
-        "%d/%m/%Y %H:%M:%S",
-        "%Y-%m-%d",
-    ];
+    parse_locale_heading(text)
+}
 
-    for format in NAIVE_FORMATS {
-        if let Ok(naive) = NaiveDateTime::parse_from_str(text, format) {
-            return Some(Utc.from_utc_datetime(&naive));
-        }
-        // A date-only pattern parses as a date, not a datetime.
-        if let Ok(date) = chrono::NaiveDate::parse_from_str(text, format) {
-            return Some(Utc.from_utc_datetime(&date.and_hms_opt(0, 0, 0)?));
-        }
+/// The `toLocaleString()` forms older exports used, which no ISO parser reads:
+///
+/// * `8/20/2026, 10:14:32 AM` and `8/20/2026, 10:14:32` - en-US, month first
+/// * `20.8.2026, 10:14:32` and `20.8.2026 10:14:32` - de-DE
+/// * `20/8/2026, 10:14:32` and `20/8/2026 10:14:32` - en-GB and similar, day first
+///
+/// A slash date is tried month first, as en-US is far the more common, and read day first
+/// only when that cannot be a date - the same order the formats were tried in before.
+fn parse_locale_heading(text: &str) -> Option<Instant> {
+    let (date, rest) = text.split_once([',', ' '])?;
+    let mut clock = rest.trim_start_matches([',', ' ']).split(' ');
+    let hms = clock.next()?;
+    let meridiem = clock.next();
+    if clock.next().is_some() {
+        return None;
     }
 
-    None
+    let mut t = hms.split(':').map(|n| n.parse::<u8>().ok());
+    let (mut hour, minute, second) = (t.next()??, t.next()??, t.next()??);
+    if t.next().is_some() {
+        return None;
+    }
+    match meridiem.map(str::to_ascii_uppercase).as_deref() {
+        None => {}
+        Some(m @ ("AM" | "PM")) => {
+            if !(1..=12).contains(&hour) {
+                return None;
+            }
+            hour = match (m, hour) {
+                ("AM", 12) => 0,
+                ("PM", 12) => 12,
+                ("PM", h) => h + 12,
+                (_, h) => h,
+            };
+        }
+        Some(_) => return None,
+    }
+
+    let separator = if date.contains('/') { '/' } else { '.' };
+    let mut d = date.split(separator).map(|n| n.parse::<u16>().ok());
+    let (a, b, year) = (d.next()??, d.next()??, d.next()??);
+    if d.next().is_some() {
+        return None;
+    }
+    let year = i32::from(year);
+    let at = |month: u16, day: u16| {
+        time::from_utc_fields(
+            year,
+            u8::try_from(month).ok()?,
+            u8::try_from(day).ok()?,
+            hour,
+            minute,
+            second,
+        )
+    };
+    match separator {
+        '/' => at(a, b).or_else(|| at(b, a)),
+        _ => at(b, a),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -255,7 +301,7 @@ fn build_markdown(
     metadata: &ArchiveMetadata,
     stashes: &[StashItem],
     archived: Option<&HashMap<String, Vec<ArchivedFile>>>,
-    exported_at: DateTime<Utc>,
+    exported_at: Instant,
 ) -> String {
     let mut out = String::new();
 
@@ -267,7 +313,7 @@ fn build_markdown(
     out.push_str(&format!("# {}\n\n", context_name));
     out.push_str(&format!(
         "Exported from Stashpad on {}\n\n",
-        exported_at.format("%Y-%m-%d %H:%M:%S")
+        format_utc(&exported_at)
     ));
     out.push_str(&format!("Total stashes: {}\n\n---\n\n", stashes.len()));
 
@@ -455,10 +501,10 @@ fn parse_markdown(content: &str, context_id: &str) -> ParsedDocument {
             flush!();
 
             let created_at = match parse_heading_date(heading) {
-                Some(dt) => dt.to_rfc3339(),
+                Some(instant) => time::to_canonical(&instant),
                 None => {
                     unreadable_dates += 1;
-                    Utc::now().to_rfc3339()
+                    time::now_iso()
                 }
             };
 
@@ -472,7 +518,7 @@ fn parse_markdown(content: &str, context_id: &str) -> ParsedDocument {
                 context_id: context_id.to_string(),
                 completed: section_completed,
                 completed_at: if section_completed {
-                    Some(Utc::now().to_rfc3339())
+                    Some(time::now_iso())
                 } else {
                     None
                 },
@@ -743,7 +789,7 @@ pub async fn export_context_archive(
         &metadata,
         &stashes,
         (!archived.is_empty()).then_some(&archived),
-        Utc::now(),
+        time::now(),
     );
 
     let dest = PathBuf::from(&dest_path);
@@ -1042,7 +1088,7 @@ fn place_import_files(
                     file_size: size,
                     mime_type: mime_guess::from_path(&dest).first().map(|m| m.to_string()),
                     syntax: None,
-                    created_at: Utc::now().to_rfc3339(),
+                    created_at: time::now_iso(),
                 });
             }
         }
@@ -1102,7 +1148,7 @@ mod tests {
             stash("b", "second entry", "2026-08-17T09:30:00Z", true),
         ];
 
-        let md = build_markdown("Work", &metadata(), &stashes, None, Utc::now());
+        let md = build_markdown("Work", &metadata(), &stashes, None, time::now());
         let parsed = parse_markdown(&md, "ctx");
 
         assert_eq!(parsed.unreadable_dates, 0);
@@ -1133,7 +1179,7 @@ mod tests {
             stash(b, "the target", "2026-08-17T09:30:00Z", true),
         ];
 
-        let md = build_markdown("Work", &metadata(), &stashes, None, Utc::now());
+        let md = build_markdown("Work", &metadata(), &stashes, None, time::now());
         let parsed = parse_markdown(&md, "ctx");
 
         let referrer = parsed.stashes.iter().find(|s| !s.completed).unwrap();
@@ -1207,7 +1253,7 @@ mod tests {
             &metadata(),
             &items,
             Some(&archived_for(&items)),
-            Utc::now(),
+            time::now(),
         );
         let entry = format!("attachments/{}_shot.png", ATT_A);
         assert!(md.contains(&format!("- [shot.png]({})", entry)), "{}", md);
@@ -1335,22 +1381,46 @@ old
         // These are what JavaScript's toLocaleString() produced, which is what every
         // archive exported before this change contains.
         let en_us = parse_heading_date("8/20/2026, 10:14:32 AM").expect("en-US must parse");
-        assert_eq!(
-            en_us.format("%Y-%m-%d %H:%M:%S").to_string(),
-            "2026-08-20 10:14:32"
-        );
+        assert_eq!(format_utc(&en_us), "2026-08-20 10:14:32");
 
         let de_de = parse_heading_date("20.8.2026, 10:14:32").expect("de-DE must parse");
-        assert_eq!(
-            de_de.format("%Y-%m-%d %H:%M:%S").to_string(),
-            "2026-08-20 10:14:32"
-        );
+        assert_eq!(format_utc(&de_de), "2026-08-20 10:14:32");
 
         let current = parse_heading_date("2026-08-20 10:14:32").expect("current format must parse");
-        assert_eq!(
-            current.format("%Y-%m-%d %H:%M:%S").to_string(),
-            "2026-08-20 10:14:32"
-        );
+        assert_eq!(format_utc(&current), "2026-08-20 10:14:32");
+    }
+
+    #[test]
+    fn every_locale_form_the_old_formats_list_accepted_still_parses() {
+        // The chrono-based parser tried a fixed list of formats; the hand-written one that
+        // replaced it has to agree with it on each of them.
+        for (raw, expected) in [
+            ("8/20/2026, 10:14:32 PM", "2026-08-20 22:14:32"),
+            ("8/20/2026, 12:05:00 AM", "2026-08-20 00:05:00"),
+            ("8/20/2026, 12:05:00 PM", "2026-08-20 12:05:00"),
+            ("8/20/2026, 22:14:32", "2026-08-20 22:14:32"),
+            ("20.08.2026 10:14:32", "2026-08-20 10:14:32"),
+            // Day first only when month first cannot be a date.
+            ("20/8/2026, 10:14:32", "2026-08-20 10:14:32"),
+            ("20/8/2026 10:14:32", "2026-08-20 10:14:32"),
+            ("3/4/2026, 10:14:32", "2026-03-04 10:14:32"),
+            ("2026-08-20T10:14:32", "2026-08-20 10:14:32"),
+            ("2026-08-20", "2026-08-20 00:00:00"),
+            ("2026-08-20T10:14:32+02:00", "2026-08-20 08:14:32"),
+        ] {
+            let parsed = parse_heading_date(raw).unwrap_or_else(|| panic!("{raw} must parse"));
+            assert_eq!(format_utc(&parsed), expected, "{raw}");
+        }
+
+        for raw in [
+            "13/13/2026, 10:14:32",
+            "8/20/2026, 13:00:00 PM",
+            "8/20/2026, 10:14 AM",
+            "8/20/2026",
+            "20.8.2026, 25:00:00",
+        ] {
+            assert!(parse_heading_date(raw).is_none(), "{raw} must not parse");
+        }
     }
 
     #[test]

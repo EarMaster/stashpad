@@ -25,6 +25,7 @@
  */
 
 import type { IStorageService } from '../types';
+import { nowMs } from "$lib/utils/time";
 
 /** How many downloads run at once. Small, so a prioritised item starts promptly. */
 const MAX_CONCURRENT = 2;
@@ -89,7 +90,7 @@ export class AttachmentSyncQueue {
     enqueue(ids: string[]): void {
         let added = false;
         const next = { ...this.statuses };
-        const now = Date.now();
+        const now = nowMs();
 
         for (const id of ids) {
             if (this.resolved[id] || this.active.has(id)) continue;
@@ -205,7 +206,7 @@ export class AttachmentSyncQueue {
         const attempts = (this.failures.get(id) ?? 0) + 1;
         this.failures.set(id, attempts);
         const delay = Math.min(RETRY_BASE_MS * 2 ** (attempts - 1), RETRY_MAX_MS);
-        this.retryAfter = { ...this.retryAfter, [id]: Date.now() + delay };
+        this.retryAfter = { ...this.retryAfter, [id]: nowMs() + delay };
 
         this.statuses = { ...this.statuses, [id]: 'error' };
         this.waiters.get(id)?.forEach(w => w.reject(error));

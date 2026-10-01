@@ -18,19 +18,20 @@
  * fixture: these end up on the public website, and a screenshot is the easiest place
  * to leak a customer name or a home directory without noticing.
  *
- * Timestamps are relative to a fixed instant (`NOW`) rather than to `Date.now()`, so a
+ * Timestamps are relative to a fixed instant (`NOW`) rather than to the real clock, so a
  * capture taken today and one taken next month produce the same images. The app renders
  * "2h ago" style labels from these, which would otherwise churn every release.
  */
 
 import type { Attachment, Context, Settings, StashItem } from '../src/lib/types';
+import { Temporal, toCanonical } from '../src/lib/utils/time';
 
 /** The instant the fixtures pretend it is. */
-export const NOW = new Date('2026-01-15T14:30:00.000Z');
+export const NOW = Temporal.Instant.from('2026-01-15T14:30:00.000Z');
 
 /** An ISO timestamp `minutes` before `NOW`. */
 function ago(minutes: number): string {
-    return new Date(NOW.getTime() - minutes * 60_000).toISOString();
+    return toCanonical(NOW.subtract({ minutes }));
 }
 
 /**
@@ -209,7 +210,7 @@ export const settings: Settings = {
         email: 'dev@example.com',
         subscriptionTier: 'pro',
         subscriptionStatus: 'active',
-        subscriptionPeriodEnd: new Date(NOW.getTime() + 21 * 86_400_000).toISOString(),
+        subscriptionPeriodEnd: toCanonical(NOW.add({ hours: 21 * 24 })),
         lastSyncAt: ago(2),
     },
 };

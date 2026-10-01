@@ -48,7 +48,7 @@ pub fn calculate_stash_update(
 
         if status_changed {
             if new_stash.completed {
-                new_stash.completed_at = Some(chrono::Utc::now().to_rfc3339());
+                new_stash.completed_at = Some(crate::time::now_iso());
             } else {
                 new_stash.completed_at = None;
             }
@@ -68,7 +68,7 @@ pub fn calculate_stash_update(
     } else {
         // New item
         if new_stash.completed && new_stash.completed_at.is_none() {
-            new_stash.completed_at = Some(chrono::Utc::now().to_rfc3339());
+            new_stash.completed_at = Some(crate::time::now_iso());
         }
 
         if effective_position_str == "bottom" {
@@ -421,7 +421,7 @@ pub fn perform_startup_cleanup(db: &mut DbManager, settings: &Settings) -> usize
             // nothing at all. A setting that silently has no effect is worse than one
             // that is not offered.
             let days = settings.clear_completed_days as i64;
-            let cutoff = (chrono::Utc::now() - chrono::Duration::days(days)).to_rfc3339();
+            let cutoff = crate::time::days_ago_iso(days);
 
             let stale = completed_stashes(db, Some(&cutoff));
             if stale.is_empty() {
@@ -645,7 +645,7 @@ async fn write_asset(
         .map(|m| m.to_string());
     use uuid::Uuid;
     let att_id = Uuid::new_v4().to_string();
-    let created_at = chrono::Utc::now().to_rfc3339();
+    let created_at = crate::time::now_iso();
 
     {
         let db = state.lock_db();
@@ -780,7 +780,7 @@ pub async fn save_asset_from_path(
         .map(|m| m.to_string());
     use uuid::Uuid;
     let att_id = Uuid::new_v4().to_string();
-    let created_at = chrono::Utc::now().to_rfc3339();
+    let created_at = crate::time::now_iso();
 
     {
         let db = state.lock_db();

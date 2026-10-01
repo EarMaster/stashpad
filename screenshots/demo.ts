@@ -44,26 +44,16 @@ installMockBackend({ settings });
 /**
  * Freeze the clock at the fixtures' instant.
  *
- * Relative timestamps ("6m ago") are computed against `Date.now()`, so without this the
- * same scene captured twice produces two different images and every release ships a
- * screenshot diff that means nothing. Only the reading of "now" is frozen - timers still
- * run, or the app would never finish starting.
+ * Relative timestamps ("6m ago") are computed against the current time, so without this
+ * the same scene captured twice produces two different images and every release ships a
+ * screenshot diff that means nothing. Every reading of "now" in the app goes through
+ * `$lib/utils/time`, so fixing its clock is enough. Timers still run, or the app would
+ * never finish starting.
  */
 async function freezeClock(): Promise<void> {
     const { NOW } = await import('./fixtures');
-    const RealDate = Date;
-    const fixed = NOW.getTime();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const Frozen: any = function (this: unknown, ...args: unknown[]) {
-        return args.length === 0
-            ? new RealDate(fixed)
-            : new (RealDate as unknown as new (...a: unknown[]) => Date)(...args);
-    };
-    Frozen.prototype = RealDate.prototype;
-    Frozen.now = () => fixed;
-    Frozen.parse = RealDate.parse;
-    Frozen.UTC = RealDate.UTC;
-    globalThis.Date = Frozen;
+    const { setClock } = await import('../src/lib/utils/time');
+    setClock(() => NOW);
 }
 
 await freezeClock();

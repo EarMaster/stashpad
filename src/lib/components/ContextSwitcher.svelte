@@ -15,6 +15,7 @@
 
 <script lang="ts">
     import type { Context } from "$lib/types";
+    import { toEpochMs } from "$lib/utils/time";
     import { _, date as formatDate } from "$lib/i18n";
     import { Search, ArrowDownUp, Clock, Plus } from "lucide-svelte";
     import fuzzysort from "fuzzysort";
@@ -77,8 +78,8 @@
                 return b.name.localeCompare(a.name);
             } else {
                 // lastUsed desc
-                const tA = a.lastUsed ? new Date(a.lastUsed).getTime() : 0;
-                const tB = b.lastUsed ? new Date(b.lastUsed).getTime() : 0;
+                const tA = toEpochMs(a.lastUsed);
+                const tB = toEpochMs(b.lastUsed);
                 // If timestamps are equal (or both 0), maybe stable sort or alpha fallback?
                 // Let's fallback to alpha for stability
                 if (tA === tB) return a.name.localeCompare(b.name);

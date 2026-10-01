@@ -13,6 +13,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { CloudSyncService } from '../cloud-sync';
+import { fromEpochMs } from '$lib/utils/time';
 import { listen } from '@tauri-apps/api/event';
 import { attachmentSync } from '$lib/stores/attachment-sync.svelte';
 import type { IStorageService, Settings, CloudConfig, StashItem, Context } from '$lib/types';
@@ -250,7 +251,7 @@ describe('CloudSyncService', () => {
             await flushPromises();
 
             const payload = (adapter.syncStashesApi as any).mock.calls[0][0];
-            expect(payload.stashes[0].updatedAt).toBe(new Date(1755512000 * 1000).toISOString());
+            expect(payload.stashes[0].updatedAt).toBe(fromEpochMs(1755512000 * 1000));
         });
 
         it('never sends a stash without a context', async () => {
@@ -460,7 +461,7 @@ describe('CloudSyncService', () => {
                             id: 's1',
                             content: 'new',
                             createdAt: '2026-08-18T10:00:00Z',
-                            updatedAt: new Date(1755512500 * 1000).toISOString(),
+                            updatedAt: fromEpochMs(1755512500 * 1000),
                             attachments: [],
                         },
                     ],
@@ -501,7 +502,7 @@ describe('CloudSyncService', () => {
                             createdAt: '2026-08-18T10:00:00Z',
                             // Exactly the same second as the local copy, plus the
                             // sub-second precision only the server retains.
-                            updatedAt: new Date(1755512000 * 1000 + 777).toISOString(),
+                            updatedAt: fromEpochMs(1755512000 * 1000 + 777),
                             attachments: [],
                         },
                     ],
@@ -563,7 +564,7 @@ describe('CloudSyncService', () => {
                             description: null,
                             rules: [],
                             lastUsed: null,
-                            updatedAt: new Date(1755512000 * 1000).toISOString(),
+                            updatedAt: fromEpochMs(1755512000 * 1000),
                             deletedAt: null,
                         },
                     ],
@@ -834,7 +835,7 @@ describe('CloudSyncService', () => {
                             content: 'same content',
                             createdAt: '2026-08-18T10:00:00Z',
                             // Identical second - LWW alone would reject this.
-                            updatedAt: new Date(1755512000 * 1000).toISOString(),
+                            updatedAt: fromEpochMs(1755512000 * 1000),
                             attachments: [
                                 { id: 'a1', fileName: 'shot.png', fileSize: 10, filePath: '' },
                             ],
@@ -877,7 +878,7 @@ describe('CloudSyncService', () => {
                             content: 'note edited elsewhere',
                             createdAt: '2026-08-18T10:00:00Z',
                             // Newer, so the server's content wins...
-                            updatedAt: new Date(1755512500 * 1000).toISOString(),
+                            updatedAt: fromEpochMs(1755512500 * 1000),
                             // ...but it knows nothing of the unconfirmed attachment.
                             attachments: [],
                         },
@@ -1311,7 +1312,7 @@ describe('CloudSyncService', () => {
                             id: 's1',
                             content: 'new from another device',
                             createdAt: '2026-08-18T10:00:00Z',
-                            updatedAt: new Date(1755512500 * 1000).toISOString(),
+                            updatedAt: fromEpochMs(1755512500 * 1000),
                             attachments: [],
                         },
                     ],

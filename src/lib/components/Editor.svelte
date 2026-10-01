@@ -15,6 +15,7 @@
 
 <script lang="ts">
   import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
+  import { nowIso, nowMs } from "$lib/utils/time";
   import type { StashItem, FilePreviewData, Attachment } from "$lib/types";
   import { detectLanguage } from "$lib/utils/language-detection";
   import { _ } from "$lib/i18n";
@@ -288,7 +289,7 @@
                 // Need to convert Blob to File
                 const newFile = new File([resizedBlob], fileName, {
                   type: resizedBlob.type,
-                  lastModified: Date.now(),
+                  lastModified: nowMs(),
                 });
 
                 const attachment = await adapter.saveAsset(
@@ -534,7 +535,7 @@
               if (resizedBlob !== file) {
                 fileToSave = new File([resizedBlob], file.name, {
                   type: resizedBlob.type,
-                  lastModified: Date.now(),
+                  lastModified: nowMs(),
                 });
               }
             } catch (e) {
@@ -596,7 +597,7 @@
     // Generate a filename based on first line or timestamp
     const firstLine = text.split("\n")[0].slice(0, 30).trim();
     const safeName = firstLine.replace(/[^a-zA-Z0-9_-]/g, "_") || "pasted_code";
-    const timestamp = Date.now();
+    const timestamp = nowMs();
     // Always use .txt extension so AI agents can reliably interpret it without binary fallbacks
     const filename = `${safeName}_${timestamp}.txt`;
 
@@ -689,7 +690,7 @@
             id: f.id || crypto.randomUUID(),
             stashId: stashId,
           })),
-          createdAt: new Date().toISOString(),
+          createdAt: nowIso(),
           contextId: currentContextId,
         };
         await adapter.saveStash(stash, { invertPosition });

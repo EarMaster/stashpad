@@ -17,6 +17,10 @@ popover, not for the person who wrote the commit.
   billed to - the owner - got full access before ever assigning themselves one of their own
   seats. Cloud Sync now needs a Pro subscription or an actually assigned Enterprise seat, and
   an owner gets one the same way a teammate does
+- **An export's suggested file name carries the right date around midnight.** The name took
+  its date from UTC and its time from your own clock, so an export made in the hours between
+  your midnight and UTC's was named with the day before or the day after. Both now come from
+  your own calendar
 
 ## [1.9.0] - 2026-09-27
 

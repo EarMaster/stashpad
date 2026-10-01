@@ -199,7 +199,7 @@ mod tests {
             content: "test content".to_string(),
             attachments: vec![],
             files: vec![],
-            created_at: chrono::Utc::now().to_rfc3339(),
+            created_at: crate::time::now_iso(),
             context_id: "default".to_string(),
             completed: false,
             completed_at: None,
@@ -362,6 +362,13 @@ jobs:
    // Good: Flexible assertion
    expect(formattedDate).toContain('2025');
    ```
+
+   Fix "now" with `setClock` from `$lib/utils/time`, and restore it with `setClock(null)`
+   in `afterEach`. All app code reads the clock through that module, never `Date` -
+   `npm run check:temporal` fails on a `Date` anywhere, tests included. Build timestamps
+   with `fromEpochMs` or `toCanonical` so they have the same nine-digit form the app
+   writes. `vi.useFakeTimers()` still moves the clock as well, because the polyfill
+   reads the time through it.
 
 2. **File API Mocking**: jsdom doesn't fully support File APIs
    ```typescript

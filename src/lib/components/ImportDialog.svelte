@@ -5,6 +5,7 @@
 
 <script lang="ts">
     import { _ } from "$lib/i18n";
+    import { compareTimestamps } from "$lib/utils/time";
     import { portal } from "$lib/actions/portal";
     import { trapFocus } from "$lib/actions/trapFocus";
     import { open as openFile } from "@tauri-apps/plugin-dialog";
@@ -170,18 +171,14 @@
         parsedStashes
             .filter((s) => !s.completed)
             .sort(
-                (a, b) =>
-                    new Date(b.createdAt).getTime() -
-                    new Date(a.createdAt).getTime(),
+                (a, b) => compareTimestamps(b.createdAt, a.createdAt),
             ),
     );
     let completedStashes = $derived(
         parsedStashes
             .filter((s) => s.completed)
             .sort(
-                (a, b) =>
-                    new Date(b.createdAt).getTime() -
-                    new Date(a.createdAt).getTime(),
+                (a, b) => compareTimestamps(b.createdAt, a.createdAt),
             ),
     );
     let selectedStashes = $derived(

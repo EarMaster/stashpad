@@ -26,7 +26,9 @@ tauri-plugin-log = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 active-win-pos-rs = "0.8"
-chrono = { version = "0.4", features = ["serde"] }
+# UTC only: `sys` brings the clock and formatting, and leaving out the default `sys-local`
+# keeps the local-timezone lookup out of a backend that never needs one.
+temporal_rs = { version = "0.2.6", default-features = false, features = ["sys"] }
 base64 = "0.22"
 dirs = "6.0.0"
 arboard = "3.6.1"

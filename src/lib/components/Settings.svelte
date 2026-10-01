@@ -15,6 +15,7 @@
 
 <script lang="ts">
   import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
+  import { fromEpochMs } from "$lib/utils/time";
   import type { SyncStatus, SyncStatusDetail } from "$lib/services/cloud-sync";
   import type { Settings, AIConfig, CloudUsage, LocalKeyStatus } from "$lib/types";
   import EncryptionPanel from "$lib/components/EncryptionPanel.svelte";
@@ -1707,7 +1708,7 @@
                   {$_("settings.updates.lastChecked", {
                     values: {
                       when: getRelativeTime(
-                        new Date(settings.lastUpdateCheckAt).toISOString(),
+                        fromEpochMs(settings.lastUpdateCheckAt),
                         $_,
                       ),
                     },
