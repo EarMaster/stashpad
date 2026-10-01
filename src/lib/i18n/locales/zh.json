@@ -1,0 +1,592 @@
+{
+  "_meta": {
+    "codes": [
+      "zh"
+    ],
+    "name": "简体中文"
+  },
+  "app": {
+    "name": "Stashpad",
+    "copyright": "© 2025-2026 Nico Wiedemann",
+    "license": "基于 AGPL-3.0-only 许可证授权",
+    "madeWith": "使用 Tauri 和 Svelte 5 构建"
+  },
+  "common": {
+    "back": "返回",
+    "save": "保存",
+    "cancel": "取消",
+    "delete": "删除",
+    "edit": "编辑",
+    "copy": "复制",
+    "copied": "已复制！",
+    "clear": "清除",
+    "remove": "移除",
+    "add": "添加",
+    "loading": "正在加载…",
+    "active": "活动",
+    "default": "默认",
+    "unknown": "未知",
+    "close": "关闭",
+    "minimize": "最小化",
+    "current": "当前",
+    "imported": "已导入",
+    "select": "选择…"
+  },
+  "header": {
+    "autoContext": "自动上下文",
+    "manualContext": "手动上下文",
+    "settings": "设置",
+    "checking": "正在检查…",
+    "calculating": "正在计算…",
+    "updateAvailable": "可更新到 {version}"
+  },
+  "settings": {
+    "title": "设置",
+    "backToStash": "返回暂存项",
+    "loadingSettings": "正在加载设置…",
+    "contextManagement": {
+      "title": "上下文管理",
+      "manageContexts": "管理上下文",
+      "description": "配置自定义上下文和自动切换规则"
+    },
+    "general": {
+      "title": "通用",
+      "autoContextDetection": {
+        "label": "自动检测上下文",
+        "description": "根据当前活动窗口自动切换暂存项的上下文",
+        "macPermissionWarning": "在 macOS 上需要“屏幕录制”权限",
+        "grantPermission": "授予权限",
+        "restartNote": "授予权限后，请重启 Stashpad 使更改生效。"
+      },
+      "language": {
+        "label": "语言",
+        "description": "选择你偏好的语言",
+        "automatic": "自动",
+        "automaticDescription": "使用系统语言设置"
+      },
+      "newStashPosition": {
+        "label": "新暂存项位置",
+        "description": "新暂存项和刚完成的项目放在哪里",
+        "top": "列表顶部",
+        "bottom": "列表底部",
+        "shiftModifier": "添加时按住 Shift 可临时反转此设置"
+      },
+      "stripTagsOnCopy": {
+        "label": "复制时去除标签",
+        "description": "将暂存项内容复制到剪贴板时移除 #标签",
+        "shiftModifier": "复制时按住 Shift 可临时反转此设置"
+      },
+      "pasteAsAttachment": {
+        "label": "粘贴为附件",
+        "description": "粘贴内容超过此大小（字节）时，文本将保存为附件",
+        "zeroNote": "设为 0 则每次都询问如何处理",
+        "shiftModifier": "粘贴时按住 Shift 可始终以内联文本粘贴",
+        "unit": "字节"
+      },
+      "resizeImages": {
+        "label": "缩放图片",
+        "description": "自动缩小大图片以节省 token。",
+        "warning": "⚠️ 强烈建议保持开启，以免超出 token 限制。"
+      },
+      "autostart": {
+        "label": "开机启动",
+        "description": "电脑启动时自动启动 Stashpad"
+      }
+    },
+    "appearance": {
+      "title": "外观",
+      "theme": {
+        "label": "主题",
+        "description": "选择应用主题",
+        "light": "浅色",
+        "dark": "深色",
+        "system": "跟随系统"
+      },
+      "visualEffects": {
+        "label": "视觉效果",
+        "description": "启用半透明和模糊效果",
+        "windows10Note": "⚠ 在 Windows 10 上默认关闭，以避免拖动窗口时卡顿。⚠"
+      },
+      "uiScale": {
+        "label": "界面缩放",
+        "description": "调整用户界面的大小"
+      }
+    },
+    "shortcuts": {
+      "title": "快捷键",
+      "switchContext": {
+        "label": "切换上下文",
+        "description": "短按切换，长按循环切换"
+      },
+      "toggleStashpad": {
+        "label": "显示/隐藏 Stashpad",
+        "description": "用于显示/隐藏窗口的全局快捷键"
+      },
+      "clickToSet": "点击设置…",
+      "pressShortcut": "请按下快捷键…",
+      "clearShortcut": "清除快捷键"
+    },
+    "clearCompleted": {
+      "label": "自动清除已完成",
+      "description": "自动移除已完成的暂存项",
+      "never": "从不",
+      "onClose": "重启时",
+      "afterNDays": "{days} 天后",
+      "referencedHint": "仍被未完成暂存项引用的已完成暂存项会被保留，直到引用它的暂存项也完成为止。"
+    },
+    "clearCompletedDays": {
+      "label": "保留天数",
+      "description": "已完成的暂存项在删除前保留的天数",
+      "unit": "天"
+    },
+    "aiEnhancement": {
+      "title": "提示词增强",
+      "enable": {
+        "label": "启用提示词增强",
+        "description": "使用 AI 模型增强暂存项内容"
+      },
+      "provider": {
+        "label": "服务提供商",
+        "description": "选择一个服务提供商，或选择“自定义”",
+        "custom": "自定义"
+      },
+      "endpoint": {
+        "label": "API 端点",
+        "description": "兼容 OpenAI 的 API 端点"
+      },
+      "apiKey": {
+        "label": "API 密钥",
+        "description": "你的 API 密钥（可选）",
+        "show": "显示 API 密钥",
+        "hide": "隐藏 API 密钥"
+      },
+      "model": {
+        "label": "模型名称",
+        "description": "要使用的具体模型（例如 gpt-4o-mini）。"
+      },
+      "systemPrompt": {
+        "label": "系统提示词",
+        "description": "用于 AI 增强的指令。它们保存在一个外部文件中，方便编辑。",
+        "edit": "编辑提示词文件",
+        "create": "创建并打开",
+        "fallbackHint": "正在使用默认的备用提示词。创建该文件即可自定义指令。",
+        "reloaded": "已从磁盘重新加载系统提示词"
+      },
+      "appleIntelligence": {
+        "info": "Apple Intelligence 完全在设备端运行。你的数据永远不会离开你的 Mac，增强功能也不需要 API 密钥或网络连接。"
+      },
+      "testConnection": "测试连接",
+      "testSuccess": "连接成功！",
+      "testFailed": "连接失败：{error}",
+      "corsHint": "（请检查 LM Studio 设置中是否已启用“Cross-Origin (CORS)”）"
+    },
+    "updates": {
+      "checkForUpdates": "检查更新…",
+      "checking": "正在检查…",
+      "updateAvailable": "有可用更新",
+      "noUpdateTitle": "没有可用更新",
+      "noUpdateMessage": "你已在使用最新版本的 Stashpad。",
+      "sectionTitle": "更新",
+      "currentVersion": "Stashpad {version}",
+      "availableVersion": "版本 {version} 现已可用",
+      "lastChecked": "上次检查：{when}",
+      "neverChecked": "尚未检查",
+      "sittingOut": "有可用更新，但已被隐藏。",
+      "showAgain": "重新显示",
+      "checkFailedShort": "上次检查失败。",
+      "checkFailedTitle": "检查更新失败",
+      "checkFailed": "无法检查更新。\n\n{error}",
+      "installFailed": "无法安装更新。\n\n{error}",
+      "genericStore": "应用商店",
+      "autoChecks": {
+        "label": "自动检查",
+        "description": "在启动后不久以及每 48 小时检查一次新版本。"
+      }
+    },
+    "cloudSync": {
+      "subscription": {
+        "label": "订阅",
+        "active": "有效",
+        "freeNote": "云同步需要订阅",
+        "free": "免费版",
+        "upgrade": "升级",
+        "manage": "管理"
+      },
+      "usage": {
+        "attachments": "{count} 个附件",
+        "records": "{stashes} 个暂存项，{contexts} 个上下文",
+        "overQuota": "你已超出存储配额。目前不会阻止任何操作，但请移除不再需要的附件。"
+      },
+      "title": "云同步",
+      "beta": {
+        "title": "云同步正处于测试阶段",
+        "description": "云同步仍处于封闭测试阶段，即将推出。加入候补名单即可抢先体验。",
+        "waitlist": "加入候补名单"
+      },
+      "enable": {
+        "label": "启用云同步",
+        "description": "在多台设备之间同步你的暂存项和上下文"
+      },
+      "endpoint": {
+        "label": "API 端点",
+        "description": "云服务的根 API 端点"
+      },
+      "auth": {
+        "login": "使用 GitHub 登录",
+        "logout": "退出登录",
+        "loggedInAs": "已登录为 {email}",
+        "status": "云同步",
+        "authenticated": "已启用",
+        "notAuthenticated": "未启用",
+        "enableButton": "启用云同步",
+        "modalTitle": "授权云同步",
+        "waitingForAuth": "正在等待授权…\n你的浏览器应会自动打开。",
+        "openBrowserFallback": "如果浏览器没有打开，请点击这里",
+        "enterCodeManually": "手动输入代码",
+        "linkCodePlaceholder": "在此粘贴关联代码…",
+        "link": "关联",
+        "linking": "正在关联…",
+        "authSuccess": "云同步已启用！",
+        "lastSync": "上次同步：{time}",
+        "neverSynced": "从未同步",
+        "syncing": "正在同步…",
+        "syncSuccess": "同步成功",
+        "syncError": "同步失败",
+        "attachmentUploadFailed": "无法上传 {fileName}，将在 {minutes} 分钟后重试",
+        "attachmentUploadFailedMany": "无法上传 {fileName} 及另外 {count} 个文件，将在 {minutes} 分钟后重试",
+        "sessionExpired": "会话已过期",
+        "loginAgain": "重新登录"
+      }
+    }
+  },
+  "deviceKey": {
+    "setupTitle": "保护此安装",
+    "unlockTitle": "解锁 Stashpad",
+    "noKeyStore": "这台电脑没有安全的密钥存储，也没有可用的系统钥匙串。要使用云同步，请为此安装设置一个密码短语；或者不开启云同步，继续在本地工作。Stashpad 的所有功能都可以离线使用。",
+    "passphraseLabel": "密码短语",
+    "confirmLabel": "再次输入密码短语",
+    "confirmMismatch": "两次输入的密码短语不一致",
+    "rememberLabel": "在这台电脑上记住密码短语",
+    "rememberWarning": "这样 Stashpad 会在启动时自动解锁，不再询问。为此，它必须以可读回的形式把密钥保存在这台电脑上，因此任何能读取你用户账户的人都能恢复它，比如在你未锁定的电脑前的其他人、此文件夹的备份，或以你的身份运行的恶意软件。保持关闭则每次启动应用时都会询问你，这样更安全。",
+    "forgotNote": "即使忘记了也不会丢失任何内容：此安装会重新完成设置，你的暂存项也都原样保留。",
+    "wrongPassphrase": "这不是此安装的密码短语",
+    "setupAction": "设置密码短语",
+    "unlockAction": "解锁",
+    "workLocally": "不设置，仅在本地工作",
+    "rememberedNotice": "已在这台电脑上记住密码短语，任何能访问你用户账户的人都可以恢复它。",
+    "forgetRemembered": "启动时重新询问"
+  },
+  "encryption": {
+    "title": "加密",
+    "keptInKeychain": "这台电脑自己的密钥保存在你的系统钥匙串中。",
+    "keptUnderPassphrase": "由于这里没有可用的系统钥匙串，这台电脑自己的密钥由你的设备密码短语保护。",
+    "keptNowhere": "没有系统钥匙串，也没有设备密码短语，因此这台电脑上不会保存任何密钥。",
+    "loading": "正在检查…",
+    "retry": "重试",
+    "setPassphrase": "设置设备密码短语",
+    "unlockPassphrase": "输入你的设备密码短语",
+    "offExplainer": "你的暂存项存储在我们的服务器上，这样你的各台设备看到的内容才能一致。开启此功能后，它们会先在这台电脑上加密，所用的密钥我们不会保存。",
+    "costRecovery": "你会获得一个恢复码。如果你丢失了所有安装以及这个恢复码，任何人都无法找回你的暂存项，包括你和我们。",
+    "costMcp": "用于 AI 工具的访问密钥自带一份该密钥的副本，因此在处理此类请求期间，我们的服务器能够读取该账户。如果你不创建访问密钥，我们就完全无法读取。",
+    "costLocal": "这保护的是存储在我们服务器上的内容。这台电脑上的内容保持不变。",
+    "turnOn": "开启加密",
+    "recoveryIntro": "请现在把它写下来，或保存到你的密码管理器中。它只显示这一次，之后无法再次显示。",
+    "recoveryWarning": "如果你丢失了所有安装以及这个恢复码，你的暂存项将无法恢复，无论是你还是我们都做不到。我们无法为任何人破例。",
+    "copyCode": "复制恢复码",
+    "typeBackLabel": "输入最后一组（{group}），以确认你已保存它",
+    "typeBackMismatch": "这不是恢复码的最后一组。请检查你写下的内容。",
+    "confirmWrittenDown": "我已经写下来了",
+    "converting": "正在加密你的暂存项，还剩 {count} 个。你可以继续工作；如果关闭应用，下次会从中断处继续。",
+    "convertingDone": "所有内容均已加密。点击“完成”以封存该账户。",
+    "progressLabel": "加密进度",
+    "progressCount": "已完成 {done}/{total}（{percent}%）",
+    "finishBlocked": "所有暂存项加密完成后才可用。",
+    "finish": "完成",
+    "sealedExplainer": "你的暂存项在离开这台电脑之前就已加密。",
+    "lockedHere": "此安装暂时无法读取你已加密的暂存项。请在一个已能读取的安装上批准它，或输入你的恢复码。",
+    "lockedApproveAlternative": "也可以在一个已能读取它们的安装上批准此安装，无需输入恢复码。",
+    "useRecoveryCode": "使用恢复码",
+    "pendingTitle": "正在等待批准",
+    "compareInstruction": "在另一台电脑上打开加密设置，将其中显示的代码与这里的代码进行比对。",
+    "confirmMatch": "我已比对两个代码，它们完全相同。",
+    "confirmMatchHint": "如果两者不同，请不要批准，可能有其他人正在试图进入。",
+    "approve": "批准此安装",
+    "thisInstallation": "此安装",
+    "activeCount": "有 {count} 个安装可以读取你的暂存项。"
+  },
+  "contexts": {
+    "title": "上下文",
+    "defaultContext": "默认",
+    "back": "返回",
+    "loadingContexts": "正在加载上下文…",
+    "manageDescription": "管理你的上下文和自动切换规则。",
+    "addContext": "添加上下文",
+    "addRule": "添加规则",
+    "newContext": "新建上下文",
+    "contextNamePlaceholder": "上下文名称",
+    "removeContext": "移除",
+    "shiftClickToSkip": "按住 Shift 点击可跳过确认",
+    "deleteConfirm": "删除此上下文？",
+    "deleteConfirmEmpty": "其中没有暂存项。",
+    "deleteConfirmOne": "其中的暂存项将一并删除。",
+    "deleteConfirmMany": "其中的 {count} 个暂存项将一并删除。",
+    "autoSwitchRules": "自动切换规则",
+    "noRules": "尚未定义规则。只有手动选择时，此上下文才会被激活。",
+    "noContexts": "尚未定义自定义上下文。暂存项将放入“默认”。",
+    "description": {
+      "label": "描述",
+      "placeholder": "描述这个项目，例如项目信息、技术栈、约定等。如果你使用 AI 增强，这些信息会特别有帮助。"
+    },
+    "export": "导出",
+    "exportContext": "将所有暂存项导出为 Markdown 文件",
+    "exportTitle": "将上下文导出为 Markdown",
+    "exportDialog": {
+      "title": "导出上下文",
+      "selectStashes": "选择要导出的暂存项",
+      "includeAttachments": "包含附件（导出为 ZIP）",
+      "selectAll": "全选",
+      "deselectAll": "取消全选",
+      "export": "导出",
+      "noStashesSelected": "未选择暂存项",
+      "estimatedSize": "预计文件大小",
+      "file": "个文件",
+      "files": "个文件",
+      "zipFilter": "ZIP 压缩包",
+      "markdownFilter": "Markdown",
+      "downloading": "正在下载附件…",
+      "failed": "导出失败。"
+    },
+    "import": "导入",
+    "importContext": "从文件导入暂存项",
+    "importDialog": {
+      "unreadableDates": "有 {count} 个暂存项的创建日期无法被此版本读取，它们的日期将设为现在的导入时间。",
+      "title": "导入上下文",
+      "selectStashes": "选择要导入的暂存项",
+      "selectFile": "选择导出文件",
+      "dropZone": "拖放区域",
+      "attachment": "（{count} 个附件）",
+      "attachments": "（{count} 个附件）",
+      "selectFileDesc": "从 Stashpad 导出文件（.md 或 .zip）导入暂存项",
+      "supportedFormats": "支持 .md 和 .zip 文件",
+      "chooseFile": "选择文件",
+      "parsing": "正在解析…",
+      "dropToImport": "或将文件拖放到此处导入",
+      "duplicatesFound": "发现 {count} 个重复项",
+      "duplicateTooltip": "此暂存项似乎与已有的暂存项重复",
+      "noStashesFound": "此文件中没有找到暂存项。",
+      "import": "导入所选项",
+      "selectedCount": "已选择 {count} 个暂存项",
+      "conflictTitle": "元数据冲突",
+      "conflictDescription": "导入的上下文与你当前上下文的元数据不同。请选择要保留的值。",
+      "confirmImport": "确认导入",
+      "fileFilter": "Stashpad 导出文件",
+      "readFailed": "无法读取此文件。",
+      "importFailed": "导入失败，未导入任何内容。",
+      "missingAttachments": "此文件链接的 {count} 个附件不在文件中，将被跳过：{names}"
+    },
+    "rules": {
+      "process": "进程名称",
+      "title": "窗口标题",
+      "contains": "包含",
+      "exact": "完全等于",
+      "valuePlaceholder": "值（例如“code”“Project X”）",
+      "matchCase": "区分大小写",
+      "useRegex": "使用正则表达式"
+    },
+    "stats": {
+      "stash": "个暂存项",
+      "stashes": "个暂存项",
+      "storage": "已用存储",
+      "used": "已用",
+      "lastUsed": "上次使用"
+    }
+  },
+  "contextSwitcher": {
+    "searchPlaceholder": "搜索上下文…",
+    "selectContext": "选择上下文",
+    "switchContext": "切换上下文",
+    "moveStashTo": "将暂存项移动到…",
+    "sortByLastUsed": "按上次使用时间排序",
+    "sortAlphabetically": "按字母顺序排序",
+    "noContextsFound": "未找到上下文",
+    "autoContextDetection": "自动检测上下文",
+    "manageContexts": "管理上下文…",
+    "createContext": "创建“{name}”",
+    "holdShiftToCopy": "按住 Shift 以复制而非移动",
+    "alwaysThereForYou": "随时为你待命…",
+    "time": {
+      "justNow": "刚刚",
+      "minute": "{count} 分钟前",
+      "minutes": "{count} 分钟前",
+      "hour": "{count} 小时前",
+      "hours": "{count} 小时前",
+      "yesterday": "昨天",
+      "daysAgo": "{count} 天前"
+    }
+  },
+  "queue": {
+    "active": "活动",
+    "stashQueue": "暂存队列",
+    "completed": "已完成",
+    "backToTop": "回到顶部",
+    "clearCompleted": "清除已完成",
+    "deleteAllCompleted": "删除所有已完成的暂存项",
+    "queueEmpty": "你的 Stashpad 还是空的。添加点新内容开始吧！",
+    "noActiveStashes": "没有活动的暂存项。",
+    "noActiveStashesFound": "没有符合筛选条件的活动暂存项。",
+    "restoreOrder": "恢复手动排序",
+    "completeAll": "全部完成",
+    "completeAllConfirm": "确定要将此上下文中所有活动的暂存项标记为完成吗？",
+    "sortOldest": "日期：最早的在前",
+    "sortNewest": "日期：最新的在前",
+    "stashAdded": "已添加暂存项",
+    "filterStashes": "筛选暂存项",
+    "attachmentFilter": {
+      "any": "有附件",
+      "none": "无附件",
+      "image": "图片",
+      "video": "视频",
+      "text": "文本和代码",
+      "other": "其他文件"
+    }
+  },
+  "stashCard": {
+    "showMore": "显示更多",
+    "showLess": "收起",
+    "emptyStash": "-- 空 --",
+    "attachment": "{count} 个附件（{size}）",
+    "attachments": "{count} 个附件（{size}）",
+    "copied": "已复制！",
+    "restoreToActive": "恢复到活动队列",
+    "markAsCompleted": "标记为已完成",
+    "dragToAIContext": "拖动到 AI 上下文",
+    "dragAllAttachments": "拖动所有附件",
+    "editPlaceholder": "编辑暂存项内容…",
+    "copyToClipboard": "复制到剪贴板",
+    "editContent": "编辑内容",
+    "moveToTop": "移到顶部",
+    "moveToBottom": "移到底部",
+    "moveToContext": "移动到其他上下文",
+    "deleteStash": "删除暂存项",
+    "deleteStashConfirm": "删除此暂存项？",
+    "shiftClickDelete": "按住 Shift 点击可跳过确认",
+    "dragToReorder": "拖动以重新排序",
+    "limitExceeded": "超出限制",
+    "fileTooLarge": "文件过大。最大大小为 {limit}。",
+    "stashSizeExceeded": "已超出暂存项总大小限制（{limit}）。",
+    "enhanceWithAI": "使用 AI 增强",
+    "enhancing": "正在增强…",
+    "enhanceError": "增强失败：{error}",
+    "hasBeenEnhanced": "已使用 AI 增强",
+    "viewOriginal": "查看原文",
+    "viewEnhanced": "查看增强版",
+    "regenerateEnhanced": "重新生成",
+    "removeEnhanced": "移除增强版",
+    "contentEdited": "原始内容已被编辑。要重新生成增强版吗？",
+    "regenerate": "重新生成",
+    "keepEnhanced": "保留当前版本"
+  },
+  "stashRef": {
+    "stateOpen": "未完成",
+    "stateCompleted": "已完成",
+    "stateCompletedAt": "完成于 {time}",
+    "inContext": "位于 {name}",
+    "gone": "已删除或不可用",
+    "deleteReferenced": "删除此暂存项？{count, plural, one {有 # 个其他暂存项引用了它} other {有 # 个其他暂存项引用了它}}，删除后这些引用将失效。",
+    "clearReferenced": "其中一些仍被其他暂存项引用。"
+  },
+  "editor": {
+    "referenceStash": "引用暂存项",
+    "placeholder": "在此输入暂存内容…（Cmd+Enter 保存）",
+    "addStash": "暂存",
+    "saving": "正在保存…",
+    "dropFiles": "拖放附件以暂存",
+    "dragFilesHere": "或将附件拖到此处…",
+    "addFile": "添加附件",
+    "selectFilesTitle": "选择要附加的文件",
+    "removeFile": "移除文件",
+    "regionLabel": "暂存项编辑器",
+    "bold": "粗体",
+    "italic": "斜体",
+    "heading": "标题",
+    "list": "列表",
+    "orderedList": "有序列表",
+    "code": "代码",
+    "link": "链接",
+    "expand": "展开编辑器",
+    "collapse": "收起编辑器",
+    "pasteChoice": {
+      "title": "你想如何粘贴？",
+      "description": "粘贴的内容可以作为文本添加，也可以保存为文件附件。",
+      "inline": "粘贴为文本",
+      "attachment": "保存为附件"
+    },
+    "clear": "清除",
+    "clearConfirm": {
+      "title": "清空编辑器？",
+      "description": "这将移除所有文本和附件。此操作无法撤销。"
+    }
+  },
+  "shortcutInput": {
+    "ariaLabel": "快捷键输入框。按 Enter 录制新的快捷键。"
+  },
+  "errorBoundary": {
+    "title": "出了点问题",
+    "description": "应用的这一部分已停止响应。你的暂存项已安全保存在磁盘上。详细信息已写入应用日志。",
+    "tryAgain": "重试",
+    "reload": "重新加载"
+  },
+  "exitDialog": {
+    "title": "放弃草稿？",
+    "description": "编辑器中有未保存的内容。确定要退出吗？",
+    "discardAndExit": "放弃并退出"
+  },
+  "filePreview": {
+    "clickToPreview": "点击预览附件",
+    "dragOrClickToPreview": "拖动以导出，点击以预览",
+    "openLocation": "打开所在位置",
+    "unsupportedType": "此类附件不支持预览",
+    "videoNotSupported": "你的浏览器不支持视频播放",
+    "selectLanguage": "选择语法高亮的语言"
+  },
+  "attachments": {
+    "syncing": "正在从云端同步 {name}…",
+    "downloadFailed": "无法下载 {name}，点击重试"
+  },
+  "updateNotice": {
+    "title": "有可用更新",
+    "version": "版本 {version}",
+    "notesHeading": "更新说明",
+    "installAndRestart": "安装并重启",
+    "howToUpdate": "Stashpad 是通过 {pmName} 安装的。请在那里更新：",
+    "managedByStore": "此副本的更新由 {storeName} 负责。",
+    "remindLater": "7 天后提醒我",
+    "skipVersion": "跳过 {version}",
+    "updateExternally": "此 Stashpad 副本由应用外部管理。请按照你的安装方式进行更新。"
+  },
+  "errors": {
+    "e2ee": {
+      "nowhere_safe": "Stashpad 在这台电脑上找不到安全的地方来保存加密密钥。请在“设置”中设置设备密码短语，或使用带有系统钥匙串的电脑。",
+      "device_key_unopenable": "无法在这台电脑上打开此安装的密钥。",
+      "device_key_damaged": "此安装的密钥已损坏。请在一个已能读取你暂存项的安装上重新批准这台电脑，或使用你的恢复码。",
+      "device_key_wrong_size": "该安装发布的密钥大小不正确，因此未予批准。",
+      "fingerprint_mismatch": "代码不一致。该安装显示的是 {shown}，请不要批准它。",
+      "not_encrypted": "此账户未加密。",
+      "attachment_truncated": "此文件不完整，无法打开。",
+      "attachment_undecryptable": "无法解密此文件。",
+      "wrong_account_key": "该密钥不属于此账户。",
+      "recovery_code_malformed": "这看起来不像恢复码。恢复码以 SP1- 开头，后面有十三组字符。",
+      "recovery_code_typo": "此恢复码中有输入错误。请检查后重试。",
+      "recovery_code_length": "恢复码在 SP1- 之后应有 {expected} 个字符，而此恢复码有 {actual} 个。",
+      "recovery_code_wrong_account": "此恢复码不属于此账户。"
+    },
+    "transfer": {
+      "attachments_missing": "有 {count} 个附件不在此设备上，且无法获取：{names}"
+    },
+    "localkey": {
+      "passphrase_empty": "密码短语不能为空。",
+      "no_passphrase": "这台电脑上未设置密码短语。",
+      "locked": "请先输入你的密码短语。"
+    }
+  }
+}

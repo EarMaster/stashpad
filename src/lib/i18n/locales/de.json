@@ -207,7 +207,10 @@
       "subscription": {
         "label": "Abonnement",
         "active": "Aktiv",
-        "freeNote": "Cloud-Synchronisierung erfordert ein Abonnement"
+        "freeNote": "Cloud-Synchronisierung erfordert ein Abonnement",
+        "free": "Kostenlos",
+        "upgrade": "Upgrade",
+        "manage": "Verwalten"
       },
       "usage": {
         "attachments": "{count} Anhänge",

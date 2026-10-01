@@ -207,7 +207,10 @@
       "subscription": {
         "label": "Subscription",
         "active": "Active",
-        "freeNote": "Cloud sync requires a subscription"
+        "freeNote": "Cloud sync requires a subscription",
+        "free": "Free",
+        "upgrade": "Upgrade",
+        "manage": "Manage"
       },
       "usage": {
         "attachments": "{count} attachments",
