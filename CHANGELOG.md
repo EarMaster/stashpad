@@ -11,6 +11,8 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+## [1.9.1] - 2026-10-01
+
 ### Fixed
 - **An Enterprise-billed account no longer syncs on its own, without an assigned seat.**
   The Enterprise tier used to turn on Cloud Sync by itself, so the account a subscription is
