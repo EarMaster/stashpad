@@ -11,6 +11,8 @@
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 // See the GNU Affero General Public License for more details.
 
+import type { LogLevel } from './utils/log';
+
 export interface Attachment {
     id: string;
     stashId: string;
@@ -238,8 +240,8 @@ export interface IStorageService {
     deleteContext(id: string): Promise<void>;
     setAutostart(enabled: boolean): Promise<void>;
     getAutostartEnabled(): Promise<boolean>;
-    /** Forward a frontend error to the backend logger. */
-    logFrontendError(message: string): Promise<void>;
+    /** Forward a line from the frontend logger to the backend's log file. */
+    logFrontend(level: LogLevel, message: string): Promise<void>;
     exchangeLinkCodeApi(token: string, deviceId?: string): Promise<CloudConfig>;
     /** Fetch account info from cloud and update local subscription status */
     fetchCloudAccount(): Promise<CloudConfig>;

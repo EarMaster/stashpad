@@ -28,7 +28,7 @@ pub async fn get_contexts(state: State<'_, Arc<DbState>>) -> Result<Vec<Context>
     Ok(match state.lock_db().get_contexts() {
         Ok(contexts) => contexts,
         Err(e) => {
-            println!("Failed to get contexts: {}", e);
+            log::error!("Failed to get contexts: {}", e);
             vec![]
         }
     })
@@ -39,7 +39,7 @@ pub async fn save_contexts(
     state: State<'_, Arc<DbState>>,
     contexts: Vec<Context>,
 ) -> Result<(), UiError> {
-    println!("Saving {} contexts", contexts.len());
+    log::debug!("Saving {} contexts", contexts.len());
     let mut db = state.lock_db();
     let tx_result = db.conn.transaction().and_then(|tx| {
         for ctx in &contexts {
@@ -64,19 +64,19 @@ pub async fn save_contexts(
     });
 
     if let Err(e) = tx_result {
-        println!("Failed to save contexts: {}", e);
+        log::error!("Failed to save contexts: {}", e);
     }
     Ok(())
 }
 
 #[tauri::command]
 pub async fn save_context(state: State<'_, Arc<DbState>>, context: Context) -> Result<(), UiError> {
-    println!("Saving context: {} ({})", context.name, context.id);
+    log::debug!("Saving context: {} ({})", context.name, context.id);
     if let Err(e) = state
         .lock_db()
         .save_context(&context, WriteOrigin::LocalEdit)
     {
-        println!("Failed to save context: {}", e);
+        log::error!("Failed to save context: {}", e);
     }
     Ok(())
 }
@@ -102,11 +102,11 @@ pub async fn import_contexts(
 /// the result is the same whichever side the deletion starts on.
 #[tauri::command]
 pub async fn delete_context(state: State<'_, Arc<DbState>>, id: String) -> Result<(), UiError> {
-    println!("Deleting context: {}", id);
+    log::info!("Deleting context: {}", id);
     let mut db = state.lock_db();
     match db.delete_context(&id) {
         Ok(deleted) => crate::stashes::purge_deleted_stash_files(&db, &deleted),
-        Err(e) => println!("Failed to delete context: {}", e),
+        Err(e) => log::error!("Failed to delete context: {}", e),
     }
     Ok(())
 }

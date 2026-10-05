@@ -16,10 +16,8 @@ import "./app.css";
 import App from "./App.svelte";
 import { setupI18n, type SupportedLocale } from "$lib/i18n";
 import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
-import {
-  installGlobalErrorReporter,
-  setErrorForwarder,
-} from "$lib/utils/error-reporting";
+import { installGlobalErrorReporter } from "$lib/utils/error-reporting";
+import { log, setLogForwarder } from "$lib/utils/log";
 
 // Extend window interface for initial data passing
 declare global {
@@ -45,7 +43,7 @@ async function loadInitialData(): Promise<{ settings: Settings | null; locale: "
     };
   } catch (error) {
     // If settings can't be loaded (e.g., first run), use automatic detection
-    console.warn("Could not load initial settings, using defaults:", error);
+    log.warn("Could not load initial settings, using defaults:", error);
     return { settings: null, locale: "auto" };
   }
 }
@@ -78,7 +76,7 @@ async function initApp(): Promise<void> {
   // rather than lost. Without this the app can die behind the splash screen with no
   // trace at all in a release build.
   const reportingAdapter = new DesktopStorageAdapter();
-  setErrorForwarder((message) => reportingAdapter.logFrontendError(message));
+  setLogForwarder((level, message) => reportingAdapter.logFrontend(level, message));
   installGlobalErrorReporter();
 
   // Load initial data (settings includes locale preference)

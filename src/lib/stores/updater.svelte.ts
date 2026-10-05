@@ -28,6 +28,7 @@ import { nowMs } from "$lib/utils/time";
 import { installKindFor, type InstallKind } from '../utils/installation';
 import { errorText } from "$lib/errors";
 
+import { log } from '$lib/utils/log';
 /** How long a successful check is good for. */
 const CHECK_INTERVAL_MS = 48 * 60 * 60 * 1000;
 
@@ -284,7 +285,7 @@ export class UpdateChecker {
             this.lastResult = 'error';
             this.lastError = errorText(e);
             this.nextAttemptAt = deps.now() + RETRY_AFTER_ERROR_MS;
-            console.error('Failed to check for updates:', e);
+            log.error('Failed to check for updates:', e);
         } finally {
             this.status = 'idle';
         }

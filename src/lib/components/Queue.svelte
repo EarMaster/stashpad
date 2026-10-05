@@ -66,6 +66,7 @@
       type ResolvedRef,
    } from "$lib/utils/stash-refs";
    import { reportError } from "$lib/utils/error-reporting";
+   import { log } from "$lib/utils/log";
 
    let {
       transferMode,
@@ -645,13 +646,10 @@
    }
 
    function handleDndConsider(e: CustomEvent) {
-      console.log(
+      // Ids only: this lands in the dev log file, and stash text does not belong there.
+      log.debug(
          "CONSIDER - items received:",
-         e.detail.items.map((i) => ({
-            id: i.id,
-            isShadow: i.isDndShadowItem,
-            content: i.content?.substring(0, 20),
-         })),
+         e.detail.items.map((i) => ({ id: i.id, isShadow: i.isDndShadowItem })),
       );
 
       // MUST keep shadows in array - library needs them to track dragged item
@@ -663,13 +661,10 @@
    }
 
    function handleDndFinalize(e: CustomEvent) {
-      console.log(
+      // Ids only: this lands in the dev log file, and stash text does not belong there.
+      log.debug(
          "FINALIZE - items received:",
-         e.detail.items.map((i) => ({
-            id: i.id,
-            isShadow: i.isDndShadowItem,
-            content: i.content?.substring(0, 30),
-         })),
+         e.detail.items.map((i) => ({ id: i.id, isShadow: i.isDndShadowItem })),
       );
 
       activeStashes = e.detail.items;

@@ -37,6 +37,7 @@
   import logoTypo from "../../../assets/stashpad/Typo.svg";
   import { tooltip } from "$lib/actions/tooltip";
 
+  import { log } from "$lib/utils/log";
   let contextInfo = $state<AppContext>({
     windowTitle: $_("header.checking"),
     processName: "",
@@ -161,7 +162,7 @@
       try {
         contextInfo = await adapter.getPreviousAppInfo();
       } catch (e) {
-        console.error(e);
+        log.error(e);
       }
     }, 1000);
     return () => clearInterval(interval);

@@ -67,6 +67,7 @@
   import { createSyncDisplay } from "$lib/utils/sync-display.svelte";
   import { errorText } from "$lib/errors";
 
+  import { log } from "$lib/utils/log";
   let {
     settings = $bindable(),
     syncStatus,
@@ -130,7 +131,7 @@
     try {
       await adapter.saveSettings(settings);
     } catch (e) {
-      console.error("Failed to save settings", e);
+      log.error("Failed to save settings", e);
     }
   }
 
@@ -207,7 +208,7 @@
       clearTimeout(saveTimer);
       saveTimer = null;
       void adapter.saveSettings(settings).catch((e) => {
-        console.error("Failed to save settings", e);
+        log.error("Failed to save settings", e);
       });
     }
   });
@@ -268,7 +269,7 @@
   /** Opens the cloud sync waitlist on the website. */
   function openWaitlist() {
     openUrl(waitlistUrl(settings.cloudConfig?.endpoint)).catch((err) => {
-      console.error("Failed to open the waitlist:", err);
+      log.error("Failed to open the waitlist:", err);
     });
   }
 
@@ -316,7 +317,7 @@
       cloudUsage = await adapter.fetchCloudUsage();
     } catch (e) {
       // Usage is informational; failing to fetch it must not disturb the panel.
-      console.warn("[Settings] Could not fetch cloud usage:", e);
+      log.warn("[Settings] Could not fetch cloud usage:", e);
     }
   }
 
@@ -332,7 +333,7 @@
         hasScreenRecordingPermission =
           await adapter.checkScreenRecordingPermission();
       } catch (e) {
-        console.error("Failed to check screen recording permission:", e);
+        log.error("Failed to check screen recording permission:", e);
       }
     }
 
@@ -344,7 +345,7 @@
         save();
       }
     } catch (e) {
-      console.error("Failed to get autostart status:", e);
+      log.error("Failed to get autostart status:", e);
     }
   });
 
@@ -355,7 +356,7 @@
     try {
       await adapter.openMacosScreenRecordingSettings();
     } catch (e) {
-      console.error("Failed to open screen recording settings:", e);
+      log.error("Failed to open screen recording settings:", e);
     }
   }
 
@@ -398,7 +399,7 @@
         save();
       }
     } catch (e) {
-      console.error("Failed to check Apple Intelligence availability:", e);
+      log.error("Failed to check Apple Intelligence availability:", e);
     }
   });
 
@@ -472,7 +473,7 @@
       };
       save();
     } catch (e) {
-      console.error("Failed to fetch subscription", e);
+      log.error("Failed to fetch subscription", e);
     }
   }
 
@@ -510,7 +511,7 @@
       : `${endpoint}/account/home`;
 
     openUrl(accountUrl).catch((err) => {
-      console.error("Failed to open account portal:", err);
+      log.error("Failed to open account portal:", err);
     });
   }
 
@@ -1249,7 +1250,7 @@
                   await adapter.setAutostart(settings.autostart ?? false);
                   save();
                 } catch (e) {
-                  console.error("Failed to update autostart:", e);
+                  log.error("Failed to update autostart:", e);
                   // Revert the toggle if it failed
                   settings.autostart = !settings.autostart;
                 }

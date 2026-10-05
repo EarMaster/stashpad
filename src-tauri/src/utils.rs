@@ -314,20 +314,20 @@ pub fn apply_window_effects_to_window(
             // Try Mica first (Windows 11) - Mica respects system theme automatically
             match apply_mica(window, Some(is_dark)) {
                 Ok(_) => {
-                    println!("Applied Mica effect (Windows 11, dark={})", is_dark);
+                    log::debug!("Applied Mica effect (Windows 11, dark={})", is_dark);
                 }
                 Err(_) => {
                     // Mica not available (Windows 10 or earlier), try Acrylic
-                    println!(
+                    log::debug!(
                         "Mica not available, trying Acrylic (Windows 10, dark={})…",
                         is_dark
                     );
                     match apply_acrylic(window, Some(acrylic_color)) {
                         Ok(_) => {
-                            println!("Applied Acrylic effect (Windows 10, dark={})", is_dark);
+                            log::debug!("Applied Acrylic effect (Windows 10, dark={})", is_dark);
                         }
                         Err(e) => {
-                            println!("Failed to apply Acrylic effect: {:?}", e);
+                            log::warn!("Failed to apply Acrylic effect: {:?}", e);
                             // Fall back to transparent window without effects
                         }
                     }
@@ -339,16 +339,16 @@ pub fn apply_window_effects_to_window(
         {
             // Apply vibrancy with a dark appearance
             if let Err(e) = apply_vibrancy(window, NSVisualEffectMaterial::HudWindow, None, None) {
-                println!("Failed to apply vibrancy effect: {:?}", e);
+                log::warn!("Failed to apply vibrancy effect: {:?}", e);
             } else {
-                println!("Applied vibrancy effect (macOS)");
+                log::debug!("Applied vibrancy effect (macOS)");
             }
         }
 
         // Linux: No window-vibrancy support, transparency handled by compositor
         #[cfg(target_os = "linux")]
         {
-            println!("Linux: Window transparency is handled by the compositor");
+            log::debug!("Linux: Window transparency is handled by the compositor");
         }
     } else {
         // Clear effects for opaque background
@@ -357,19 +357,19 @@ pub fn apply_window_effects_to_window(
             // Try to clear both effects (one will succeed based on what was applied)
             let _ = clear_mica(window);
             let _ = clear_acrylic(window);
-            println!("Cleared window effects (Windows)");
+            log::debug!("Cleared window effects (Windows)");
         }
 
         #[cfg(target_os = "macos")]
         {
             // On macOS, vibrancy can't be easily cleared programmatically,
             // but the CSS will show an opaque background when effects are disabled
-            println!("macOS: Visual effects disabled (CSS will handle opaque background)");
+            log::debug!("macOS: Visual effects disabled (CSS will handle opaque background)");
         }
 
         #[cfg(target_os = "linux")]
         {
-            println!("Linux: Visual effects disabled");
+            log::debug!("Linux: Visual effects disabled");
         }
     }
 }
@@ -611,7 +611,7 @@ pub async fn read_clipboard_text() -> Result<String, UiError> {
 /// the drag call is kept minimal.
 #[tauri::command]
 pub fn start_drag(window: tauri::Window, text: String, files: Vec<String>) -> Result<(), UiError> {
-    println!("Starting drag with {} files", files.len());
+    log::debug!("Starting drag with {} files", files.len());
 
     let items = if !files.is_empty() {
         let paths: Vec<PathBuf> = files.iter().map(PathBuf::from).collect();
@@ -635,7 +635,7 @@ pub fn start_drag(window: tauri::Window, text: String, files: Vec<String>) -> Re
         let temp_path = cache_dir.join(filename);
 
         if let Err(e) = fs::write(&temp_path, &text) {
-            println!("Failed to write temp drag file: {}", e);
+            log::error!("Failed to write temp drag file: {}", e);
             return Err("Failed to create drag data".into());
         }
 
@@ -960,22 +960,6 @@ pub fn get_previous_app_info(state: State<Arc<Mutex<TrackerState>>>) -> AppConte
             detected_context_id: None,
         }
     }
-}
-
-/// Record an error the webview could not handle itself.
-///
-/// In a release build the webview console is discarded, so a render error that killed
-/// the UI left no trace anywhere. Routing it through `log::error!` puts it in the same
-/// app log as backend failures, which is the only place a user can be asked to look.
-///
-/// The message is truncated by character, not byte, so a multi-byte stack trace cannot
-/// panic the command - the same mistake that used to kill the sync commands.
-#[tauri::command]
-pub fn log_frontend_error(message: String) {
-    const MAX_CHARS: usize = 4000;
-    let trimmed: String = message.chars().take(MAX_CHARS).collect();
-    let elided = message.chars().nth(MAX_CHARS).is_some();
-    log::error!("[frontend] {}{}", trimmed, if elided { " […]" } else { "" });
 }
 
 #[cfg(test)]

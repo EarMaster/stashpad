@@ -95,9 +95,10 @@ pub fn validate_settings(mut settings: Settings) -> Settings {
 
     // Validate new_stash_position: must be "top" or "bottom"
     if settings.new_stash_position != "top" && settings.new_stash_position != "bottom" {
-        println!(
-            "Warning: Invalid new_stash_position '{}', defaulting to '{}'",
-            settings.new_stash_position, defaults.new_stash_position
+        log::warn!(
+            "Invalid new_stash_position '{}', defaulting to '{}'",
+            settings.new_stash_position,
+            defaults.new_stash_position
         );
         settings.new_stash_position = defaults.new_stash_position.clone();
     }
@@ -105,9 +106,10 @@ pub fn validate_settings(mut settings: Settings) -> Settings {
     // Validate clear_completed_strategy: must be "never", "on-close", or "after-n-days"
     let valid_strategies = ["never", "on-close", "after-n-days"];
     if !valid_strategies.contains(&settings.clear_completed_strategy.as_str()) {
-        println!(
-            "Warning: Invalid clear_completed_strategy '{}', defaulting to '{}'",
-            settings.clear_completed_strategy, defaults.clear_completed_strategy
+        log::warn!(
+            "Invalid clear_completed_strategy '{}', defaulting to '{}'",
+            settings.clear_completed_strategy,
+            defaults.clear_completed_strategy
         );
         settings.clear_completed_strategy = defaults.clear_completed_strategy.clone();
     }
@@ -115,18 +117,15 @@ pub fn validate_settings(mut settings: Settings) -> Settings {
     // Validate theme: must be "light", "dark", "system", or None
     if let Some(ref theme) = settings.theme {
         if !["light", "dark", "system"].contains(&theme.as_str()) {
-            println!(
-                "Warning: Invalid theme '{}', defaulting to None (system)",
-                theme
-            );
+            log::warn!("Invalid theme '{}', defaulting to None (system)", theme);
             settings.theme = None;
         }
     }
 
     // Validate clear_completed_days: must be at least 1 if strategy is after-n-days
     if settings.clear_completed_strategy == "after-n-days" && settings.clear_completed_days == 0 {
-        println!(
-            "Warning: clear_completed_days is 0 with after-n-days strategy, defaulting to {}",
+        log::warn!(
+            "clear_completed_days is 0 with after-n-days strategy, defaulting to {}",
             defaults.clear_completed_days
         );
         settings.clear_completed_days = defaults.clear_completed_days;
@@ -136,9 +135,10 @@ pub fn validate_settings(mut settings: Settings) -> Settings {
     // end. Clamp rather than reset - the user asked for "as large as possible", and
     // dropping them back to the default silently discards that intent.
     if settings.paste_as_attachment_threshold > MAX_PASTE_AS_ATTACHMENT_THRESHOLD {
-        println!(
-            "Warning: paste_as_attachment_threshold {} is too high, clamping to {}",
-            settings.paste_as_attachment_threshold, MAX_PASTE_AS_ATTACHMENT_THRESHOLD
+        log::warn!(
+            "paste_as_attachment_threshold {} is too high, clamping to {}",
+            settings.paste_as_attachment_threshold,
+            MAX_PASTE_AS_ATTACHMENT_THRESHOLD
         );
         settings.paste_as_attachment_threshold = MAX_PASTE_AS_ATTACHMENT_THRESHOLD;
     }
@@ -149,14 +149,14 @@ pub fn validate_settings(mut settings: Settings) -> Settings {
     let now_ms = crate::time::now_ms();
     let horizon = now_ms.saturating_add(24 * 60 * 60 * 1000);
     if settings.last_update_check_at.is_some_and(|t| t > horizon) {
-        println!("Warning: last_update_check_at is in the future, resetting");
+        log::warn!("last_update_check_at is in the future, resetting");
         settings.last_update_check_at = None;
     }
     if settings
         .update_remind_after
         .is_some_and(|t| t > horizon + 7 * 24 * 60 * 60 * 1000)
     {
-        println!("Warning: update_remind_after is implausibly far ahead, resetting");
+        log::warn!("update_remind_after is implausibly far ahead, resetting");
         settings.update_remind_after = None;
     }
 

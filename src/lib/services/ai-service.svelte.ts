@@ -17,6 +17,7 @@ import { isAppleIntelligencePreset } from '$lib/utils/ai-presets';
 import { listen } from '@tauri-apps/api/event';
 import { DEFAULT_SYSTEM_PROMPT } from '$lib/constants/ai-prompts';
 
+import { log } from '$lib/utils/log';
 const adapter = new DesktopStorageAdapter();
 
 /**
@@ -92,7 +93,7 @@ export class AIService {
                 window.dispatchEvent(new CustomEvent('stashpad:prompt-reloaded'));
             }
         } catch (e) {
-            console.error('Failed to refresh system prompt:', e);
+            log.error('Failed to refresh system prompt:', e);
         }
     }
 
@@ -105,7 +106,7 @@ export class AIService {
             await this.refreshPrompt(true);
             await adapter.openSystemPromptFile();
         } catch (e) {
-            console.error('Failed to create prompt file:', e);
+            log.error('Failed to create prompt file:', e);
         }
     }
 

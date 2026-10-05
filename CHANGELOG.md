@@ -22,6 +22,14 @@ popover, not for the person who wrote the commit.
   that failed or a drop with nothing to attach. Click it to dismiss it; it does not get in the
   way of typing
 
+### Changed
+- **The log file now records what the app itself reported, and it can no longer grow without
+  limit.** Until now, what the interface printed and most of what happens while the app
+  starts never reached the log you send us, because an installed app has nowhere to print
+  it. Both are written to it now. The log is kept to three files of 512 KB each, so it takes
+  about 1.5 MB at most however long Stashpad runs. A development build writes its own
+  `stashpad-dev.log`, so it never mixes into the file from the installed app
+
 ### Fixed
 - **A file you drop lands where you dropped it.** On a Mac with a Retina display, every drop
   was placed as if it had landed up and to the left of where it really did. A file dropped into

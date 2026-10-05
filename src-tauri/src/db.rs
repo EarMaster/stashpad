@@ -594,7 +594,7 @@ impl DbManager {
             return Ok(());
         }
 
-        println!(
+        log::info!(
             "Migrating v1 files to attachments for {} stashes...",
             stashes_to_migrate.len()
         );

@@ -17,11 +17,13 @@
  * In a release build the webview console goes nowhere, so an uncaught render error
  * left no trace at all - which is why an unquoted class ternary in the cloud-usage
  * bar froze the settings page for two releases without a single report pointing at
- * it. Everything here also forwards to the Rust logger so it lands in the app log.
+ * it. Everything here goes through `log.ts`, so it lands in the app log.
  *
  * Nothing in this module may throw: it runs *from* error handlers, and a failure
  * here would replace the original error with a less useful one.
  */
+
+import { describe, log } from './log';
 
 /** Where the error came from, so the log line is diagnosable on its own. */
 export type ErrorSource =
@@ -30,54 +32,14 @@ export type ErrorSource =
     | 'unhandled-rejection'
     | 'attachment';
 
-type Reporter = (message: string) => void | Promise<void>;
-
-let forward: Reporter | null = null;
-
 /**
- * Give the reporter a way to reach the backend logger.
- *
- * Injected rather than imported so this module stays free of Tauri imports and
- * remains usable from a future web adapter.
- */
-export function setErrorForwarder(reporter: Reporter | null): void {
-    forward = reporter;
-}
-
-/** Flatten anything throwable into one log line, stack included when there is one. */
-function describe(error: unknown): string {
-    if (error instanceof Error) {
-        return error.stack ? `${error.name}: ${error.message}\n${error.stack}` : `${error.name}: ${error.message}`;
-    }
-    if (typeof error === 'string') return error;
-    try {
-        return JSON.stringify(error);
-    } catch {
-        return String(error);
-    }
-}
-
-/**
- * Log an error locally and forward it to the backend. Never throws.
+ * Log an error through the app logger, tagged with where it came from. Never throws.
  *
  * `context` says what was being attempted, for errors that are caught and handled -
  * a rejected `invoke` carries the backend's message but not which action sent it.
  */
 export function reportError(source: ErrorSource, error: unknown, context?: string): void {
-    const line = context
-        ? `[${source}] ${context}: ${describe(error)}`
-        : `[${source}] ${describe(error)}`;
-    try {
-        console.error(line);
-    } catch {
-        // A console that throws is not worth recovering from.
-    }
-    try {
-        // Fire and forget: a failed report must not mask the error being reported.
-        void Promise.resolve(forward?.(line)).catch(() => {});
-    } catch {
-        // Same reasoning - swallow.
-    }
+    log.error(context ? `[${source}] ${context}: ${describe(error)}` : `[${source}] ${describe(error)}`);
 }
 
 /**

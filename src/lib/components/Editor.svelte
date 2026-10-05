@@ -73,6 +73,7 @@
   import { errorText } from "$lib/errors";
   import { readFile } from "@tauri-apps/plugin-fs";
 
+  import { log } from "$lib/utils/log";
   let {
     onStash,
     currentContextId,
@@ -331,7 +332,7 @@
                 addedAssets = [...addedAssets, { id: attachment.id, filePath: attachment.filePath }];
               }
             } catch (resizeErr) {
-              console.warn(
+              log.warn(
                 "Failed to resize image, falling back to original",
                 resizeErr,
               );
@@ -497,7 +498,7 @@
         left: textareaRef.offsetLeft + coords.left - textareaRef.scrollLeft,
       };
     } catch (e) {
-      console.error("Failed to calculate caret coordinates", e);
+      log.error("Failed to calculate caret coordinates", e);
     }
   }
 
@@ -569,7 +570,7 @@
                 });
               }
             } catch (e) {
-              console.warn("Failed to resize pasted image", e);
+              log.warn("Failed to resize pasted image", e);
             }
           }
 
@@ -700,7 +701,7 @@
         try {
           await adapter.deleteAsset(asset.id, asset.filePath);
         } catch (err) {
-          console.error("Failed to delete removed asset:", err);
+          log.error("Failed to delete removed asset:", err);
         }
       }
 
@@ -708,7 +709,7 @@
         await onSave(content, files);
       } else {
         if (!currentContextId) {
-          console.error("Context ID required for new stash");
+          log.error("Context ID required for new stash");
           return;
         }
         const stash: StashItem = {
@@ -738,7 +739,7 @@
       removedAssets = [];
       attachmentErrors = [];
     } catch (e) {
-      console.error(e);
+      log.error(e);
     } finally {
       isSaving = false;
     }
@@ -753,7 +754,7 @@
       try {
         await adapter.deleteAsset(asset.id, asset.filePath);
       } catch (err) {
-        console.error("Failed to delete added asset on cancel:", err);
+        log.error("Failed to delete added asset on cancel:", err);
       }
     }
 
@@ -791,7 +792,7 @@
       try {
         await adapter.deleteAsset(asset.id, asset.filePath);
       } catch (err) {
-        console.error("Failed to delete asset on clear:", err);
+        log.error("Failed to delete asset on clear:", err);
       }
     }
 
@@ -938,7 +939,7 @@
           }, 0);
         })
         .catch((err) => {
-          console.error("Failed to read clipboard text:", err);
+          log.error("Failed to read clipboard text:", err);
         });
       return;
     }
@@ -1043,7 +1044,7 @@
       try {
         hoverPreviewData = await adapter.readFileForPreview(filePath);
       } catch (err) {
-        console.error("Failed to load hover preview:", err);
+        log.error("Failed to load hover preview:", err);
         hoverPreviewData = null;
       } finally {
         isLoadingHoverPreview = false;
@@ -1173,7 +1174,7 @@
         }
       }
     } catch (err) {
-      console.error("Failed to open file picker", err);
+      log.error("Failed to open file picker", err);
     }
   }
 </script>

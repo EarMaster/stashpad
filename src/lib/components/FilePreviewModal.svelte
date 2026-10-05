@@ -40,6 +40,7 @@
     import { tooltip } from "$lib/actions/tooltip";
     import { externalLinks } from "$lib/actions/externalLinks";
 
+    import { log } from "$lib/utils/log";
     let {
         open = $bindable(false),
         files = [],
@@ -76,7 +77,7 @@
         try {
             previewData = await adapter.readFileForPreview(path);
         } catch (err) {
-            console.error("Failed to load file preview:", err);
+            log.error("Failed to load file preview:", err);
             previewData = null;
         } finally {
             loading = false;
@@ -176,7 +177,7 @@
             if (s.videoVolume !== undefined) volume = s.videoVolume;
             if (s.videoMuted !== undefined) muted = s.videoMuted;
         } catch (e) {
-            console.error("Failed to load volume setting", e);
+            log.error("Failed to load volume setting", e);
         }
     }
 
@@ -189,7 +190,7 @@
                 s.videoMuted = muted;
                 await adapter.saveSettings(s);
             } catch (e) {
-                console.error("Failed to save volume setting", e);
+                log.error("Failed to save volume setting", e);
             }
         }, 1000);
     }
@@ -259,7 +260,7 @@
         try {
             await invoke("show_in_folder", { path: filePath });
         } catch (err) {
-            console.error("Failed to open file location", err);
+            log.error("Failed to open file location", err);
         }
     }
 
@@ -276,7 +277,7 @@
                 copied = false;
             }, 2000);
         } catch (err) {
-            console.error("Failed to copy path", err);
+            log.error("Failed to copy path", err);
         }
     }
 

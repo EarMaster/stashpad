@@ -83,6 +83,7 @@
   import { tooltip } from "$lib/actions/tooltip";
   import { externalLinks } from "$lib/actions/externalLinks";
 
+  import { log } from "$lib/utils/log";
   let {
     item,
     mode,
@@ -337,7 +338,7 @@
           await adapter.writeReferenceFile(item.contextId, item.id, ref.id, ref.full),
         );
       } catch (err) {
-        console.error("Failed to write referenced stash to a file", err);
+        log.error("Failed to write referenced stash to a file", err);
       }
     }
 
@@ -500,14 +501,14 @@
             attachment.stashId = item.id;
             newAttachments.push(attachment);
           } catch (err) {
-            console.error("Failed to save asset from path", err);
+            log.error("Failed to save asset from path", err);
           }
         }
         // Update the stash with the new files
         onUpdateContent(item.content, newAttachments);
       }
     } catch (err) {
-      console.error("Failed to open file picker", err);
+      log.error("Failed to open file picker", err);
     }
   }
 
