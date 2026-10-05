@@ -597,6 +597,11 @@
     "drop": {
       "nothing_usable": "This drop contained nothing Stashpad can attach. Try copying the image and pasting it instead.",
       "download_failed": "Couldn't download the dropped image: {reason}"
+    },
+    "shortcut": {
+      "taken": "Another app already uses this shortcut. Choose a different one.",
+      "failed": "This shortcut couldn't be set up: {reason}",
+      "invalid": "This shortcut can't be used. Choose a different one."
     }
   }
 }

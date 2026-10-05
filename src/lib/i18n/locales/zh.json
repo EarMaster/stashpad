@@ -597,6 +597,11 @@
     "drop": {
       "nothing_usable": "拖入的内容中没有可附加的项目。请改为复制图片后粘贴。",
       "download_failed": "无法下载拖入的图片：{reason}"
+    },
+    "shortcut": {
+      "taken": "其他应用已在使用此快捷键。请选择其他快捷键。",
+      "failed": "无法设置此快捷键：{reason}",
+      "invalid": "无法使用此快捷键。请选择其他快捷键。"
     }
   }
 }

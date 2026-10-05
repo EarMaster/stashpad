@@ -34,6 +34,9 @@ dirs = "6.0.0"
 arboard = "3.6.1"
 drag = { git = "https://github.com/crabnebula-dev/drag-rs" }
 tauri-plugin-global-shortcut = "2.3.1"
+# Only for its error type: the plugin flattens errors to strings, and telling "another app
+# holds this shortcut" apart from other failures means rebuilding that exact message.
+global-hotkey = "0.7"
 tauri-plugin-dialog = "2"
 window-vibrancy = "0.5"
 tauri-plugin-window-state = "2.4.1"

@@ -31,6 +31,12 @@ popover, not for the person who wrote the commit.
   `stashpad-dev.log`, so it never mixes into the file from the installed app
 
 ### Fixed
+- **The shortcut to show and hide Stashpad works again.** The shortcut set under Settings ›
+  Shortcuts was saved but never switched on, on macOS and Windows alike, so pressing it did
+  nothing. It now works from the moment Stashpad starts and changes as soon as you pick a new
+  one. If Windows reports that another app already uses the combination, Settings says so
+  beside the shortcut; macOS does not tell apps about such clashes. A shortcut using the `=`
+  key could never work either and has to be set again
 - **A file you drop lands where you dropped it.** On a Mac with a Retina display, every drop
   was placed as if it had landed up and to the left of where it really did. A file dropped into
   a stash you were editing could end up in the main editor as well, and a file dropped onto one

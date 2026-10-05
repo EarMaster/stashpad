@@ -38,6 +38,7 @@ mod localkey;
 mod logging;
 mod models;
 mod settings;
+mod shortcuts;
 mod stashes;
 mod state;
 mod sync;
@@ -326,12 +327,17 @@ pub fn run() {
             let settings = settings_state_for_setup.lock_settings();
             let visual_effects_enabled = settings.visual_effects_enabled;
             let theme = settings.theme.clone();
+            let global_toggle = settings.shortcuts.get(shortcuts::GLOBAL_TOGGLE).cloned();
             // The native menu is built here, before the webview reports a locale, so the
             // one label we own is picked from the saved setting instead. It only changes
             // on restart, which matches the rest of the menu.
             #[cfg(target_os = "macos")]
             let locale = settings.locale.clone();
             drop(settings); // Release lock
+
+            // The shortcut that shows and hides the window. Registered here as well as on
+            // every change, because a saved shortcut has to work from the first launch.
+            shortcuts::apply_global_toggle(app.handle(), None, global_toggle.as_deref());
 
             if let Some(window) = app.get_webview_window("main") {
                 // Clear only when translucency is actually on. A permanently transparent
@@ -563,7 +569,8 @@ pub fn run() {
             sync::disconnect_websocket,
             utils::get_installation_source,
             logging::log_frontend,
-            browser_drop::read_dropped_image
+            browser_drop::read_dropped_image,
+            shortcuts::global_shortcut_error
         ])
         .plugin(tauri_plugin_deep_link::init())
         // There is no `.setup()` here on purpose.

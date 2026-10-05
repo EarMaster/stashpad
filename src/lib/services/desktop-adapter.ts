@@ -159,6 +159,10 @@ export class DesktopStorageAdapter implements IStorageService {
         return await invoke('read_dropped_image');
     }
 
+    async getGlobalShortcutError(): Promise<unknown | null> {
+        return await invoke('global_shortcut_error');
+    }
+
     /**
      * Import an asset from an external file path into the cache directory.
      * Files are organized hierarchically: cache/<contextId>/<stashId>/<filename>

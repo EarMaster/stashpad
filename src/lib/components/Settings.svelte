@@ -51,6 +51,7 @@
     ExternalLink,
     FileText,
     RefreshCw,
+    TriangleAlert,
   } from "lucide-svelte";
   import TagBadge from "./TagBadge.svelte";
   import SettingsButton from "./SettingsButton.svelte";
@@ -121,6 +122,19 @@
   /** Trailing delay for `saveSoon`. Long enough to collapse a typing burst. */
   const SAVE_DEBOUNCE_MS = 400;
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
+
+  // Why the show/hide shortcut is not active. Only what the OS reports is shown: on macOS a
+  // combination another app holds registers without complaint, so there is nothing to say.
+  let globalShortcutError = $state<string | null>(null);
+
+  async function refreshGlobalShortcutError() {
+    try {
+      const error = await adapter.getGlobalShortcutError();
+      globalShortcutError = error ? errorText(error) : null;
+    } catch (e) {
+      log.warn("Could not read the global shortcut status", e);
+    }
+  }
 
   async function save() {
     // A pending debounced save is now redundant - this call carries the same state.
@@ -323,6 +337,7 @@
 
   onMount(loadCloudUsage);
   onMount(refreshDeviceKey);
+  onMount(refreshGlobalShortcutError);
 
   onMount(async () => {
     isWin10 = await adapter.isWindows10();
@@ -1311,13 +1326,23 @@
             <ShortcutInput
               value={settings.shortcuts?.["global_toggle"] || ""}
               placeholder={$_("settings.shortcuts.clickToSet")}
-              onchange={(shortcut) => {
+              onchange={async (shortcut) => {
                 if (!settings.shortcuts) settings.shortcuts = {};
                 settings.shortcuts["global_toggle"] = shortcut;
-                save();
+                await save();
+                await refreshGlobalShortcutError();
               }}
             />
           </div>
+          {#if globalShortcutError}
+            <p
+              class="flex items-start gap-1.5 px-3 text-xs text-[var(--amber)]"
+              role="status"
+            >
+              <TriangleAlert size={12} class="mt-0.5 shrink-0" />
+              <span>{globalShortcutError}</span>
+            </p>
+          {/if}
         </div>
       </section>
 

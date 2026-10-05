@@ -5569,6 +5569,7 @@ dependencies = [
  "drag",
  "fm-rs",
  "futures-util",
+ "global-hotkey",
  "hkdf",
  "keyring",
  "log",

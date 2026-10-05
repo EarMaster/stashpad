@@ -597,6 +597,11 @@
     "drop": {
       "nothing_usable": "Der abgelegte Inhalt enthält nichts, was Stashpad anhängen kann. Kopiere das Bild stattdessen und füge es ein.",
       "download_failed": "Das abgelegte Bild konnte nicht heruntergeladen werden: {reason}"
+    },
+    "shortcut": {
+      "taken": "Eine andere App verwendet dieses Tastenkürzel bereits. Wähle ein anderes.",
+      "failed": "Dieses Tastenkürzel konnte nicht eingerichtet werden: {reason}",
+      "invalid": "Dieses Tastenkürzel kann nicht verwendet werden. Wähle ein anderes."
     }
   }
 }

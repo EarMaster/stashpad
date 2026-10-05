@@ -201,6 +201,11 @@ export interface IStorageService {
      */
     readDroppedImage(): Promise<string>;
     /**
+     * Why the show/hide shortcut is not active, as a backend error for `errorText`, or null
+     * when it is registered or none is set.
+     */
+    getGlobalShortcutError(): Promise<unknown | null>;
+    /**
      * Delete an attachment: its row, and its file once no other row references it.
      * @param id - The attachment id; empty for one never written to the database
      * @param path - Absolute path to the file, which must lie inside the cache directory

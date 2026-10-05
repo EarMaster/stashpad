@@ -389,7 +389,7 @@ pub async fn save_settings(
     // One critical section, not five. Each `lock_settings()` is a blocking acquire on
     // an async worker, and this command runs on every keystroke in the settings panel;
     // taking the lock five times per call multiplied that contention for no reason.
-    let (old_theme, old_autostart) = {
+    let (old_theme, old_autostart, old_toggle) = {
         let current = state.lock_settings();
 
         // Don't save empty api keys if we already have one
@@ -412,7 +412,14 @@ pub async fn save_settings(
             }
         }
 
-        (current.theme.clone(), current.autostart)
+        (
+            current.theme.clone(),
+            current.autostart,
+            current
+                .shortcuts
+                .get(crate::shortcuts::GLOBAL_TOGGLE)
+                .cloned(),
+        )
     };
 
     // Publish to the in-memory state first, then write to disk off-thread. Callers only
@@ -423,6 +430,16 @@ pub async fn save_settings(
         *state_settings = settings.clone();
     }
     persist_settings_off_thread(settings.clone()).await;
+
+    // Only when it changed: this command runs on every keystroke in the settings panel, and
+    // re-registering an unchanged shortcut each time would be a needless round trip to the OS.
+    let new_toggle = settings
+        .shortcuts
+        .get(crate::shortcuts::GLOBAL_TOGGLE)
+        .cloned();
+    if new_toggle != old_toggle {
+        crate::shortcuts::apply_global_toggle(&app, old_toggle.as_deref(), new_toggle.as_deref());
+    }
 
     // Follow the theme in the native window, not just in the page.
     if settings.theme != old_theme {
