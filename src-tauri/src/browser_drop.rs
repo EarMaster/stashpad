@@ -30,15 +30,7 @@
 //! The result is written to a scratch file and its path handed back, so the interface can
 //! treat it exactly like a file dropped from Finder: same resize, same save, same errors.
 
-use std::path::PathBuf;
-
 use crate::uierror::UiError;
-
-/// Scratch folder for the image of the latest browser drop. Emptied on every drop, so at
-/// most one stale file lingers - and it is under the app folder the fs scope allows.
-fn scratch_dir() -> PathBuf {
-    crate::utils::get_app_dir().join("tmp").join("drop")
-}
 
 fn nothing_usable() -> UiError {
     UiError::new(
@@ -63,6 +55,9 @@ pub async fn read_dropped_image() -> Result<String, UiError> {
 }
 
 /// A filename for the image, from the last segment of its URL when there is one.
+///
+/// Only the macOS reader names files; the tests run it everywhere.
+#[cfg(any(target_os = "macos", test))]
 fn file_name(url: Option<&str>, ext: &str) -> String {
     let stem = url
         .and_then(|u| reqwest::Url::parse(u).ok())
@@ -78,18 +73,6 @@ fn file_name(url: Option<&str>, ext: &str) -> String {
     format!("{}.{}", stem, ext)
 }
 
-/// Write the image to the scratch folder, replacing whatever the last drop left there.
-fn write_scratch(name: &str, bytes: &[u8]) -> Result<String, UiError> {
-    let dir = scratch_dir();
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir)
-        .map_err(|e| format!("Failed to create {}: {}", dir.display(), e))?;
-    let path = dir.join(name);
-    std::fs::write(&path, bytes)
-        .map_err(|e| format!("Failed to write {}: {}", path.display(), e))?;
-    Ok(path.to_string_lossy().into_owned())
-}
-
 #[cfg(target_os = "macos")]
 mod macos {
     use std::time::Duration;
@@ -99,8 +82,28 @@ mod macos {
     };
     use objc2_foundation::{NSData, NSDictionary, NSString};
 
-    use super::{file_name, nothing_usable, write_scratch};
+    use std::path::PathBuf;
+
+    use super::{file_name, nothing_usable};
     use crate::uierror::UiError;
+
+    /// Scratch folder for the image of the latest browser drop. Emptied on every drop, so at
+    /// most one stale file lingers - and it is under the app folder the fs scope allows.
+    fn scratch_dir() -> PathBuf {
+        crate::utils::get_app_dir().join("tmp").join("drop")
+    }
+
+    /// Write the image to the scratch folder, replacing whatever the last drop left there.
+    fn write_scratch(name: &str, bytes: &[u8]) -> Result<String, UiError> {
+        let dir = scratch_dir();
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir)
+            .map_err(|e| format!("Failed to create {}: {}", dir.display(), e))?;
+        let path = dir.join(name);
+        std::fs::write(&path, bytes)
+            .map_err(|e| format!("Failed to write {}: {}", path.display(), e))?;
+        Ok(path.to_string_lossy().into_owned())
+    }
 
     /// Original image formats, as pasteboard type and file extension, best first.
     const ORIGINAL_TYPES: [(&str, &str); 4] = [
