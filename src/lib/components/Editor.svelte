@@ -68,6 +68,7 @@
   import { locale } from "$lib/i18n";
   import { tooltip } from "$lib/actions/tooltip";
   import { resizeImage, getAttachmentKind } from "$lib/utils/files";
+  import { reportError } from "$lib/utils/error-reporting";
   import { readFile } from "@tauri-apps/plugin-fs";
 
   let {
@@ -324,7 +325,7 @@
             addedAssets = [...addedAssets, { id: attachment.id, filePath: attachment.filePath }];
           }
         } catch (err) {
-          console.error("Failed to save dropped asset", err);
+          reportError("attachment", err, "Failed to save dropped asset");
         }
       }
     });
@@ -552,7 +553,7 @@
           // Track added file for cleanup on cancel
           addedAssets = [...addedAssets, { id: attachment.id, filePath: attachment.filePath }];
         } catch (err) {
-          console.error("Failed to save pasted file:", err);
+          reportError("attachment", err, "Failed to save pasted file");
         }
       }
       return;
@@ -618,7 +619,7 @@
       // Track added file for cleanup on cancel
       addedAssets = [...addedAssets, { id: attachment.id, filePath: attachment.filePath }];
     } catch (err) {
-      console.error("Failed to save text as attachment:", err);
+      reportError("attachment", err, "Failed to save text as attachment");
     }
   }
 
@@ -1134,7 +1135,7 @@
             // Track added file for cleanup on cancel
             addedAssets = [...addedAssets, { id: attachment.id, filePath: attachment.filePath }];
           } catch (err) {
-            console.error("Failed to save asset from path", err);
+            reportError("attachment", err, "Failed to save picked file");
           }
         }
       }

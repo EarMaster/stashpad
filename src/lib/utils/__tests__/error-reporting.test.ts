@@ -50,6 +50,13 @@ describe('error reporting', () => {
         expect(forwarded[0]).toContain('42');
     });
 
+    it('names what was being attempted when given a context', () => {
+        reportError('attachment', { code: '', message: 'Asset upload must send a raw body' }, 'Failed to save pasted file');
+
+        expect(forwarded[0]).toMatch(/^\[attachment\] Failed to save pasted file: /);
+        expect(forwarded[0]).toContain('Asset upload must send a raw body');
+    });
+
     it('survives a forwarder that throws', () => {
         // The reporter runs *from* error handlers. If it could throw, it would replace
         // the original error with a less useful one.

@@ -65,6 +65,7 @@
       resolveRef,
       type ResolvedRef,
    } from "$lib/utils/stash-refs";
+   import { reportError } from "$lib/utils/error-reporting";
 
    let {
       transferMode,
@@ -762,7 +763,7 @@
                      attachment.stashId = stash.id;
                      newAttachments.push(attachment);
                   } catch (err) {
-                     console.error("Failed to save dropped asset", err);
+                     reportError("attachment", err, "Failed to save dropped asset");
                   }
                }
                if (newAttachments.length > stash.attachments.length) {

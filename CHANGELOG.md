@@ -11,6 +11,14 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+### Fixed
+- **Pasting an image into a stash works again.** Since 1.6.3, a pasted screenshot or copied
+  image was silently dropped: nothing appeared and no error was shown. Dropping a large image
+  failed the same way when "Resize images" was on, because the shrunk copy is saved the same
+  way a pasted image is. Text pastes and files dropped from Finder were not affected
+- Failed attachment saves are now written to the app log, so a problem like this one leaves a
+  trace instead of disappearing
+
 ## [1.10.1] - 2026-10-01
 
 ### Changed

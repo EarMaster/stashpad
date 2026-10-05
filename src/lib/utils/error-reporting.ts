@@ -27,7 +27,8 @@
 export type ErrorSource =
     | 'render'
     | 'uncaught'
-    | 'unhandled-rejection';
+    | 'unhandled-rejection'
+    | 'attachment';
 
 type Reporter = (message: string) => void | Promise<void>;
 
@@ -56,9 +57,16 @@ function describe(error: unknown): string {
     }
 }
 
-/** Log an error locally and forward it to the backend. Never throws. */
-export function reportError(source: ErrorSource, error: unknown): void {
-    const line = `[${source}] ${describe(error)}`;
+/**
+ * Log an error locally and forward it to the backend. Never throws.
+ *
+ * `context` says what was being attempted, for errors that are caught and handled -
+ * a rejected `invoke` carries the backend's message but not which action sent it.
+ */
+export function reportError(source: ErrorSource, error: unknown, context?: string): void {
+    const line = context
+        ? `[${source}] ${context}: ${describe(error)}`
+        : `[${source}] ${describe(error)}`;
     try {
         console.error(line);
     } catch {
