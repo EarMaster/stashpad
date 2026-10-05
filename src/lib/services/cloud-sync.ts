@@ -32,6 +32,7 @@ import { attachmentSync } from '../stores/attachment-sync.svelte';
 import { errorText } from "$lib/errors";
 import { fromEpochMs, nowIso, nowMs, toEpochMs } from "$lib/utils/time";
 
+import { log } from '$lib/utils/log';
 // Fallback polling interval, used when the WebSocket is unavailable.
 const FALLBACK_SYNC_INTERVAL_MS = 15 * 60 * 1000;
 const DEBOUNCE_DELAY_MS = 2000;
@@ -292,7 +293,7 @@ export async function getOrCreateDeviceId(adapter: IStorageService): Promise<str
     } catch (e) {
         // Sync must not stop because a file could not be read. Falling back to the old
         // behaviour is no worse than what this installation had before.
-        console.error('[CloudSync] Failed to read the stored device id:', e);
+        log.error('[CloudSync] Failed to read the stored device id:', e);
         if (legacy) return legacy;
 
         const generated = crypto.randomUUID();
@@ -390,7 +391,7 @@ export class CloudSyncService {
                 this.deviceName = await this.adapter.getDeviceName();
             } catch (e) {
                 const msg = errorText(e);
-                console.error('Failed to get device name:', msg);
+                log.error('Failed to get device name:', msg);
                 this.deviceName = 'Unknown Device';
             }
         }
@@ -429,7 +430,7 @@ export class CloudSyncService {
             // spreading `undefined` here would silently strip `enabled` and the tier and
             // disable sync until the next restart.
             if (!fresh || typeof fresh !== 'object') {
-                console.warn('[CloudSync] Ignoring empty account response');
+                log.warn('[CloudSync] Ignoring empty account response');
                 return;
             }
             if (this.settings) {
@@ -443,7 +444,7 @@ export class CloudSyncService {
                 this.setStatus('auth-error', 'Authentication expired. Please log in again.');
                 return;
             }
-            console.warn('[CloudSync] Could not refresh subscription tier:', msg);
+            log.warn('[CloudSync] Could not refresh subscription tier:', msg);
         }
     }
 
@@ -524,7 +525,7 @@ export class CloudSyncService {
             void this.connectWebSocket();
         }
 
-        console.log('[CloudSync] Periodic sync started');
+        log.info('[CloudSync] Periodic sync started');
     }
 
     /**
@@ -534,7 +535,7 @@ export class CloudSyncService {
         if (this.syncInterval) {
             clearInterval(this.syncInterval);
             this.syncInterval = null;
-            console.log('[CloudSync] Periodic sync stopped');
+            log.info('[CloudSync] Periodic sync stopped');
         }
         void this.disconnectWebSocket();
     }
@@ -741,12 +742,12 @@ export class CloudSyncService {
             try {
                 const conversion = await this.adapter.convertAttachmentsToEncrypted();
                 if (conversion.converted > 0) {
-                    console.info(
+                    log.info(
                         `[CloudSync] Re-encrypted ${conversion.converted} of ${conversion.remaining} older attachment(s)`
                     );
                 }
             } catch (e) {
-                console.warn('[CloudSync] Could not re-encrypt older attachments:', e);
+                log.warn('[CloudSync] Could not re-encrypt older attachments:', e);
             }
 
             // Update last sync timestamp
@@ -782,21 +783,21 @@ export class CloudSyncService {
                     appliedRemoteChanges
                 );
             }
-            console.log(`[CloudSync] Synced ${stashCount} stashes, ${contextCount} contexts`);
+            log.info(`[CloudSync] Synced ${stashCount} stashes, ${contextCount} contexts`);
 
             // Confirming an upload publishes the file server-side but emits no WebSocket
             // notification of its own, so other devices would not hear about it until
             // their next fallback poll. One more pass makes the stash endpoint broadcast.
             // This terminates: the second pass uploads nothing, so it does not re-arm.
             if (uploadedAttachments) {
-                console.log('[CloudSync] Attachments uploaded - notifying other devices');
+                log.info('[CloudSync] Attachments uploaded - notifying other devices');
                 this.triggerSync();
             }
 
             return true;
         } catch (error) {
             const message = errorText(error);
-            console.error('[CloudSync] Sync failed:', message);
+            log.error('[CloudSync] Sync failed:', message);
             this.setStatus(this.isAuthError(message) ? 'auth-error' : 'error', message);
             return false;
         } finally {
@@ -833,7 +834,7 @@ export class CloudSyncService {
             }
         } catch (e) {
             // Leaving the flags set only costs a redundant push next cycle.
-            console.warn(`[CloudSync] Could not clear pending flags for ${kind}:`, e);
+            log.warn(`[CloudSync] Could not clear pending flags for ${kind}:`, e);
         }
     }
 
@@ -847,7 +848,7 @@ export class CloudSyncService {
      */
     private reportRejected(kind: string, rejected?: RejectedRecord[]): void {
         if (!rejected?.length) return;
-        console.warn(
+        log.warn(
             `[CloudSync] Server rejected ${rejected.length} ${kind}:`,
             rejected.map(r => `${r.id}: ${r.reason}`).join('; ')
         );
@@ -866,7 +867,7 @@ export class CloudSyncService {
         } catch (error) {
             const msg = errorText(error);
             if (this.isAuthError(msg)) {
-                console.warn('[CloudSync] Stash sync rejected the credentials:', msg);
+                log.warn('[CloudSync] Stash sync rejected the credentials:', msg);
                 this.authRejected = true;
                 this.setStatus('auth-error', 'Authentication expired. Please log in again.');
                 return null;
@@ -888,7 +889,7 @@ export class CloudSyncService {
         } catch (error) {
             const msg = errorText(error);
             if (this.isAuthError(msg)) {
-                console.warn('[CloudSync] Context sync rejected the credentials:', msg);
+                log.warn('[CloudSync] Context sync rejected the credentials:', msg);
                 this.authRejected = true;
                 this.setStatus('auth-error', 'Authentication expired. Please log in again.');
                 return null;
@@ -1072,13 +1073,13 @@ export class CloudSyncService {
                 this.wsUnlisten = await listen<{ type: string, source_device: string, timestamp: string }>('cloud:sync-notification', (event) => {
                     // Do not sync if the notification came from our own device (loop prevention)
                     if (event.payload.source_device !== this.deviceId) {
-                        console.debug('[CloudSyncService] Received sync notification from', event.payload.source_device, '- scheduling sync');
+                        log.debug('[CloudSyncService] Received sync notification from', event.payload.source_device, '- scheduling sync');
                         this.scheduleRemoteSync();
                     }
                 });
             }
         } catch (error) {
-            console.error('[CloudSyncService] Failed to connect WebSocket:', error);
+            log.error('[CloudSyncService] Failed to connect WebSocket:', error);
         }
     }
 
@@ -1096,7 +1097,7 @@ export class CloudSyncService {
         try {
             await this.adapter.disconnectWebSocket();
         } catch (error) {
-            console.error('[CloudSyncService] Failed to disconnect WebSocket:', error);
+            log.error('[CloudSyncService] Failed to disconnect WebSocket:', error);
         }
     }
 
@@ -1179,7 +1180,7 @@ export class CloudSyncService {
                 // A failed transfer cost the same bandwidth as a successful one.
                 attempted++;
                 const msg = errorText(e);
-                console.warn(`[CloudSync] Attachment upload failed for ${att.id}:`, msg);
+                log.warn(`[CloudSync] Attachment upload failed for ${att.id}:`, msg);
 
                 const attempts = (this.attachmentFailures.get(att.id) ?? 0) + 1;
                 this.attachmentFailures.set(att.id, attempts);
@@ -1196,7 +1197,7 @@ export class CloudSyncService {
 
         // Say so rather than looking like everything was covered.
         if (deferred > 0) {
-            console.log(
+            log.info(
                 `[CloudSync] ${deferred} attachment(s) deferred to the next cycle (per-cycle limit reached)`
             );
             // More work is waiting and nothing will announce it, so come back for it.
@@ -1227,7 +1228,7 @@ export class CloudSyncService {
                 },
             };
 
-            console.error(
+            log.error(
                 `[CloudSync] ${failures.length} attachment upload(s) failed. First error: ${first.message}`
             );
         }

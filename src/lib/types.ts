@@ -11,6 +11,8 @@
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 // See the GNU Affero General Public License for more details.
 
+import type { LogLevel } from './utils/log';
+
 export interface Attachment {
     id: string;
     stashId: string;
@@ -194,6 +196,16 @@ export interface IStorageService {
      */
     saveAssetFromPath(path: string, contextId?: string, stashId?: string, syntax?: string): Promise<Attachment>;
     /**
+     * Turn the image in a browser drop - one that arrived with no file paths - into a
+     * scratch file, and return its path for the same handling as a dropped file.
+     */
+    readDroppedImage(): Promise<string>;
+    /**
+     * Why the show/hide shortcut is not active, as a backend error for `errorText`, or null
+     * when it is registered or none is set.
+     */
+    getGlobalShortcutError(): Promise<unknown | null>;
+    /**
      * Delete an attachment: its row, and its file once no other row references it.
      * @param id - The attachment id; empty for one never written to the database
      * @param path - Absolute path to the file, which must lie inside the cache directory
@@ -233,8 +245,8 @@ export interface IStorageService {
     deleteContext(id: string): Promise<void>;
     setAutostart(enabled: boolean): Promise<void>;
     getAutostartEnabled(): Promise<boolean>;
-    /** Forward a frontend error to the backend logger. */
-    logFrontendError(message: string): Promise<void>;
+    /** Forward a line from the frontend logger to the backend's log file. */
+    logFrontend(level: LogLevel, message: string): Promise<void>;
     exchangeLinkCodeApi(token: string, deviceId?: string): Promise<CloudConfig>;
     /** Fetch account info from cloud and update local subscription status */
     fetchCloudAccount(): Promise<CloudConfig>;

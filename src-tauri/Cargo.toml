@@ -1,6 +1,6 @@
 [package]
 name = "stashpad"
-version = "1.10.1"
+version = "1.10.2"
 description = "The staging area for your AI context."
 authors = ["Nico Wiedemann <nico.wiedemann@gmail.com>"]
 repository = "https://github.com/EarMaster/stashpad"
@@ -34,7 +34,9 @@ dirs = "6.0.0"
 arboard = "3.6.1"
 drag = { git = "https://github.com/crabnebula-dev/drag-rs" }
 tauri-plugin-global-shortcut = "2.3.1"
-tauri-plugin-devtools = "2.0.0"
+# Only for its error type: the plugin flattens errors to strings, and telling "another app
+# holds this shortcut" apart from other failures means rebuilding that exact message.
+global-hotkey = "0.7"
 tauri-plugin-dialog = "2"
 window-vibrancy = "0.5"
 tauri-plugin-window-state = "2.4.1"
@@ -68,7 +70,7 @@ regex = "1.12.3"
 tokio-tungstenite = { version = "0.26.1", features = ["native-tls"] }
 futures-util = "0.3"
 urlencoding = "2.1.3"
-tokio = { version = "1.50.0", features = ["time"] }
+tokio = { version = "1.50.0", features = ["time", "macros"] }
 # Deflate only: the other backends (zstd, lzma, bzip2) pull in native toolchains we do
 # not need, and every archive we read or write uses deflate.
 zip = { version = "2", default-features = false, features = ["deflate"] }
@@ -86,6 +88,8 @@ serde_yaml = "0.9"
 [target.'cfg(target_os = "macos")'.dependencies]
 fm-rs = { version = "0.1", optional = true }
 keyring = { version = "3", features = ["apple-native"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSData", "NSDictionary", "NSString"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSBitmapImageRep", "NSImageRep", "NSPasteboard"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 keyring = { version = "3", features = ["windows-native"] }

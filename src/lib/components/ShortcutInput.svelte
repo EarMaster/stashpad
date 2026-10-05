@@ -119,7 +119,7 @@
         Numpad9: "Numpad9",
         // Regular minus/plus for distinction
         Minus: "Minus",
-        Equal: "Plus",
+        Equal: "Equal",
     };
 
     /**
@@ -158,7 +158,7 @@
         Numpad8: "Num8",
         Numpad9: "Num9",
         Minus: "-",
-        Plus: "+",
+        Equal: "=",
     };
 
     /**

@@ -12,26 +12,26 @@
 // See the GNU Affero General Public License for more details.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import {
-    installGlobalErrorReporter,
-    reportError,
-    setErrorForwarder,
-} from '../error-reporting';
+import { installGlobalErrorReporter, reportError } from '../error-reporting';
+import { setLogForwarder } from '../log';
 
 describe('error reporting', () => {
     let forwarded: string[];
+    let levels: string[];
     let consoleError: ReturnType<typeof vi.spyOn>;
 
     beforeEach(() => {
         forwarded = [];
-        setErrorForwarder((message) => {
+        levels = [];
+        setLogForwarder((level, message) => {
+            levels.push(level);
             forwarded.push(message);
         });
         consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
     });
 
     afterEach(() => {
-        setErrorForwarder(null);
+        setLogForwarder(null);
         consoleError.mockRestore();
     });
 
@@ -39,6 +39,7 @@ describe('error reporting', () => {
         reportError('render', new ReferenceError('bg is not defined'));
 
         expect(forwarded).toHaveLength(1);
+        expect(levels).toEqual(['error']);
         expect(forwarded[0]).toContain('[render]');
         expect(forwarded[0]).toContain('bg is not defined');
     });
@@ -50,10 +51,17 @@ describe('error reporting', () => {
         expect(forwarded[0]).toContain('42');
     });
 
+    it('names what was being attempted when given a context', () => {
+        reportError('attachment', { code: '', message: 'Asset upload must send a raw body' }, 'Failed to save pasted file');
+
+        expect(forwarded[0]).toMatch(/^\[attachment\] Failed to save pasted file: /);
+        expect(forwarded[0]).toContain('Asset upload must send a raw body');
+    });
+
     it('survives a forwarder that throws', () => {
         // The reporter runs *from* error handlers. If it could throw, it would replace
         // the original error with a less useful one.
-        setErrorForwarder(() => {
+        setLogForwarder(() => {
             throw new Error('backend unreachable');
         });
 
@@ -62,7 +70,7 @@ describe('error reporting', () => {
     });
 
     it('survives a forwarder that rejects', () => {
-        setErrorForwarder(() => Promise.reject(new Error('ipc down')));
+        setLogForwarder(() => Promise.reject(new Error('ipc down')));
 
         expect(() => reportError('render', new Error('original'))).not.toThrow();
     });

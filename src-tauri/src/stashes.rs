@@ -142,7 +142,7 @@ pub async fn save_stash(
         calculate_stash_update(&stash, existing.as_ref(), effective_position_str, min_pos);
 
     if let Err(e) = db.save_stash(&new_stash, position_val, WriteOrigin::LocalEdit) {
-        println!("Failed to save stash: {}", e);
+        log::error!("Failed to save stash: {}", e);
     }
     Ok(())
 }
@@ -209,7 +209,7 @@ pub async fn delete_stash(state: State<'_, Arc<DbState>>, id: String) -> Result<
         // delete directory recursively
         if stash_path.exists() {
             if let Err(e) = fs::remove_dir_all(&stash_path) {
-                println!("Failed to delete stash attachments: {}", e);
+                log::error!("Failed to delete stash attachments: {}", e);
             }
         }
 
@@ -223,7 +223,7 @@ pub async fn delete_stash(state: State<'_, Arc<DbState>>, id: String) -> Result<
     }
 
     if let Err(e) = db.delete_stash(&id) {
-        println!("Failed to delete stash from DB: {}", e);
+        log::error!("Failed to delete stash from DB: {}", e);
     }
     Ok(())
 }
@@ -477,10 +477,10 @@ pub async fn save_stashes(
     stashes_list: Vec<StashItem>,
 ) -> Result<(), UiError> {
     // This is used for REORDERING, which rewrites a row per visible stash.
-    println!("Saving stash order ({} items)", stashes_list.len());
+    log::debug!("Saving stash order ({} items)", stashes_list.len());
     let mut db = state.lock_db();
     if let Err(e) = db.update_stash_positions(&stashes_list) {
-        println!("Failed to update stash positions: {}", e);
+        log::error!("Failed to update stash positions: {}", e);
     }
     Ok(())
 }
@@ -700,9 +700,11 @@ pub async fn save_asset_from_path(
     stash_id: Option<String>,
     syntax: Option<String>,
 ) -> Result<Attachment, UiError> {
-    println!(
+    log::info!(
         "Importing asset from path: {} context: {:?} stash: {:?}",
-        path, context_id, stash_id
+        path,
+        context_id,
+        stash_id
     );
     let source_path = std::path::Path::new(&path);
     if !source_path.exists() {
@@ -799,7 +801,7 @@ pub async fn save_asset_from_path(
         );
 
         if let Err(e) = res {
-            println!(
+            log::warn!(
                 "Failed to save attachment metadata (likely due to missing stash parent): {}",
                 e
             );
@@ -836,7 +838,7 @@ pub async fn delete_asset(
     id: Option<String>,
     path: String,
 ) -> Result<(), UiError> {
-    println!("Deleting asset: {}", path);
+    log::info!("Deleting asset: {}", path);
 
     let file_path = std::path::Path::new(&path);
 
@@ -885,9 +887,10 @@ pub async fn delete_asset(
     };
 
     if still_referenced > 0 {
-        println!(
+        log::info!(
             "Kept {} - {} other attachment(s) still reference it",
-            path, still_referenced
+            path,
+            still_referenced
         );
         return Ok(());
     }
@@ -896,7 +899,7 @@ pub async fn delete_asset(
         fs::remove_file(file_path).map_err(|e| format!("Failed to delete file: {}", e))?;
     }
 
-    println!("Successfully deleted asset: {}", path);
+    log::info!("Successfully deleted asset: {}", path);
     Ok(())
 }
 

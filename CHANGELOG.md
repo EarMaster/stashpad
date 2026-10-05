@@ -11,6 +11,45 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+## [1.10.2] - 2026-10-05
+
+### Added
+- **You can drag images straight from your browser into a stash.** On macOS, an image dropped
+  from Chrome, Safari or another browser used to be ignored without a word, because the
+  browser hands it over as something other than a file on disk. Stashpad now keeps the
+  original file when the browser provides it, and otherwise downloads the image from its
+  address. When neither works, it saves the picture as a PNG
+- **An attachment that could not be added now says so in the editor.** A small warning sign
+  appears next to the attachments, and hovering it lists what went wrong, such as a download
+  that failed or a drop with nothing to attach. Click it to dismiss it; it does not get in the
+  way of typing
+
+### Changed
+- **The log file now records what the app itself reported, and it can no longer grow without
+  limit.** Until now, what the interface printed and most of what happens while the app
+  starts never reached the log you send us, because an installed app has nowhere to print
+  it. Both are written to it now. The log is kept to three files of 512 KB each, so it takes
+  about 1.5 MB at most however long Stashpad runs. A development build writes its own
+  `stashpad-dev.log`, so it never mixes into the file from the installed app
+
+### Fixed
+- **Pasting an image into a stash works again.** Since 1.6.3, a pasted screenshot or copied
+  image was silently dropped: nothing appeared and no error was shown. Dropping a large image
+  failed the same way when "Resize images" was on, because the shrunk copy is saved the same
+  way a pasted image is. Text pastes and files dropped from Finder were not affected
+- **The shortcut to show and hide Stashpad works again.** The shortcut set under Settings ›
+  Shortcuts was saved but never switched on, on macOS and Windows alike, so pressing it did
+  nothing. It now works from the moment Stashpad starts and changes as soon as you pick a new
+  one. If Windows reports that another app already uses the combination, Settings says so
+  beside the shortcut; macOS does not tell apps about such clashes. A shortcut using the `=`
+  key could never work either and has to be set again
+- **A file you drop lands where you dropped it.** On a Mac with a Retina display, every drop
+  was placed as if it had landed up and to the left of where it really did. A file dropped into
+  a stash you were editing could end up in the main editor as well, and a file dropped onto one
+  stash in the queue could be attached to a different one, or to none
+- Failed attachment saves are now written to the app log, so a problem like the paste failure
+  leaves a trace instead of disappearing
+
 ## [1.10.1] - 2026-10-01
 
 ### Changed

@@ -31,6 +31,7 @@
     import type { Settings } from "$lib/types";
     import { errorText } from "$lib/errors";
 
+    import { log } from "$lib/utils/log";
     let {
         open = $bindable(false),
         settings = $bindable(),
@@ -99,7 +100,7 @@
      */
     function openBrowser(): void {
         openUrl(getAccountUrl()).catch((err) => {
-            console.error("[CloudAuthModal] Failed to open browser:", err);
+            log.error("[CloudAuthModal] Failed to open browser:", err);
         });
     }
 
@@ -181,7 +182,7 @@
                                 exchangeLinkCode();
                             }
                         } catch (err) {
-                            console.error(
+                            log.error(
                                 "[CloudAuthModal] Failed to parse deep link URL:",
                                 err,
                             );

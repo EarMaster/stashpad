@@ -47,6 +47,7 @@
    import { errorText } from "$lib/errors";
    import { nowIso, nowMs } from "$lib/utils/time";
 
+   import { log } from "$lib/utils/log";
    /**
     * Hand a caught render error to the reporter.
     *
@@ -524,7 +525,7 @@
          }
          refreshTrigger++;
       } catch (e) {
-         console.error("Failed to move/copy stash", e);
+         log.error("Failed to move/copy stash", e);
       }
    }
 
@@ -576,7 +577,7 @@
       try {
          contexts = await adapter.getContexts();
       } catch (e) {
-         console.error("Failed to load contexts", e);
+         log.error("Failed to load contexts", e);
       }
    }
 
@@ -587,7 +588,7 @@
          const loaded = await adapter.getSettings();
          applySettings(loaded);
       } catch (e) {
-         console.error(e);
+         log.error(e);
       }
    }
 

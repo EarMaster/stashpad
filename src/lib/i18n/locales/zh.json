@@ -506,6 +506,11 @@
     "addFile": "添加附件",
     "selectFilesTitle": "选择要附加的文件",
     "removeFile": "移除文件",
+    "attachmentErrors": {
+      "label": "{count} 个附件未能添加",
+      "saveFailed": "无法添加 {name}：{reason}",
+      "dismiss": "点击关闭"
+    },
     "regionLabel": "暂存项编辑器",
     "bold": "粗体",
     "italic": "斜体",
@@ -588,6 +593,15 @@
       "passphrase_empty": "密码短语不能为空。",
       "no_passphrase": "这台电脑上未设置密码短语。",
       "locked": "请先输入你的密码短语。"
+    },
+    "drop": {
+      "nothing_usable": "拖入的内容中没有可附加的项目。请改为复制图片后粘贴。",
+      "download_failed": "无法下载拖入的图片：{reason}"
+    },
+    "shortcut": {
+      "taken": "其他应用已在使用此快捷键。请选择其他快捷键。",
+      "failed": "无法设置此快捷键：{reason}",
+      "invalid": "无法使用此快捷键。请选择其他快捷键。"
     }
   }
 }

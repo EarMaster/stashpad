@@ -11,7 +11,7 @@
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 // See the GNU Affero General Public License for more details.
 
-use std::sync::{Mutex, OnceLock};
+use std::sync::OnceLock;
 
 use crate::utils::get_app_dir;
 
@@ -110,54 +110,20 @@ pub enum KeychainStatus {
 /// to draw from.
 static KEYCHAIN_STATUS: OnceLock<KeychainStatus> = OnceLock::new();
 
-/// What the startup checks said, held until there is somewhere to say it.
-///
-/// `probe_keychain` and `localkey::initialize` run before `tauri::Builder`, and the log
-/// plugin is registered inside it - so every line they emitted went to a logger that did not
-/// exist yet and was dropped. That is why a user's log file has never contained a word about
-/// the credential store, and why raising those lines from `debug` to `warn` changed nothing.
-///
-/// They are buffered here and replayed by [`flush_early_diagnostics`] from the setup hook.
-static EARLY_DIAGNOSTICS: Mutex<Vec<(log::Level, String)>> = Mutex::new(Vec::new());
-
-/// Record a line that happens before the logger exists.
-pub(crate) fn early_log(level: log::Level, message: String) {
-    if let Ok(mut buffered) = EARLY_DIAGNOSTICS.lock() {
-        // Bounded: a pathological loop must not turn a diagnostic into a leak.
-        if buffered.len() < 64 {
-            buffered.push((level, message));
-        }
-    }
-}
-
-/// Replay the startup diagnostics, once the log plugin is up.
-pub fn flush_early_diagnostics() {
-    let Ok(mut buffered) = EARLY_DIAGNOSTICS.lock() else {
-        return;
-    };
-    for (level, message) in buffered.drain(..) {
-        log::log!(level, "{}", message);
-    }
-}
-
 /// Round-trip a canary through the credential store and remember the outcome.
 ///
 /// Call once, early in startup, **before** anything reads a secret. The canary exists so
 /// the probe never writes a real secret: a probe that stored the cloud token to find out
 /// whether storing works is how you lose the cloud token.
 ///
-/// Its findings go through [`early_log`], because this runs before the log plugin exists.
+/// This runs before the log plugin exists; its findings are held by `logging` and reach the
+/// file once the app is set up.
 pub fn probe_keychain() -> KeychainStatus {
     let status = run_probe();
     match status {
-        KeychainStatus::Working => early_log(
-            log::Level::Info,
-            "Credential store is available and round-trips".to_string(),
-        ),
-        KeychainStatus::Unavailable => early_log(
-            log::Level::Warn,
+        KeychainStatus::Working => log::info!("Credential store is available and round-trips"),
+        KeychainStatus::Unavailable => log::warn!(
             "No usable credential store on this machine - secrets fall back to an encrypted file"
-                .to_string(),
         ),
     }
     let _ = KEYCHAIN_STATUS.set(status);
@@ -170,11 +136,6 @@ pub fn probe_keychain() -> KeychainStatus {
 /// Each failure path says which step failed, because the outcome alone ("no usable
 /// credential store") is not something anyone can act on - a machine that wrongly falls
 /// back to the passphrase prompt is diagnosable only if the reason is visible.
-///
-/// They go through [`early_log`] rather than `log::` directly. Raising them from `debug`
-/// to `warn` was not enough on its own: this whole function runs before the log plugin is
-/// registered, so every line went to a logger that did not exist and no level would have
-/// saved it.
 fn run_probe() -> KeychainStatus {
     // Unique per probe, because the probe deletes what it wrote.
     //
@@ -201,19 +162,13 @@ fn run_probe() -> KeychainStatus {
     let entry = match build_entry(&target, KEYCHAIN_SERVICE, &probe_user) {
         Ok(entry) => entry,
         Err(e) => {
-            early_log(
-                log::Level::Warn,
-                format!("Credential store probe could not create an entry: {}", e),
-            );
+            log::warn!("Credential store probe could not create an entry: {}", e);
             return KeychainStatus::Unavailable;
         }
     };
 
     if let Err(e) = entry.set_password(&canary) {
-        early_log(
-            log::Level::Warn,
-            format!("Credential store probe could not write: {}", e),
-        );
+        log::warn!("Credential store probe could not write: {}", e);
         return KeychainStatus::Unavailable;
     }
 
@@ -229,17 +184,11 @@ fn run_probe() -> KeychainStatus {
     match readback {
         Ok(value) if value == canary => KeychainStatus::Working,
         Ok(_) => {
-            early_log(
-                log::Level::Warn,
-                "Credential store probe read back a different value".to_string(),
-            );
+            log::warn!("Credential store probe read back a different value");
             KeychainStatus::Unavailable
         }
         Err(e) => {
-            early_log(
-                log::Level::Warn,
-                format!("Credential store probe could not read back: {}", e),
-            );
+            log::warn!("Credential store probe could not read back: {}", e);
             KeychainStatus::Unavailable
         }
     }
@@ -447,57 +396,6 @@ fn legacy_deobfuscate(encoded: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// Serialises the two tests below, which share one process-global buffer.
-    ///
-    /// Cargo runs tests on parallel threads in a single process, so without this they
-    /// clear and push to the same `EARLY_DIAGNOSTICS` and each sees the other's lines: the
-    /// count test read 5 where it expected 2, and the bound test had its accumulation wiped
-    /// mid-loop. It passed twice and failed on the third run of the same commit, which is
-    /// what a race looks like from the outside.
-    ///
-    /// `lock_or_recover` rather than `.lock().unwrap()`, matching `e2ee_session`: one
-    /// failing test would otherwise poison the mutex and every later one would panic on
-    /// the lock instead of running.
-    static EARLY_TEST_LOCK: Mutex<()> = Mutex::new(());
-
-    #[test]
-    fn early_diagnostics_are_held_and_then_handed_over_once() {
-        let _guard = crate::state::lock_or_recover(&EARLY_TEST_LOCK);
-        // The whole point of the buffer is that these lines survive being emitted before
-        // the log plugin exists. If draining stopped working they would go quiet again,
-        // which is exactly the failure that made the credential store undiagnosable.
-        EARLY_DIAGNOSTICS.lock().expect("lock").clear();
-
-        early_log(log::Level::Warn, "first".to_string());
-        early_log(log::Level::Info, "second".to_string());
-        assert_eq!(EARLY_DIAGNOSTICS.lock().expect("lock").len(), 2);
-
-        flush_early_diagnostics();
-        assert!(
-            EARLY_DIAGNOSTICS.lock().expect("lock").is_empty(),
-            "a flush must hand the lines over, not copy them"
-        );
-
-        // A second flush is a no-op rather than a repeat, since setup can run again.
-        flush_early_diagnostics();
-        assert!(EARLY_DIAGNOSTICS.lock().expect("lock").is_empty());
-    }
-
-    #[test]
-    fn the_early_buffer_does_not_grow_without_bound() {
-        let _guard = crate::state::lock_or_recover(&EARLY_TEST_LOCK);
-        EARLY_DIAGNOSTICS.lock().expect("lock").clear();
-        for i in 0..200 {
-            early_log(log::Level::Warn, format!("line {}", i));
-        }
-        assert_eq!(
-            EARLY_DIAGNOSTICS.lock().expect("lock").len(),
-            64,
-            "startup diagnostics are bounded; a loop must not turn them into a leak"
-        );
-        EARLY_DIAGNOSTICS.lock().expect("lock").clear();
-    }
 
     /// Builds a value in the format older builds wrote. Only the tests need this now -
     /// nothing in the app seals under the machine key any more.

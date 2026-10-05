@@ -32,7 +32,7 @@
    import {
       setHoveredStash,
       setDragging,
-      findStashAtPosition,
+      findCardDropTarget,
    } from "$lib/stores/drag-state.svelte";
    import {
       Trash2,
@@ -65,6 +65,8 @@
       resolveRef,
       type ResolvedRef,
    } from "$lib/utils/stash-refs";
+   import { reportError } from "$lib/utils/error-reporting";
+   import { log } from "$lib/utils/log";
 
    let {
       transferMode,
@@ -644,13 +646,10 @@
    }
 
    function handleDndConsider(e: CustomEvent) {
-      console.log(
+      // Ids only: this lands in the dev log file, and stash text does not belong there.
+      log.debug(
          "CONSIDER - items received:",
-         e.detail.items.map((i) => ({
-            id: i.id,
-            isShadow: i.isDndShadowItem,
-            content: i.content?.substring(0, 20),
-         })),
+         e.detail.items.map((i) => ({ id: i.id, isShadow: i.isDndShadowItem })),
       );
 
       // MUST keep shadows in array - library needs them to track dragged item
@@ -662,13 +661,10 @@
    }
 
    function handleDndFinalize(e: CustomEvent) {
-      console.log(
+      // Ids only: this lands in the dev log file, and stash text does not belong there.
+      log.debug(
          "FINALIZE - items received:",
-         e.detail.items.map((i) => ({
-            id: i.id,
-            isShadow: i.isDndShadowItem,
-            content: i.content?.substring(0, 30),
-         })),
+         e.detail.items.map((i) => ({ id: i.id, isShadow: i.isDndShadowItem })),
       );
 
       activeStashes = e.detail.items;
@@ -711,7 +707,7 @@
          "tauri://drag-enter",
          (event) => {
             setDragging(true);
-            const stashId = findStashAtPosition(
+            const stashId = findCardDropTarget(
                event.payload.position.x,
                event.payload.position.y,
             );
@@ -722,7 +718,7 @@
       unlistenOver = await listen<{ position: { x: number; y: number } }>(
          "tauri://drag-over",
          (event) => {
-            const stashId = findStashAtPosition(
+            const stashId = findCardDropTarget(
                event.payload.position.x,
                event.payload.position.y,
             );
@@ -739,7 +735,7 @@
          paths: string[];
          position: { x: number; y: number };
       }>("tauri://drag-drop", async (event) => {
-         const stashId = findStashAtPosition(
+         const stashId = findCardDropTarget(
             event.payload.position.x,
             event.payload.position.y,
          );
@@ -750,7 +746,16 @@
             // Find the stash and add attachments to it
             const stash = stashes.find((s) => s.id === stashId);
             if (stash && !stash.completed) {
-               const paths = event.payload.paths;
+               // A browser drop carries no file paths; see Editor.svelte
+               let paths = event.payload.paths;
+               if (paths.length === 0) {
+                  try {
+                     paths = [await adapter.readDroppedImage()];
+                  } catch (err) {
+                     reportError("attachment", err, "Failed to read browser drop");
+                     return;
+                  }
+               }
                let newAttachments = [...stash.attachments];
                for (const path of paths) {
                   try {
@@ -762,7 +767,7 @@
                      attachment.stashId = stash.id;
                      newAttachments.push(attachment);
                   } catch (err) {
-                     console.error("Failed to save dropped asset", err);
+                     reportError("attachment", err, "Failed to save dropped asset");
                   }
                }
                if (newAttachments.length > stash.attachments.length) {

@@ -21,6 +21,13 @@ export interface TooltipOptions {
     delay?: number;
     /** Position preference: 'top' | 'bottom' | 'left' | 'right' (default: 'top') */
     position?: "top" | "bottom" | "left" | "right";
+    /**
+     * `text` (default) shows the title as one centred block. `list` splits it on newlines:
+     * the first line is a heading, the last a muted footer, and each line between is a
+     * left-aligned row - for a title that enumerates several things, which centred
+     * wrapping turns into one unreadable block.
+     */
+    layout?: "text" | "list";
 }
 
 /**
@@ -35,6 +42,7 @@ export function tooltip(
 ): { destroy: () => void } {
     const delay = options.delay ?? 200;
     let preferredPosition = options.position ?? "top";
+    const layout = options.layout ?? "text";
 
     let tooltipEl: HTMLDivElement | null = null;
     let arrowEl: HTMLDivElement | null = null;
@@ -75,9 +83,7 @@ export function tooltip(
                         updateTitle();
                         // If tooltip is already showing, update its content
                         if (tooltipEl) {
-                            tooltipEl.textContent = title;
-                            // Re-append arrow
-                            if (arrowEl) tooltipEl.appendChild(arrowEl);
+                            renderContent();
                             positionTooltip();
                         }
                     }
@@ -88,6 +94,28 @@ export function tooltip(
         observer.observe(element, { attributes: true, attributeFilter: ["title"] });
     }
 
+    // Fill the tooltip from the title. Built with textContent only, never innerHTML: titles
+    // carry backend error messages and file names.
+    function renderContent() {
+        if (!tooltipEl) return;
+        tooltipEl.replaceChildren();
+        const lines = layout === "list" ? title.split("\n").filter((l) => l.trim()) : [];
+        if (lines.length < 3) {
+            tooltipEl.textContent = layout === "list" ? lines.join(" ") : title;
+        } else {
+            const add = (cls: string, text: string) => {
+                const el = document.createElement("div");
+                el.className = cls;
+                el.textContent = text;
+                tooltipEl!.appendChild(el);
+            };
+            add("tooltip-list-heading", lines[0]);
+            for (const line of lines.slice(1, -1)) add("tooltip-list-item", line);
+            add("tooltip-list-footer", lines[lines.length - 1]);
+        }
+        if (arrowEl) tooltipEl.appendChild(arrowEl);
+    }
+
     // Create tooltip element
     function createTooltip() {
         // Clean up any orphaned tooltips from previous instances
@@ -95,13 +123,12 @@ export function tooltip(
         existingTooltips.forEach((el) => el.remove());
 
         tooltipEl = document.createElement("div");
-        tooltipEl.className = "tooltip";
-        tooltipEl.textContent = title;
+        tooltipEl.className = layout === "list" ? "tooltip tooltip-list" : "tooltip";
         tooltipEl.setAttribute("role", "tooltip");
 
         arrowEl = document.createElement("div");
         arrowEl.className = "tooltip-arrow";
-        tooltipEl.appendChild(arrowEl);
+        renderContent();
 
         // Check if the element is inside a dialog (top-layer)
         // If so, append to the dialog to participate in its stacking context

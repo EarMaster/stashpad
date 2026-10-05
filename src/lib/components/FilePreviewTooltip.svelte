@@ -33,6 +33,7 @@
     import { getAttachmentKind } from "$lib/utils/files";
     import { errorText } from "$lib/errors";
 
+    import { log } from "$lib/utils/log";
     let {
         filePath,
         fileName,
@@ -97,7 +98,7 @@
             const path = await attachmentSync.request(attachmentId, filePath);
             onclick?.(path);
         } catch (e) {
-            console.error("Failed to download attachment:", e);
+            log.error("Failed to download attachment:", e);
         } finally {
             isAwaitingOpen = false;
         }
@@ -128,7 +129,7 @@
             try {
                 previewData = await adapter.readFileForPreview(resolvedPath);
             } catch (e) {
-                console.error("Failed to load preview:", e);
+                log.error("Failed to load preview:", e);
                 error = $_(
                     errorText(e, "common.unknownError"),
                 );

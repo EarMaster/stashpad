@@ -51,6 +51,7 @@
     ExternalLink,
     FileText,
     RefreshCw,
+    TriangleAlert,
   } from "lucide-svelte";
   import TagBadge from "./TagBadge.svelte";
   import SettingsButton from "./SettingsButton.svelte";
@@ -67,6 +68,7 @@
   import { createSyncDisplay } from "$lib/utils/sync-display.svelte";
   import { errorText } from "$lib/errors";
 
+  import { log } from "$lib/utils/log";
   let {
     settings = $bindable(),
     syncStatus,
@@ -121,6 +123,19 @@
   const SAVE_DEBOUNCE_MS = 400;
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
 
+  // Why the show/hide shortcut is not active. Only what the OS reports is shown: on macOS a
+  // combination another app holds registers without complaint, so there is nothing to say.
+  let globalShortcutError = $state<string | null>(null);
+
+  async function refreshGlobalShortcutError() {
+    try {
+      const error = await adapter.getGlobalShortcutError();
+      globalShortcutError = error ? errorText(error) : null;
+    } catch (e) {
+      log.warn("Could not read the global shortcut status", e);
+    }
+  }
+
   async function save() {
     // A pending debounced save is now redundant - this call carries the same state.
     if (saveTimer) {
@@ -130,7 +145,7 @@
     try {
       await adapter.saveSettings(settings);
     } catch (e) {
-      console.error("Failed to save settings", e);
+      log.error("Failed to save settings", e);
     }
   }
 
@@ -207,7 +222,7 @@
       clearTimeout(saveTimer);
       saveTimer = null;
       void adapter.saveSettings(settings).catch((e) => {
-        console.error("Failed to save settings", e);
+        log.error("Failed to save settings", e);
       });
     }
   });
@@ -268,7 +283,7 @@
   /** Opens the cloud sync waitlist on the website. */
   function openWaitlist() {
     openUrl(waitlistUrl(settings.cloudConfig?.endpoint)).catch((err) => {
-      console.error("Failed to open the waitlist:", err);
+      log.error("Failed to open the waitlist:", err);
     });
   }
 
@@ -316,12 +331,13 @@
       cloudUsage = await adapter.fetchCloudUsage();
     } catch (e) {
       // Usage is informational; failing to fetch it must not disturb the panel.
-      console.warn("[Settings] Could not fetch cloud usage:", e);
+      log.warn("[Settings] Could not fetch cloud usage:", e);
     }
   }
 
   onMount(loadCloudUsage);
   onMount(refreshDeviceKey);
+  onMount(refreshGlobalShortcutError);
 
   onMount(async () => {
     isWin10 = await adapter.isWindows10();
@@ -332,7 +348,7 @@
         hasScreenRecordingPermission =
           await adapter.checkScreenRecordingPermission();
       } catch (e) {
-        console.error("Failed to check screen recording permission:", e);
+        log.error("Failed to check screen recording permission:", e);
       }
     }
 
@@ -344,7 +360,7 @@
         save();
       }
     } catch (e) {
-      console.error("Failed to get autostart status:", e);
+      log.error("Failed to get autostart status:", e);
     }
   });
 
@@ -355,7 +371,7 @@
     try {
       await adapter.openMacosScreenRecordingSettings();
     } catch (e) {
-      console.error("Failed to open screen recording settings:", e);
+      log.error("Failed to open screen recording settings:", e);
     }
   }
 
@@ -398,7 +414,7 @@
         save();
       }
     } catch (e) {
-      console.error("Failed to check Apple Intelligence availability:", e);
+      log.error("Failed to check Apple Intelligence availability:", e);
     }
   });
 
@@ -472,7 +488,7 @@
       };
       save();
     } catch (e) {
-      console.error("Failed to fetch subscription", e);
+      log.error("Failed to fetch subscription", e);
     }
   }
 
@@ -510,7 +526,7 @@
       : `${endpoint}/account/home`;
 
     openUrl(accountUrl).catch((err) => {
-      console.error("Failed to open account portal:", err);
+      log.error("Failed to open account portal:", err);
     });
   }
 
@@ -1249,7 +1265,7 @@
                   await adapter.setAutostart(settings.autostart ?? false);
                   save();
                 } catch (e) {
-                  console.error("Failed to update autostart:", e);
+                  log.error("Failed to update autostart:", e);
                   // Revert the toggle if it failed
                   settings.autostart = !settings.autostart;
                 }
@@ -1310,13 +1326,23 @@
             <ShortcutInput
               value={settings.shortcuts?.["global_toggle"] || ""}
               placeholder={$_("settings.shortcuts.clickToSet")}
-              onchange={(shortcut) => {
+              onchange={async (shortcut) => {
                 if (!settings.shortcuts) settings.shortcuts = {};
                 settings.shortcuts["global_toggle"] = shortcut;
-                save();
+                await save();
+                await refreshGlobalShortcutError();
               }}
             />
           </div>
+          {#if globalShortcutError}
+            <p
+              class="flex items-start gap-1.5 px-3 text-xs text-[var(--amber)]"
+              role="status"
+            >
+              <TriangleAlert size={12} class="mt-0.5 shrink-0" />
+              <span>{globalShortcutError}</span>
+            </p>
+          {/if}
         </div>
       </section>
 

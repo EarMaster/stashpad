@@ -18,6 +18,7 @@
     import { formatBytes } from "$lib/utils/format";
     import { Download, FileArchive, Square, CheckSquare } from "lucide-svelte";
 
+    import { log } from "$lib/utils/log";
     let {
         open = $bindable(false),
         context,
@@ -229,7 +230,7 @@
             }
             handleClose();
         } catch (e) {
-            console.error("Export failed:", e);
+            log.error("Export failed:", e);
             errorMessage = errorText(e, $_("contexts.exportDialog.failed"));
         } finally {
             isExporting = false;

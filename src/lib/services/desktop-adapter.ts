@@ -12,8 +12,10 @@
 // See the GNU Affero General Public License for more details.
 
 import { invoke } from '@tauri-apps/api/core';
+import type { LogLevel } from '../utils/log';
 import type { IStorageService, StashItem, AppContext, Settings, FilePreviewData, Context, Attachment, CloudConfig, ExportSummary, ImportPreview, CloudUsage, StashPosition, LocalKeyStatus, E2eeStatus, E2eeEnableResult, E2eeConversionProgress, CreatedAccessKey, AttachmentConversion } from '../types';
 
+import { log } from '$lib/utils/log';
 /** Called after any local write so cloud sync can be scheduled. */
 type MutationListener = () => void;
 
@@ -38,7 +40,7 @@ function notifyMutation(): void {
     try {
         mutationListener?.();
     } catch (e) {
-        console.warn('[DesktopAdapter] Mutation listener failed:', e);
+        log.warn('[DesktopAdapter] Mutation listener failed:', e);
     }
 }
 
@@ -153,6 +155,14 @@ export class DesktopStorageAdapter implements IStorageService {
         await invoke('start_drag', { text, files });
     }
 
+    async readDroppedImage(): Promise<string> {
+        return await invoke('read_dropped_image');
+    }
+
+    async getGlobalShortcutError(): Promise<unknown | null> {
+        return await invoke('global_shortcut_error');
+    }
+
     /**
      * Import an asset from an external file path into the cache directory.
      * Files are organized hierarchically: cache/<contextId>/<stashId>/<filename>
@@ -252,13 +262,13 @@ export class DesktopStorageAdapter implements IStorageService {
     }
 
     /**
-     * Forward a frontend error to the Rust logger.
+     * Forward a line from the frontend logger to the Rust logger.
      *
-     * The webview console is discarded in a release build, so without this an
-     * uncaught render error leaves no trace anywhere on disk.
+     * The webview console is discarded in a release build, so without this nothing the
+     * frontend logs leaves a trace on disk.
      */
-    async logFrontendError(message: string): Promise<void> {
-        return await invoke('log_frontend_error', { message });
+    async logFrontend(level: LogLevel, message: string): Promise<void> {
+        return await invoke('log_frontend', { level, message });
     }
 
     async exchangeLinkCodeApi(token: string, deviceId?: string): Promise<CloudConfig> {
@@ -311,7 +321,7 @@ export class DesktopStorageAdapter implements IStorageService {
         try {
             return await invoke<boolean>('check_apple_intelligence_available');
         } catch (e) {
-            console.error('Failed to check Apple Intelligence availability:', e);
+            log.error('Failed to check Apple Intelligence availability:', e);
             return false;
         }
     }

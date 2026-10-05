@@ -27,6 +27,7 @@
 import type { IStorageService } from '../types';
 import { nowMs } from "$lib/utils/time";
 
+import { log } from '$lib/utils/log';
 /** How many downloads run at once. Small, so a prioritised item starts promptly. */
 const MAX_CONCURRENT = 2;
 
@@ -191,7 +192,7 @@ export class AttachmentSyncQueue {
             this.waiters.get(id)?.forEach(w => w.resolve(path));
             this.waiters.delete(id);
         } catch (e) {
-            console.warn(`[AttachmentSync] Download failed for ${id}:`, e);
+            log.warn(`[AttachmentSync] Download failed for ${id}:`, e);
             this.fail(id, e);
         } finally {
             this.active.delete(id);

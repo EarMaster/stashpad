@@ -13,6 +13,7 @@
 
 import { openUrl } from "@tauri-apps/plugin-opener";
 
+import { log } from "$lib/utils/log";
 /**
  * Check whether the given URL string is an external link (http/https).
  */
@@ -73,7 +74,7 @@ export function externalLinks(node: HTMLElement) {
         // Open in default browser only when Cmd (macOS) / Ctrl (Win/Linux) is held
         if (e.metaKey || e.ctrlKey) {
             openUrl(href).catch((err) => {
-                console.error("Failed to open external URL:", href, err);
+                log.error("Failed to open external URL:", href, err);
             });
         }
     }

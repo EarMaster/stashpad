@@ -17,6 +17,7 @@
 
     import ContextManagerItem from "./ContextManagerItem.svelte";
 
+    import { log } from "$lib/utils/log";
     let { onBack, onSelect } = $props<{
         onBack: () => void;
         onSelect?: (id: string) => void;
@@ -111,7 +112,7 @@
             stashTotals = totals;
             contextSizes = sizes;
         } catch (e) {
-            console.error("Failed to load contexts", e);
+            log.error("Failed to load contexts", e);
         } finally {
             isLoading = false;
         }
@@ -121,7 +122,7 @@
         try {
             await adapter.saveContexts(contexts);
         } catch (e) {
-            console.error("Failed to save contexts", e);
+            log.error("Failed to save contexts", e);
         }
     }
 
@@ -133,7 +134,7 @@
         try {
             await adapter.saveContext(context);
         } catch (e) {
-            console.error("Failed to save context", e);
+            log.error("Failed to save context", e);
         }
     }
 
@@ -168,7 +169,7 @@
             delete stashTotals[id];
             delete contextSizes[id];
         } catch (e) {
-            console.error("Failed to delete context:", e);
+            log.error("Failed to delete context:", e);
         }
     }
 

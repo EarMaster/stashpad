@@ -26,6 +26,7 @@ use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::Manager;
 
 mod account_export;
+mod browser_drop;
 mod contexts;
 pub mod db;
 mod e2ee;
@@ -34,8 +35,10 @@ mod e2ee_session;
 mod envelope;
 mod keychain;
 mod localkey;
+mod logging;
 mod models;
 mod settings;
+mod shortcuts;
 mod stashes;
 mod state;
 mod sync;
@@ -143,9 +146,8 @@ impl ContextMatcher {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // 0. init devtools
-    #[cfg(debug_assertions)] // only enable instrumentation in development builds
-    let devtools = tauri_plugin_devtools::init();
+    // 0. Before anything can log: everything up to the setup hook is held for the file.
+    logging::install();
 
     // 1. Initialize Storage
     ensure_storage_ready();
@@ -253,9 +255,9 @@ pub fn run() {
     let settings_state_for_setup = settings_state.clone();
     let settings_state_for_unlock = settings_state.clone();
 
-    let mut builder = tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
-            println!("Single instance triggered: argv={:?}, cwd={:?}", argv, cwd);
+            log::info!("Single instance triggered: argv={:?}, cwd={:?}", argv, cwd);
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.show();
                 let _ = window.unminimize();
@@ -263,10 +265,27 @@ pub fn run() {
             }
         }))
         .setup(move |app| {
-            // Everything the credential store and the device key had to say happened before
-            // the log plugin existed, so it went nowhere. Replayed here, where it lands in
-            // the file people can actually send.
-            crate::keychain::flush_early_diagnostics();
+            // The log file needs the app's log folder, which only exists from here on.
+            // Everything logged before now - settings validation, the database migration,
+            // the credential store probe - was held by `logging` and is replayed into it.
+            let (log_plugin, max_level, logger) = tauri_plugin_log::Builder::default()
+                .level(logging::OTHER_LEVEL)
+                .level_for("app_lib", logging::APP_LEVEL)
+                .max_file_size(logging::MAX_FILE_BYTES)
+                .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepSome(
+                    logging::KEEP_ARCHIVED,
+                ))
+                .targets([
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
+                    // Dev runs get their own file, so they never mix into the log a user
+                    // of the installed app would send.
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir {
+                        file_name: cfg!(debug_assertions).then(|| "stashpad-dev".to_string()),
+                    }),
+                ])
+                .split(app.handle())?;
+            logging::attach(logger, max_level);
+            app.handle().plugin(log_plugin)?;
 
             // Open this installation's copy of the content key, if there is one.
             //
@@ -308,12 +327,17 @@ pub fn run() {
             let settings = settings_state_for_setup.lock_settings();
             let visual_effects_enabled = settings.visual_effects_enabled;
             let theme = settings.theme.clone();
+            let global_toggle = settings.shortcuts.get(shortcuts::GLOBAL_TOGGLE).cloned();
             // The native menu is built here, before the webview reports a locale, so the
             // one label we own is picked from the saved setting instead. It only changes
             // on restart, which matches the rest of the menu.
             #[cfg(target_os = "macos")]
             let locale = settings.locale.clone();
             drop(settings); // Release lock
+
+            // The shortcut that shows and hides the window. Registered here as well as on
+            // every change, because a saved shortcut has to work from the first launch.
+            shortcuts::apply_global_toggle(app.handle(), None, global_toggle.as_deref());
 
             if let Some(window) = app.get_webview_window("main") {
                 // Clear only when translucency is actually on. A permanently transparent
@@ -411,31 +435,6 @@ pub fn run() {
         .manage(db_state)
         .manage(settings_state)
         .manage(ws_state);
-
-    #[cfg(debug_assertions)]
-    {
-        builder = builder.plugin(devtools);
-    }
-
-    #[cfg(not(debug_assertions))]
-    {
-        // The defaults log at TRACE, and Tauri's own `tracing` spans mean every IPC call
-        // writes about thirty lines. With the default 40 KB cap and a rotation that keeps
-        // one file, the log wiped itself roughly every five seconds of ordinary use - so
-        // `log_frontend_error`, added precisely so a webview error that wedges the UI
-        // leaves a trace on disk, was always gone before anyone could read it. It also
-        // meant a continuous few KB a second of synchronous disk writes on the IPC thread.
-        //
-        // Only this crate's own records are kept, and the file is given room to hold a
-        // session's worth of them.
-        builder = builder.plugin(
-            tauri_plugin_log::Builder::default()
-                .level(log::LevelFilter::Warn)
-                .level_for("app_lib", log::LevelFilter::Info)
-                .max_file_size(512_000)
-                .build(),
-        );
-    }
 
     builder
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -569,7 +568,9 @@ pub fn run() {
             sync::connect_websocket,
             sync::disconnect_websocket,
             utils::get_installation_source,
-            utils::log_frontend_error
+            logging::log_frontend,
+            browser_drop::read_dropped_image,
+            shortcuts::global_shortcut_error
         ])
         .plugin(tauri_plugin_deep_link::init())
         // There is no `.setup()` here on purpose.
@@ -585,7 +586,7 @@ pub fn run() {
         .expect("error while building tauri application")
         .run(|app_handle, event| {
             if let tauri::RunEvent::Exit = event {
-                println!("App exiting, cleaning up...");
+                log::info!("App exiting, cleaning up...");
                 cleanup_websocket_state(app_handle);
                 cleanup_database_state(app_handle);
             }
@@ -630,7 +631,7 @@ fn cleanup_database_state<R: tauri::Runtime>(app_handle: &tauri::AppHandle<R>) {
         match db_arc.try_lock() {
             Ok(db) => {
                 let _: rusqlite::Result<()> = db.prepare_shutdown();
-                println!("DB shutdown successful (WAL checkpointed).");
+                log::info!("DB shutdown successful (WAL checkpointed).");
                 return;
             }
             Err(std::sync::TryLockError::Poisoned(poisoned)) => {

@@ -32,6 +32,7 @@
     } from "lucide-svelte";
     import { tooltip } from "$lib/actions/tooltip";
 
+    import { log } from "$lib/utils/log";
     let {
         open = $bindable(false),
         context,
@@ -270,7 +271,7 @@
 
             step = "preview";
         } catch (e) {
-            console.error("Failed to parse file:", e);
+            log.error("Failed to parse file:", e);
             errorMessage = errorText(e, $_("contexts.importDialog.readFailed"));
         } finally {
             isParsing = false;
@@ -385,7 +386,7 @@
             onImportComplete();
             handleClose();
         } catch (e) {
-            console.error("Import failed:", e);
+            log.error("Import failed:", e);
             errorMessage = errorText(e, $_("contexts.importDialog.importFailed"));
         } finally {
             isImporting = false;
