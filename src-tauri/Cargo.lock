@@ -5950,6 +5950,8 @@ dependencies = [
  "keyring",
  "log",
  "mime_guess",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
  "rand 0.8.8",
  "regex",
  "reqwest 0.12.28",

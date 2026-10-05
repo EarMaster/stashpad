@@ -194,6 +194,11 @@ export interface IStorageService {
      */
     saveAssetFromPath(path: string, contextId?: string, stashId?: string, syntax?: string): Promise<Attachment>;
     /**
+     * Turn the image in a browser drop - one that arrived with no file paths - into a
+     * scratch file, and return its path for the same handling as a dropped file.
+     */
+    readDroppedImage(): Promise<string>;
+    /**
      * Delete an attachment: its row, and its file once no other row references it.
      * @param id - The attachment id; empty for one never written to the database
      * @param path - Absolute path to the file, which must lie inside the cache directory

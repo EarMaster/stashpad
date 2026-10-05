@@ -35,6 +35,7 @@
     Heading,
     Maximize2,
     Minimize2,
+    TriangleAlert,
   } from "lucide-svelte";
   import { getCaretCoordinates } from "$lib/utils/caret";
   import {
@@ -57,7 +58,7 @@
   import { listen, type UnlistenFn } from "@tauri-apps/api/event";
   import { onMount, onDestroy, untrack, tick } from "svelte";
 
-  import { findStashAtPosition } from "$lib/stores/drag-state.svelte";
+  import { findStashAtPosition, findEditorAtPosition } from "$lib/stores/drag-state.svelte";
   import { stat } from "@tauri-apps/plugin-fs";
   import { open, message } from "@tauri-apps/plugin-dialog";
   import {
@@ -69,6 +70,7 @@
   import { tooltip } from "$lib/actions/tooltip";
   import { resizeImage, getAttachmentKind } from "$lib/utils/files";
   import { reportError } from "$lib/utils/error-reporting";
+  import { errorText } from "$lib/errors";
   import { readFile } from "@tauri-apps/plugin-fs";
 
   let {
@@ -173,6 +175,22 @@
   let addedAssets = $state<{ id: string; filePath: string }[]>([]);
   let removedAssets = $state<{ id: string; filePath: string }[]>([]);
 
+  // Attachments that could not be added, shown as a warning chip next to the file list.
+  // Not a dialog: a failed drop must not block typing, and the chip waits until it is
+  // dismissed or the stash is saved, cleared or cancelled.
+  let attachmentErrors = $state<string[]>([]);
+
+  /** Log an attachment failure and surface it on the warning chip. */
+  function noteAttachmentError(err: unknown, logContext: string, message: string) {
+    reportError("attachment", err, logContext);
+    attachmentErrors = [...attachmentErrors, message];
+  }
+
+  /** The chip text for a file that could not be saved. */
+  function saveFailedMessage(name: string, err: unknown): string {
+    return $_("editor.attachmentErrors.saveFailed", { values: { name, reason: errorText(err) } });
+  }
+
   // Clear confirmation dialog state
   let clearConfirmDialogOpen = $state(false);
 
@@ -232,17 +250,28 @@
       position: { x: number; y: number };
     }>("tauri://drag-drop", async (event) => {
       dragOver = false;
-
-      // Check if drop is targeting a StashCard - if so, Queue handles it
-      const targetStashId = findStashAtPosition(
-        event.payload.position.x,
-        event.payload.position.y,
-      );
-      if (targetStashId) {
-        return; // Let Queue.svelte handle this drop
+      // Every editor hears every drop, so exactly one may take it: the editor it landed
+      // in, or - for a drop outside every editor and every stash card - the main one.
+      // A drop on a card outside an editor is Queue.svelte's.
+      const { x, y } = event.payload.position;
+      const targetEditor = findEditorAtPosition(x, y);
+      if (targetEditor) {
+        if (targetEditor !== rootEl) return;
+      } else if (existingStashId || findStashAtPosition(x, y)) {
+        return;
       }
 
-      const paths = event.payload.paths;
+      // A browser drop carries no file paths: its image is read back from the drag
+      // and handed over as a scratch file, so it takes the same path as a Finder drop.
+      let paths = event.payload.paths;
+      if (paths.length === 0) {
+        try {
+          paths = [await adapter.readDroppedImage()];
+        } catch (err) {
+          noteAttachmentError(err, "Failed to read browser drop", errorText(err));
+          return;
+        }
+      }
       for (const path of paths) {
         try {
           // Check if it's an image and we need to resize
@@ -325,7 +354,7 @@
             addedAssets = [...addedAssets, { id: attachment.id, filePath: attachment.filePath }];
           }
         } catch (err) {
-          reportError("attachment", err, "Failed to save dropped asset");
+          noteAttachmentError(err, "Failed to save dropped asset", saveFailedMessage(path.split(/[\\/]/).pop() ?? path, err));
         }
       }
     });
@@ -553,7 +582,7 @@
           // Track added file for cleanup on cancel
           addedAssets = [...addedAssets, { id: attachment.id, filePath: attachment.filePath }];
         } catch (err) {
-          reportError("attachment", err, "Failed to save pasted file");
+          noteAttachmentError(err, "Failed to save pasted file", saveFailedMessage(file.name, err));
         }
       }
       return;
@@ -619,7 +648,7 @@
       // Track added file for cleanup on cancel
       addedAssets = [...addedAssets, { id: attachment.id, filePath: attachment.filePath }];
     } catch (err) {
-      reportError("attachment", err, "Failed to save text as attachment");
+      noteAttachmentError(err, "Failed to save text as attachment", saveFailedMessage(filename, err));
     }
   }
 
@@ -707,6 +736,7 @@
       // Clear tracking arrays after successful save
       addedAssets = [];
       removedAssets = [];
+      attachmentErrors = [];
     } catch (e) {
       console.error(e);
     } finally {
@@ -730,6 +760,7 @@
     // Clear tracking arrays
     addedAssets = [];
     removedAssets = [];
+    attachmentErrors = [];
 
     // Call the original onCancel callback
     onCancel?.();
@@ -770,6 +801,7 @@
     addedAssets = [];
     removedAssets = [];
     clearConfirmDialogOpen = false;
+    attachmentErrors = [];
     isExpanded = false;
   }
 
@@ -1041,6 +1073,7 @@
   /**
    * Opens a file picker dialog and adds selected files to the stash.
    */
+  let rootEl = $state<HTMLDivElement | null>(null);
   let textareaRef = $state<HTMLTextAreaElement | null>(null);
 
   function adjustTextareaHeight() {
@@ -1135,7 +1168,7 @@
             // Track added file for cleanup on cancel
             addedAssets = [...addedAssets, { id: attachment.id, filePath: attachment.filePath }];
           } catch (err) {
-            reportError("attachment", err, "Failed to save picked file");
+            noteAttachmentError(err, "Failed to save picked file", saveFailedMessage(path.split(/[\\/]/).pop() ?? path, err));
           }
         }
       }
@@ -1157,6 +1190,8 @@
 {/if}
 
 <div
+  bind:this={rootEl}
+  data-editor-root
   class="{isExpanded
     ? 'fixed inset-4 z-50 shadow-2xl'
     : 'relative'} flex flex-col rounded-xl border border-border bg-[var(--muted-editor)] text-card-foreground transition-all duration-200 overflow-hidden"
@@ -1456,7 +1491,24 @@
             </Tooltip>
           </div>
         {/each}
-        {#if files.length === 0}
+        {#if attachmentErrors.length > 0}
+          <button
+            type="button"
+            class="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded text-[10px] border border-[var(--amber)]/50 bg-[var(--amber)]/10 text-[var(--amber)] hover:bg-[var(--amber)]/20 transition-colors shadow-sm"
+            title={[
+              $_("editor.attachmentErrors.label", { values: { count: attachmentErrors.length } }),
+              ...attachmentErrors,
+              $_("editor.attachmentErrors.dismiss"),
+            ].join("\n")}
+            aria-label={$_("editor.attachmentErrors.label", { values: { count: attachmentErrors.length } })}
+            use:tooltip={{ layout: "list" }}
+            onclick={() => (attachmentErrors = [])}
+          >
+            <TriangleAlert size={10} />
+            <span>{attachmentErrors.length}</span>
+          </button>
+        {/if}
+        {#if files.length === 0 && attachmentErrors.length === 0}
           <span class="text-[10px] text-muted-foreground/60 italic"
             >{$_("editor.dragFilesHere")}</span
           >

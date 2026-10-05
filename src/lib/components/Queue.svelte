@@ -32,7 +32,7 @@
    import {
       setHoveredStash,
       setDragging,
-      findStashAtPosition,
+      findCardDropTarget,
    } from "$lib/stores/drag-state.svelte";
    import {
       Trash2,
@@ -712,7 +712,7 @@
          "tauri://drag-enter",
          (event) => {
             setDragging(true);
-            const stashId = findStashAtPosition(
+            const stashId = findCardDropTarget(
                event.payload.position.x,
                event.payload.position.y,
             );
@@ -723,7 +723,7 @@
       unlistenOver = await listen<{ position: { x: number; y: number } }>(
          "tauri://drag-over",
          (event) => {
-            const stashId = findStashAtPosition(
+            const stashId = findCardDropTarget(
                event.payload.position.x,
                event.payload.position.y,
             );
@@ -740,7 +740,7 @@
          paths: string[];
          position: { x: number; y: number };
       }>("tauri://drag-drop", async (event) => {
-         const stashId = findStashAtPosition(
+         const stashId = findCardDropTarget(
             event.payload.position.x,
             event.payload.position.y,
          );
@@ -751,7 +751,16 @@
             // Find the stash and add attachments to it
             const stash = stashes.find((s) => s.id === stashId);
             if (stash && !stash.completed) {
-               const paths = event.payload.paths;
+               // A browser drop carries no file paths; see Editor.svelte
+               let paths = event.payload.paths;
+               if (paths.length === 0) {
+                  try {
+                     paths = [await adapter.readDroppedImage()];
+                  } catch (err) {
+                     reportError("attachment", err, "Failed to read browser drop");
+                     return;
+                  }
+               }
                let newAttachments = [...stash.attachments];
                for (const path of paths) {
                   try {

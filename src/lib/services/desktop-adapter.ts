@@ -153,6 +153,10 @@ export class DesktopStorageAdapter implements IStorageService {
         await invoke('start_drag', { text, files });
     }
 
+    async readDroppedImage(): Promise<string> {
+        return await invoke('read_dropped_image');
+    }
+
     /**
      * Import an asset from an external file path into the cache directory.
      * Files are organized hierarchically: cache/<contextId>/<stashId>/<filename>

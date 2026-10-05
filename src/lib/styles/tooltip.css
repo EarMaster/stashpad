@@ -27,6 +27,40 @@
     opacity: 1;
 }
 
+/* `layout: "list"` - a heading, one row per entry, and a muted footer */
+.tooltip.tooltip-list {
+    max-width: 320px;
+    padding: 8px 10px;
+    text-align: left;
+    font-weight: 400;
+}
+
+.tooltip-list-heading {
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
+.tooltip-list-item {
+    position: relative;
+    padding: 4px 0 4px 12px;
+    border-top: 1px solid color-mix(in srgb, var(--background) 20%, transparent);
+}
+
+.tooltip-list-item::before {
+    content: "\2022";
+    position: absolute;
+    left: 2px;
+    color: var(--amber);
+}
+
+.tooltip-list-footer {
+    margin-top: 4px;
+    padding-top: 4px;
+    border-top: 1px solid color-mix(in srgb, var(--background) 20%, transparent);
+    font-size: 10px;
+    opacity: 0.65;
+}
+
 /* Tooltip arrow */
 .tooltip-arrow {
     position: absolute;

@@ -506,6 +506,11 @@
     "addFile": "Anhänge hinzufügen",
     "selectFilesTitle": "Dateien zum Anhängen auswählen",
     "removeFile": "Datei entfernen",
+    "attachmentErrors": {
+      "label": "{count, plural, one {# Anhang konnte} other {# Anhänge konnten}} nicht hinzugefügt werden",
+      "saveFailed": "{name} konnte nicht hinzugefügt werden: {reason}",
+      "dismiss": "Zum Ausblenden klicken"
+    },
     "regionLabel": "Stash-Editor",
     "bold": "Fett",
     "italic": "Kursiv",
@@ -588,6 +593,10 @@
       "passphrase_empty": "Die Passphrase darf nicht leer sein.",
       "no_passphrase": "Auf diesem Rechner ist keine Passphrase eingerichtet.",
       "locked": "Gib zuerst deine Passphrase ein."
+    },
+    "drop": {
+      "nothing_usable": "Der abgelegte Inhalt enthält nichts, was Stashpad anhängen kann. Kopiere das Bild stattdessen und füge es ein.",
+      "download_failed": "Das abgelegte Bild konnte nicht heruntergeladen werden: {reason}"
     }
   }
 }

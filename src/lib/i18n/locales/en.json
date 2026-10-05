@@ -506,6 +506,11 @@
     "addFile": "Add attachments",
     "selectFilesTitle": "Select files to attach",
     "removeFile": "Remove file",
+    "attachmentErrors": {
+      "label": "{count, plural, one {# attachment} other {# attachments}} could not be added",
+      "saveFailed": "Couldn't add {name}: {reason}",
+      "dismiss": "Click to dismiss"
+    },
     "regionLabel": "Stash editor",
     "bold": "Bold",
     "italic": "Italic",
@@ -588,6 +593,10 @@
       "passphrase_empty": "The passphrase cannot be empty.",
       "no_passphrase": "No passphrase is set on this machine.",
       "locked": "Enter your passphrase first."
+    },
+    "drop": {
+      "nothing_usable": "This drop contained nothing Stashpad can attach. Try copying the image and pasting it instead.",
+      "download_failed": "Couldn't download the dropped image: {reason}"
     }
   }
 }

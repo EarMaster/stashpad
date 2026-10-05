@@ -11,7 +11,22 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+### Added
+- **You can drag images straight from your browser into a stash.** On macOS, an image dropped
+  from Chrome, Safari or another browser used to be ignored without a word, because the
+  browser hands it over as something other than a file on disk. Stashpad now keeps the
+  original file when the browser provides it, and otherwise downloads the image from its
+  address. When neither works, it saves the picture as a PNG
+- **An attachment that could not be added now says so in the editor.** A small warning sign
+  appears next to the attachments, and hovering it lists what went wrong, such as a download
+  that failed or a drop with nothing to attach. Click it to dismiss it; it does not get in the
+  way of typing
+
 ### Fixed
+- **A file you drop lands where you dropped it.** On a Mac with a Retina display, every drop
+  was placed as if it had landed up and to the left of where it really did. A file dropped into
+  a stash you were editing could end up in the main editor as well, and a file dropped onto one
+  stash in the queue could be attached to a different one, or to none
 - **Pasting an image into a stash works again.** Since 1.6.3, a pasted screenshot or copied
   image was silently dropped: nothing appeared and no error was shown. Dropping a large image
   failed the same way when "Resize images" was on, because the shrunk copy is saved the same

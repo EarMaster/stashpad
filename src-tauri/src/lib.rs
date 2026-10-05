@@ -26,6 +26,7 @@ use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::Manager;
 
 mod account_export;
+mod browser_drop;
 mod contexts;
 pub mod db;
 mod e2ee;
@@ -569,7 +570,8 @@ pub fn run() {
             sync::connect_websocket,
             sync::disconnect_websocket,
             utils::get_installation_source,
-            utils::log_frontend_error
+            utils::log_frontend_error,
+            browser_drop::read_dropped_image
         ])
         .plugin(tauri_plugin_deep_link::init())
         // There is no `.setup()` here on purpose.
