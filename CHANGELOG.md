@@ -45,6 +45,10 @@ popover, not for the person who wrote the commit.
   carry over to whatever address was entered, so it would have been sent to that server too.
   The app window can also no longer reach Stashpad's own settings and database files, only
   attachments
+- **Your sign-in no longer appears in web addresses during live sync.** The connection that
+  tells Stashpad about changes from your other devices carried your session in its address,
+  where servers along the way can log it. It now travels in a header instead. This version
+  needs the matching update to Stashpad Cloud, which ships with it
 
 ## [1.10.2] - 2026-10-05
 

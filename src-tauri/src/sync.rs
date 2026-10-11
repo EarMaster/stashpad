@@ -1106,12 +1106,10 @@ pub async fn connect_websocket(
         .replace("http://", "ws://")
         .replace("https://", "wss://");
 
-    // Append the token to the URL query string
-    let ws_url = format!(
-        "{}/ws?token={}",
-        ws_endpoint.trim_end_matches('/'),
-        urlencoding::encode(&token)
-    );
+    // The token travels in the upgrade request's Authorization header. It used to be in
+    // the query string, where every proxy and CDN on the way could write it to a log.
+    let ws_url = format!("{}/ws", ws_endpoint.trim_end_matches('/'));
+    let bearer = format!("Bearer {}", token);
 
     // Spawn a persistent task for the WebSocket connection with reconnect logic
     let task_app = app.clone();
@@ -1144,16 +1142,22 @@ pub async fn connect_websocket(
             // TCP or TLS handshake never returns on its own, so the reconnect loop
             // stopped looping: the app kept believing a connection was pending and
             // fell back to the 15-minute poll, which reads as sync being broken.
-            let attempt = tokio::time::timeout(WS_CONNECT_TIMEOUT, connect_async(ws_url.clone()));
-            let connected = match attempt.await {
-                Ok(result) => result,
-                Err(_elapsed) => Err(tokio_tungstenite::tungstenite::Error::Io(
-                    std::io::Error::new(
-                        std::io::ErrorKind::TimedOut,
-                        "WebSocket handshake timed out",
-                    ),
-                )),
-            };
+            let connected: Result<_, String> = async {
+                use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+                let mut request = ws_url
+                    .as_str()
+                    .into_client_request()
+                    .map_err(|e| e.to_string())?;
+                let value = bearer
+                    .parse()
+                    .map_err(|_| "the token is not a valid header value".to_string())?;
+                request.headers_mut().insert("Authorization", value);
+                match tokio::time::timeout(WS_CONNECT_TIMEOUT, connect_async(request)).await {
+                    Ok(result) => result.map_err(|e| e.to_string()),
+                    Err(_elapsed) => Err("WebSocket handshake timed out".to_string()),
+                }
+            }
+            .await;
             match connected {
                 Ok((ws_stream, _)) => {
                     log::info!("[WebSocket] Connected successfully");
