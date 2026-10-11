@@ -338,8 +338,17 @@
   white-space: nowrap;
 }
 
-.stash-ref-completed .stash-ref-label {
-  text-decoration: line-through;
+/* Done, not gone: the checkmark and the green of the complete button, readable as ever.
+   Strikethrough is for a stash that no longer exists. */
+.stash-ref-completed {
+  border-color: color-mix(in srgb, var(--color-green-500), transparent 60%);
+  background-color: color-mix(in srgb, var(--color-green-500), transparent 90%);
+  color: var(--color-green-500);
+}
+
+.stash-ref-completed[role="link"]:hover,
+.stash-ref-completed[role="link"]:focus-visible {
+  background-color: color-mix(in srgb, var(--color-green-500), transparent 80%);
 }
 
 .stash-ref-completed::before {
@@ -357,6 +366,30 @@
   color: var(--muted-foreground);
   font-style: italic;
   cursor: default;
+}
+
+.stash-ref-gone .stash-ref-label {
+  text-decoration: line-through;
+}
+
+/* A word a search matched, in a stash card or a search result. */
+mark.search-hit {
+  background-color: color-mix(in srgb, var(--primary), transparent 60%);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+/* The match the search's previous/next buttons are on. */
+mark.search-hit.search-hit-current {
+  background-color: var(--primary);
+  color: var(--primary-foreground);
+}
+
+/* A match with no word to mark - in an attachment name, or a search result. */
+.search-hit-current:not(mark) {
+  border-radius: 0.5rem;
+  box-shadow: 0 0 0 2px var(--primary);
 }
 
 /* Brief highlight on a stash revealed by clicking a reference to it. */

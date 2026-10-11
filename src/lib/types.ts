@@ -82,6 +82,9 @@ export interface AIConfig {
     model: string;
     /** Which preset was used, if any */
     presetId?: string;
+    /** Whether a key is saved. The backend never sends the key itself: it makes the
+     *  provider requests, so `apiKey` only ever holds what was just typed. */
+    hasApiKey?: boolean;
 }
 
 /** Configuration for Stashpad Cloud sync */
@@ -157,6 +160,12 @@ export interface AttachmentConversion {
     remaining: number;
     /** Files whose key was lost and that this installation holds no copy of. */
     unrecoverable: number;
+}
+
+/** A file type a dialog offers. */
+export interface FileFilter {
+    name: string;
+    extensions: string[];
 }
 
 export interface IStorageService {
@@ -280,6 +289,18 @@ export interface IStorageService {
     // Apple Intelligence
     checkAppleIntelligenceAvailable(): Promise<boolean>;
     appleIntelligenceEnhance(content: string, systemPrompt: string): Promise<string>;
+    /** Ask the saved AI provider; the backend holds the endpoint, model and key. */
+    aiEnhance(systemPrompt: string, userContent: string): Promise<string>;
+    /** Test the provider the settings form shows. An empty key means the saved one, which
+     *  the backend only uses for the saved endpoint. */
+    aiTestConnection(test: { endpoint: string; model: string; apiKey: string }): Promise<void>;
+    // Files the user hands over. The backend only reads or writes outside paths that came
+    // from a drop or from these dialogs - see handover.rs.
+    pickFiles(title: string, multiple: boolean, filters?: FileFilter[]): Promise<string[]>;
+    pickSavePath(title: string, defaultName: string, filters?: FileFilter[]): Promise<string | null>;
+    readHandedOverFile(path: string): Promise<Uint8Array<ArrayBuffer>>;
+    /** Size of a handed-over file or one in the attachment cache; null for anything else. */
+    fileSize(path: string): Promise<number | null>;
     // AI System Prompt management
     getSystemPrompt(): Promise<string>;
     getSystemPromptPath(): Promise<string>;

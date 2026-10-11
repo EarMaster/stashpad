@@ -158,7 +158,8 @@
         "label": "API 密钥",
         "description": "你的 API 密钥（可选）",
         "show": "显示 API 密钥",
-        "hide": "隐藏 API 密钥"
+        "hide": "隐藏 API 密钥",
+        "savedPlaceholder": "已保存 - 输入以替换"
       },
       "model": {
         "label": "模型名称",
@@ -442,6 +443,21 @@
     "sortNewest": "日期：最新的在前",
     "stashAdded": "已添加暂存项",
     "filterStashes": "筛选暂存项",
+    "search": {
+      "open": "搜索（{shortcut}）",
+      "label": "搜索暂存项",
+      "placeholder": "在当前上下文中搜索…",
+      "placeholderAll": "在所有上下文中搜索…",
+      "scope": "搜索范围",
+      "scopeContext": "当前上下文",
+      "scopeAll": "全部",
+      "close": "关闭搜索",
+      "previous": "上一个匹配项（Shift+Enter）",
+      "next": "下一个匹配项（Enter）",
+      "position": "第 {current} 个，共 {total} 个匹配项",
+      "noResults": "没有与你的搜索匹配的暂存项。",
+      "noActive": "没有与你的搜索匹配的活动暂存项。"
+    },
     "attachmentFilter": {
       "any": "有附件",
       "none": "无附件",
@@ -602,6 +618,10 @@
       "taken": "其他应用已在使用此快捷键。请选择其他快捷键。",
       "failed": "无法设置此快捷键：{reason}",
       "invalid": "无法使用此快捷键。请选择其他快捷键。"
+    },
+    "cloud": {
+      "subscription_required": "云同步需要订阅。你可以在设置中升级。",
+      "storage_full": "你的云存储空间已满。请删除一些附件，或升级以获得更多空间。"
     }
   }
 }

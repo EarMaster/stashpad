@@ -29,7 +29,7 @@
 import type { IStorageService, StashItem, Context, CloudConfig, Settings, StashPosition } from '../types';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { attachmentSync } from '../stores/attachment-sync.svelte';
-import { errorText } from "$lib/errors";
+import { errorCode, errorText } from "$lib/errors";
 import { fromEpochMs, nowIso, nowMs, toEpochMs } from "$lib/utils/time";
 
 import { log } from '$lib/utils/log';
@@ -797,6 +797,17 @@ export class CloudSyncService {
             return true;
         } catch (error) {
             const message = errorText(error);
+            if (errorCode(error) === 'cloud.subscription_required') {
+                // The server no longer counts this account as entitled - a subscription
+                // that lapsed while the device stayed linked. Re-read the tier so
+                // `shouldSync()` stops the cycle and Settings shows the upgrade option,
+                // rather than failing the same way every few minutes.
+                log.warn('[CloudSync] Cloud storage is not part of this account any more');
+                await this.refreshEntitlement();
+                if (this.settings) this.updateSettings(this.settings);
+                this.setStatus('error', message);
+                return false;
+            }
             log.error('[CloudSync] Sync failed:', message);
             this.setStatus(this.isAuthError(message) ? 'auth-error' : 'error', message);
             return false;

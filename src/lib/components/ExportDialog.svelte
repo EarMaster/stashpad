@@ -8,8 +8,6 @@
     import { compareTimestamps, localTimeZone, now } from "$lib/utils/time";
     import { portal } from "$lib/actions/portal";
     import { trapFocus } from "$lib/actions/trapFocus";
-    import { save } from "@tauri-apps/plugin-dialog";
-    import { stat } from "@tauri-apps/plugin-fs";
     import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
     import { attachmentSync } from "$lib/stores/attachment-sync.svelte";
     import { errorCode, errorText } from "$lib/errors";
@@ -106,7 +104,7 @@
             (s.attachments || []).map((a) => a.fileSize || 0),
         );
 
-        // Legacy files still need stat() calls
+        // Legacy files have no stored size, so the backend measures them
         const legacyFilePaths = selectedStashes.flatMap((s) => s.files || []);
 
         if (attachmentSizes.length === 0 && legacyFilePaths.length === 0) {
@@ -122,13 +120,12 @@
             return;
         }
 
-        // Only use stat() for legacy files
+        // Only measure legacy files
         isCalculatingSize = true;
         Promise.all(
             legacyFilePaths.map(async (filePath) => {
                 try {
-                    const info = await stat(filePath);
-                    return info.size;
+                    return (await adapter.fileSize(filePath)) ?? 0;
                 } catch {
                     return 0;
                 }
@@ -198,13 +195,14 @@
         const time = `${String(local.hour).padStart(2, "0")}-${String(local.minute).padStart(2, "0")}`;
         const defaultFileName = `${safeName}_${date}_${time}.${asZip ? "zip" : "md"}`;
 
-        const filePath = await save({
-            title: $_("contexts.exportTitle"),
-            defaultPath: defaultFileName,
-            filters: asZip
+        // The backend opens the dialog, and writes only where the user chose - see handover.rs.
+        const filePath = await adapter.pickSavePath(
+            $_("contexts.exportTitle"),
+            defaultFileName,
+            asZip
                 ? [{ name: $_("contexts.exportDialog.zipFilter"), extensions: ["zip"] }]
                 : [{ name: $_("contexts.exportDialog.markdownFilter"), extensions: ["md"] }],
-        });
+        );
 
         if (!filePath) return;
 

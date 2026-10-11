@@ -678,12 +678,17 @@ fn transfer_temp_root() -> PathBuf {
 }
 
 /// Reject an archive entry whose name would escape the directory it is extracted into.
+///
+/// Only plain names are allowed. Rejecting `..` and a leading `/` was not enough on
+/// Windows: an entry named `C:version.dll` has a drive prefix and no root, and
+/// `base.join` *replaces* the base with it - a path relative to the process's working
+/// directory on that drive, written during the preview, before anything was confirmed.
 fn safe_entry_path(base: &Path, name: &str) -> Option<PathBuf> {
     let candidate = Path::new(name);
-    if candidate.components().any(|c| {
+    if !candidate.components().all(|c| {
         matches!(
             c,
-            std::path::Component::ParentDir | std::path::Component::RootDir
+            std::path::Component::Normal(_) | std::path::Component::CurDir
         )
     }) {
         return None;
@@ -696,9 +701,22 @@ fn safe_entry_path(base: &Path, name: &str) -> Option<PathBuf> {
 // ---------------------------------------------------------------------------
 
 /// Write a context's stashes to `dest_path`, as a zip when attachments are included and
-/// there is at least one, otherwise as a plain markdown file.
+/// there is at least one, otherwise as a plain markdown file. `dest_path` has to be the
+/// place the user chose in the save dialog - see handover.rs.
 #[tauri::command]
 pub async fn export_context_archive(
+    state: State<'_, Arc<DbState>>,
+    context_id: String,
+    stash_ids: Vec<String>,
+    include_attachments: bool,
+    dest_path: String,
+) -> Result<ExportSummary, UiError> {
+    crate::handover::check(&dest_path)?;
+    write_context_archive(state, context_id, stash_ids, include_attachments, dest_path).await
+}
+
+/// [`export_context_archive`] without the check, for callers that chose the path themselves.
+pub async fn write_context_archive(
     state: State<'_, Arc<DbState>>,
     context_id: String,
     stash_ids: Vec<String>,
@@ -876,7 +894,8 @@ pub async fn read_import_archive(
     path: String,
     context_id: String,
 ) -> Result<ImportPreview, UiError> {
-    let source = PathBuf::from(&path);
+    // Only an archive the user dropped or picked - see handover.rs.
+    let source = crate::handover::check(&path)?;
     if !source.exists() {
         return Err("File does not exist".into());
     }
@@ -991,6 +1010,12 @@ pub async fn commit_import(
     stashes: Vec<StashItem>,
     token: String,
 ) -> Result<u32, UiError> {
+    // The token names a directory that is removed recursively at the end, so it has to be
+    // the UUID `read_import_archive` issued - `..\..` would have deleted the home folder.
+    // `discard_import` already checked this; this command did not.
+    if Uuid::parse_str(&token).is_err() {
+        return Err("Invalid import token".into());
+    }
     let temp_dir = transfer_temp_root().join(&token);
 
     // All the file copying happens on the blocking pool: an import can move hundreds of
@@ -1469,5 +1494,18 @@ old
         let base = Path::new("/tmp/import");
         assert!(safe_entry_path(base, "attachments/ok.png").is_some());
         assert!(safe_entry_path(base, "../../etc/passwd").is_none());
+        assert!(safe_entry_path(base, "/etc/passwd").is_none());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_drive_prefixed_archive_entry_is_refused() {
+        // `C:version.dll` has a prefix and no root, so it slipped past a check for `..`
+        // and `/` while `join` threw the base away.
+        let base = Path::new("C:\\import");
+        assert!(safe_entry_path(base, "C:version.dll").is_none());
+        assert!(safe_entry_path(base, "C:\\Windows\\x.dll").is_none());
+        assert!(safe_entry_path(base, "\\\\server\\share\\x").is_none());
+        assert!(safe_entry_path(base, "attachments\\ok.png").is_some());
     }
 }

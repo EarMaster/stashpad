@@ -89,7 +89,12 @@
     {#snippet children()}
         <div class="w-64 p-2.5 flex flex-col gap-1.5 text-background">
             <div
-                class="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-background/60"
+                class="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide {ref?.state ===
+                'completed'
+                    ? 'text-green-600'
+                    : ref?.state === 'gone'
+                      ? 'text-background/60 line-through'
+                      : 'text-background/60'}"
             >
                 <span>{status}</span>
                 {#if attachmentCount > 0}
@@ -104,7 +109,7 @@
                 <div
                     class="stash-ref-preview text-[11px] leading-snug break-words max-h-40 overflow-hidden {ref?.state ===
                     'completed'
-                        ? 'line-through opacity-80'
+                        ? 'border-l-2 border-green-600 pl-1.5'
                         : ''}"
                 >
                     {@html previewHtml}

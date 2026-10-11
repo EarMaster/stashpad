@@ -85,7 +85,7 @@ export interface IStorageService {
 
 ### 3.2 Implementation Strategy
 
-1.  **`src/lib/services/adapters/desktop.adapter.ts`**: Implements `IStorageService` using Tauri `invoke` commands and `tauri-plugin-fs`.
+1.  **`src/lib/services/adapters/desktop.adapter.ts`**: Implements `IStorageService` using Tauri `invoke` commands.
 2.  **`src/lib/services/index.ts`**: Detects environment and exports the correct adapter.
     ```typescript
     // Pseudo-code

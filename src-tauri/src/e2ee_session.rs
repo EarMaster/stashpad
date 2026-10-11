@@ -60,6 +60,24 @@ static CONTENT_KEY: Mutex<Option<ContentKey>> = Mutex::new(None);
 /// Which generation of content key [`CONTENT_KEY`] is.
 static EPOCH: Mutex<u32> = Mutex::new(0);
 
+/// Whether the server has said this account finished converting.
+///
+/// While an account is `migrating`, plaintext and sealed records legitimately coexist, so
+/// a plaintext field is left as it is. Once it is `sealed` nothing plaintext should ever
+/// arrive again, and one that does is either a bug or a server injecting content it was
+/// never able to seal - accepting it would let the server write into an encrypted account
+/// at will. So the flag only ever goes one way within a session.
+static SEALED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Record that the account is fully sealed. Never cleared, except by [`clear_content_key`].
+pub fn mark_sealed() {
+    SEALED.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn is_sealed() -> bool {
+    SEALED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Where the device key pair lives, sealed by the same protection as every other local
 /// secret: the OS credential store, or the device passphrase where there is none.
 fn device_key_path() -> PathBuf {
@@ -128,6 +146,7 @@ pub fn set_content_key(key: ContentKey, epoch: u32) {
 pub fn clear_content_key() {
     *lock_or_recover(&CONTENT_KEY) = None;
     *lock_or_recover(&EPOCH) = 0;
+    SEALED.store(false, std::sync::atomic::Ordering::Relaxed);
 }
 
 pub fn is_unlocked() -> bool {
@@ -476,6 +495,10 @@ fn open_field(
         return Ok(());
     };
     if !envelope::is_envelope(value) {
+        if is_sealed() && !value.is_empty() {
+            // See `SEALED`: dropped like a record that will not open.
+            return Err("plaintext on an encrypted account".into());
+        }
         // Plaintext, from an account part-way through converting. Leave it alone.
         return Ok(());
     }
@@ -589,6 +612,10 @@ pub fn open_attachment_metadata(
     use base64::{engine::general_purpose::STANDARD, Engine as _};
 
     if !envelope::is_envelope(sealed) {
+        if is_sealed() {
+            // See `SEALED`.
+            return Err("plaintext attachment details on an encrypted account".into());
+        }
         // Plaintext, from before this account was converted. Nothing to open.
         return Ok(None);
     }
@@ -881,6 +908,29 @@ mod tests {
             let unreadable = open_stash_response(&mut body, USER);
             assert!(unreadable.is_empty());
             assert_eq!(body["synced"][0]["content"], "not converted yet");
+        });
+    }
+
+    /// Once the account is sealed, plaintext can only be content the server made up.
+    #[test]
+    fn plaintext_on_a_sealed_account_is_dropped() {
+        with_key(|| {
+            mark_sealed();
+            let mut body = serde_json::json!({
+                "synced": [
+                    { "id": "33333333-3333-4333-8333-333333333333", "content": "injected" },
+                    { "id": "44444444-4444-4444-8444-444444444444", "content": "" }
+                ]
+            });
+            let unreadable = open_stash_response(&mut body, USER);
+            assert_eq!(unreadable.len(), 1);
+            assert_eq!(
+                body["synced"].as_array().unwrap().len(),
+                1,
+                "a tombstone has no text"
+            );
+            assert!(open_attachment_metadata("plain.txt", "a", USER).is_err());
+            SEALED.store(false, std::sync::atomic::Ordering::Relaxed);
         });
     }
 

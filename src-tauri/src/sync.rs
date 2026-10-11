@@ -52,6 +52,30 @@ const ERROR_SNIPPET_CHARS: usize = 100;
 /// invoke(...)` never settled. `cloud-sync.ts` therefore never ran its
 /// `finally { isSyncing = false }`, and its own guard refused every later sync for
 /// the rest of the session: sync died silently and stayed dead until a restart.
+/// A refusal the interface handles on its own rather than printing.
+///
+/// The cloud answers `/sync/*` and `/attachments/*` with a coded 403 when the account has
+/// no cloud storage (`subscription_required`) or is out of it (`storage_full`). Passed on
+/// as a code, the frontend can switch to its upgrade state instead of showing a sync error
+/// it would then retry on every cycle.
+fn coded_refusal(status: reqwest::StatusCode, body: &str) -> Option<UiError> {
+    if status != reqwest::StatusCode::FORBIDDEN {
+        return None;
+    }
+    let json: serde_json::Value = serde_json::from_str(body).ok()?;
+    match json["code"].as_str()? {
+        "subscription_required" => Some(UiError::new(
+            "cloud.subscription_required",
+            "Cloud sync needs a subscription.",
+        )),
+        "storage_full" => Some(UiError::new(
+            "cloud.storage_full",
+            "Your cloud storage is full.",
+        )),
+        _ => None,
+    }
+}
+
 fn error_snippet(body: &str) -> String {
     let snippet: String = body.chars().take(ERROR_SNIPPET_CHARS).collect();
     if body.chars().nth(ERROR_SNIPPET_CHARS).is_some() {
@@ -336,6 +360,9 @@ pub async fn sync_stashes_api(
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
+        if let Some(refusal) = coded_refusal(status, &body) {
+            return Err(refusal);
+        }
         let snippet = error_snippet(&body);
         return Err(format!("Stash sync failed ({}): {}", status, snippet).into());
     }
@@ -517,6 +544,17 @@ pub async fn upload_attachment_to_cloud(
         return Ok(false);
     }
 
+    // Only a file in the attachment cache is ever uploaded. A recorded path elsewhere did
+    // not come from this device, and a server that wanted `~/.ssh/id_ed25519` could
+    // otherwise name it and receive the bytes at a URL of its choosing.
+    if !crate::utils::is_inside_cache(std::path::Path::new(&attachment.file_path)) {
+        log::warn!(
+            "[Attachment] {} points outside the attachment cache; not uploading it",
+            attachment.id
+        );
+        return Err("Attachment is not in the attachment cache".into());
+    }
+
     // The row and the file can disagree about how big the file is. Two attachments with
     // the same name used to be written to the same path, so the loser's row went on
     // recording the size of bytes that had since been overwritten - and the cloud confirms
@@ -644,6 +682,9 @@ pub async fn upload_attachment_to_cloud(
         .map_err(|e| format!("Failed to read upload URL response: {}", e))?;
 
     if !status.is_success() {
+        if let Some(refusal) = coded_refusal(status, &resp_text) {
+            return Err(refusal);
+        }
         let msg = format!(
             "Cloud rejected upload request for {}: {} - {}",
             attachment.id, status, resp_text
@@ -870,12 +911,34 @@ pub async fn download_attachment_from_cloud(
     };
 
     // Mirror the layout save_asset uses so cleanup on delete keeps working.
-    let mut dir = get_app_dir().join("cache");
+    //
+    // Every one of these ids came from sync, and each becomes part of a path: a stash id of
+    // `..\..\Startup` used to put the download in the Startup folder of every linked
+    // device. They are checked here as well as on import, because a row written before
+    // that check existed would otherwise still reach this join.
+    if !crate::ids::is_record_id(&stash_id)
+        || !crate::ids::is_record_id(&attachment_id)
+        || !context_id
+            .as_deref()
+            .map_or(true, crate::ids::is_context_id)
+    {
+        return Err("Attachment has a malformed id".into());
+    }
+    let cache_root = get_app_dir().join("cache");
+    let mut dir = cache_root.clone();
     if let Some(cid) = context_id.as_deref() {
         dir = dir.join(cid);
     }
     dir = dir.join(&stash_id);
     fs::create_dir_all(&dir).map_err(|e| format!("Failed to create cache dir: {}", e))?;
+    // Belt and braces: whatever the ids were, the directory must still be inside the cache.
+    let inside_cache = match (dir.canonicalize(), cache_root.canonicalize()) {
+        (Ok(d), Ok(root)) => d.starts_with(root),
+        _ => false,
+    };
+    if !inside_cache {
+        return Err("Attachment would be written outside the cache".into());
+    }
 
     // Write to a temporary file and rename into place. A direct write that is
     // interrupted - crash, power loss, full disk - leaves a truncated file at the real
@@ -983,6 +1046,9 @@ pub async fn sync_contexts_api(
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
+        if let Some(refusal) = coded_refusal(status, &body) {
+            return Err(refusal);
+        }
         let snippet = error_snippet(&body);
         return Err(format!("Context sync failed ({}): {}", status, snippet).into());
     }
@@ -1040,12 +1106,10 @@ pub async fn connect_websocket(
         .replace("http://", "ws://")
         .replace("https://", "wss://");
 
-    // Append the token to the URL query string
-    let ws_url = format!(
-        "{}/ws?token={}",
-        ws_endpoint.trim_end_matches('/'),
-        urlencoding::encode(&token)
-    );
+    // The token travels in the upgrade request's Authorization header. It used to be in
+    // the query string, where every proxy and CDN on the way could write it to a log.
+    let ws_url = format!("{}/ws", ws_endpoint.trim_end_matches('/'));
+    let bearer = format!("Bearer {}", token);
 
     // Spawn a persistent task for the WebSocket connection with reconnect logic
     let task_app = app.clone();
@@ -1078,16 +1142,22 @@ pub async fn connect_websocket(
             // TCP or TLS handshake never returns on its own, so the reconnect loop
             // stopped looping: the app kept believing a connection was pending and
             // fell back to the 15-minute poll, which reads as sync being broken.
-            let attempt = tokio::time::timeout(WS_CONNECT_TIMEOUT, connect_async(ws_url.clone()));
-            let connected = match attempt.await {
-                Ok(result) => result,
-                Err(_elapsed) => Err(tokio_tungstenite::tungstenite::Error::Io(
-                    std::io::Error::new(
-                        std::io::ErrorKind::TimedOut,
-                        "WebSocket handshake timed out",
-                    ),
-                )),
-            };
+            let connected: Result<_, String> = async {
+                use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+                let mut request = ws_url
+                    .as_str()
+                    .into_client_request()
+                    .map_err(|e| e.to_string())?;
+                let value = bearer
+                    .parse()
+                    .map_err(|_| "the token is not a valid header value".to_string())?;
+                request.headers_mut().insert("Authorization", value);
+                match tokio::time::timeout(WS_CONNECT_TIMEOUT, connect_async(request)).await {
+                    Ok(result) => result.map_err(|e| e.to_string()),
+                    Err(_elapsed) => Err("WebSocket handshake timed out".to_string()),
+                }
+            }
+            .await;
             match connected {
                 Ok((ws_stream, _)) => {
                     log::info!("[WebSocket] Connected successfully");
@@ -1295,6 +1365,23 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_coded_storage_refusal_reaches_the_interface_as_a_code() {
+        let refused = coded_refusal(
+            reqwest::StatusCode::FORBIDDEN,
+            r#"{"error":"Cloud sync needs a subscription.","code":"subscription_required"}"#,
+        )
+        .expect("a coded refusal");
+        assert_eq!(refused.code, "cloud.subscription_required");
+        assert!(
+            coded_refusal(reqwest::StatusCode::FORBIDDEN, r#"{"error":"suspended"}"#).is_none()
+        );
+        assert!(coded_refusal(
+            reqwest::StatusCode::BAD_REQUEST,
+            r#"{"code":"subscription_required"}"#
+        )
+        .is_none());
+    }
     #[test]
     fn a_short_error_body_is_quoted_whole_and_unmarked() {
         let snippet = error_snippet("Bad Gateway");
@@ -1506,6 +1593,10 @@ async fn reencrypt_attachment(
 
     let plaintext = match source {
         PlaintextSource::Local(path) => {
+            // The same rule as an upload: these bytes leave the machine.
+            if !crate::utils::is_inside_cache(std::path::Path::new(&path)) {
+                return Err("Attachment is not in the attachment cache".into());
+            }
             tauri::async_runtime::spawn_blocking(move || fs::read(path))
                 .await
                 .map_err(|e| format!("Attachment read task failed: {}", e))?

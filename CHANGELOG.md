@@ -11,6 +11,72 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-10-11
+
+### Added
+- **Search your stashes with Cmd+F (Ctrl+F on Windows and Linux).** It searches the current
+  context; press it again to search all of them. Unlike finding text on the page, it also
+  looks through completed stashes, the hidden part of long stashes, AI-enhanced versions and
+  attachment names, and it forgives typos and unfinished words. Matching stashes open up with
+  the words marked, and a result from another context takes you there
+
+### Changed
+- **When a subscription ends, Stashpad says so instead of showing a sync error.** If the cloud
+  no longer counts your account as entitled to sync - a subscription that ran out while the
+  app stayed signed in - sync now stops and Settings offers the upgrade, rather than failing
+  with the same error every few minutes. A full cloud storage is reported in plain words too
+- **A link to a finished stash now looks finished, not deleted.** Links to completed stashes
+  were struck through, which read as if the stash were gone. They now show the checkmark in
+  green, like the complete button, and so does their hover preview. Strikethrough is kept for
+  links to stashes that were deleted. Link labels are also shorter, so a line of them stays
+  readable
+
+### Security
+- **A synced stash can no longer place files outside Stashpad's own folder.** Stash and
+  context ids from the cloud were used as folder names when an attachment was downloaded, so a
+  stash pushed with a crafted id could write a file anywhere on every device linked to the
+  account - including a folder whose contents run when you sign in. Ids that are not in the
+  expected format are now refused when they arrive, and downloads are checked to stay inside
+  the attachment cache
+- **Stashpad only ever uploads files from its own attachment folder.** A file location
+  received through sync was stored and later read by the upload step, so a compromised sync
+  server could have named any file on your computer and had it uploaded. Synced attachments no
+  longer carry a location, and uploads refuse any file outside the attachment cache
+- **A crafted import file can no longer write outside its folder on Windows.** An entry named
+  with a drive letter, such as `C:file.dll`, slipped past the check while the file was being
+  previewed, before you had confirmed anything. Import files now only accept plain names inside
+  the archive
+- **Hashtags in a stash can no longer be used to sneak in page elements.** The step that turns
+  `#tags` into badges ran after the content was cleaned, and a link title written a particular
+  way let text through as real page elements, such as a form or an overlay. Tags are now found
+  in the text itself, so the cleaned content stays clean, and tags render exactly as before
+- **An encrypted account no longer accepts unencrypted stashes from the server.** While an
+  account was being converted, unencrypted records were accepted on purpose, and that stayed
+  true after the conversion had finished - so the server could have slipped in content it never
+  encrypted. Once your account is fully encrypted, Stashpad now leaves such records out of the
+  sync instead of showing them
+- **Changing the cloud server address now signs you out of the old one.** Your sign-in used to
+  carry over to whatever address was entered, so it would have been sent to that server too.
+  The app window can also no longer reach Stashpad's own settings and database files, only
+  attachments
+- **Your sign-in no longer appears in web addresses during live sync.** The connection that
+  tells Stashpad about changes from your other devices carried your session in its address,
+  where servers along the way can log it. It now travels in a header instead. This version
+  needs the matching update to Stashpad Cloud, which ships with it
+- **Only the browser page you opened from Stashpad can link it to an account.** While the link
+  dialog was open, any web page could open a Stashpad link of its own and connect the app to
+  a different account, so your stashes would sync there. The app now ignores links it did
+  not ask for; typing the code by hand works as before
+- **Your AI provider key now stays inside Stashpad's backend.** The app window used to hold
+  the key and call the provider itself, so it had to be allowed to connect anywhere. The
+  backend now makes those requests, the window can no longer reach the network at all, and
+  Settings only shows that a key is saved. A saved key is kept for the endpoint it was
+  entered for: change the endpoint, and enter the key again
+- **Stashpad only reads the files you give it.** The app window could read any file in your
+  Downloads, Desktop and Documents folders, and could ask the backend to attach a file from
+  anywhere on your computer. Now only files you drop on the window or choose in a file dialog
+  can be attached, imported or exported to, and the window itself can no longer read files
+
 ## [1.10.2] - 2026-10-05
 
 ### Added

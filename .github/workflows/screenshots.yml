@@ -25,21 +25,30 @@ concurrency:
   group: screenshots
   cancel-in-progress: false
 
+# Nothing here needs to write to this repository.
+permissions:
+  contents: read
+
 jobs:
+  # Runs the app's code and every dependency's, so it holds no secret at all. The website
+  # token used to be checked out in this same job, after `npm ci` and the capture had run,
+  # where anything they left running could read it from website/.git/config and push to
+  # the website's main - which is a production deploy.
   capture:
-    name: Capture and publish to the website
+    name: Capture
     runs-on: ubuntu-latest
     steps:
       - name: Check out the app
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           # A release event's default checkout is the default branch, not the released
           # commit. Photographing main would silently ship pictures of work that has not
           # been released yet.
           ref: ${{ github.event.release.tag_name || inputs.ref }}
 
       - name: Setup Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
           cache: "npm"
@@ -58,8 +67,28 @@ jobs:
           SCREENSHOT_VERSION: ${{ github.event.release.tag_name || '' }}
         run: npm run screenshots
 
+      - name: Hand the pictures to the publish job
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: screenshots
+          path: screenshots/out
+          retention-days: 1
+          if-no-files-found: error
+
+  # Holds the website token, and runs nothing but git and cp.
+  publish:
+    name: Publish to the website
+    needs: capture
+    runs-on: ubuntu-latest
+    steps:
+      - name: Receive the pictures
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: screenshots
+          path: screenshots/out
+
       - name: Check out the website
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: EarMaster/stashpad-website
           # A fine-grained PAT with contents:write on the website repo. The default
@@ -78,6 +107,10 @@ jobs:
 
       - name: Commit and push, if anything actually changed
         working-directory: website
+        # The tag goes through the environment, never into the script text: a
+        # perfectly valid tag name containing `$(...)` would otherwise have run as shell.
+        env:
+          VERSION: ${{ github.event.release.tag_name || 'a manual run' }}
         run: |
           git config user.name 'stashpad-bot'
           git config user.email 'noreply@stashpad.org'
@@ -93,7 +126,6 @@ jobs:
             exit 0
           fi
 
-          VERSION="${{ github.event.release.tag_name || 'a manual run' }}"
           git commit -m "Update the app screenshots for ${VERSION}" -m \
             "Regenerated from the released build by the app's screenshots workflow."
           git push

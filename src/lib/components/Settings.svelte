@@ -1621,7 +1621,9 @@
                   <input
                     type={showApiKey ? "text" : "password"}
                     class="w-52 rounded-md border border-border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors font-mono"
-                    placeholder="sk-..."
+                    placeholder={settings.aiConfig?.hasApiKey
+                      ? $_("settings.aiEnhancement.apiKey.savedPlaceholder")
+                      : "sk-..."}
                     value={settings.aiConfig?.apiKey ?? ""}
                     oninput={(e) => {
                       if (settings.aiConfig) {

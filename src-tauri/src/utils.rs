@@ -81,6 +81,22 @@ TAGS: <Only hashtags present in original input, space-separated. Omit section en
 13. Links of the form [label](stash:<id>) point to other stashes: copy every one EXACTLY, unchanged.
 </rules>"#;
 
+/// Whether `path` resolves to a file inside `~/.stashpad/cache`.
+///
+/// Every attachment Stashpad owns is copied into the cache before it is recorded, so a
+/// recorded path anywhere else did not come from this device - and a path that arrived
+/// through sync can name any file the user can read. Anything that reads a recorded path
+/// to send its bytes somewhere asks this first.
+pub fn is_inside_cache(path: &Path) -> bool {
+    match (
+        path.canonicalize(),
+        get_app_dir().join("cache").canonicalize(),
+    ) {
+        (Ok(p), Ok(root)) => p.starts_with(root),
+        _ => false,
+    }
+}
+
 pub fn get_system_prompt_path() -> PathBuf {
     get_app_dir().join("enhancement_prompt.txt")
 }

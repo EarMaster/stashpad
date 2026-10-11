@@ -1458,7 +1458,7 @@ dependencies = [
 [[package]]
 name = "drag"
 version = "2.1.0"
-source = "git+https://github.com/crabnebula-dev/drag-rs#8c88ba0084615f2b1e7796d9ff7611b37f5ea31b"
+source = "git+https://github.com/crabnebula-dev/drag-rs?rev=8c88ba0084615f2b1e7796d9ff7611b37f5ea31b#8c88ba0084615f2b1e7796d9ff7611b37f5ea31b"
 dependencies = [
  "cocoa",
  "core-graphics 0.24.0",
@@ -5557,7 +5557,7 @@ checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 
 [[package]]
 name = "stashpad"
-version = "1.10.2"
+version = "1.11.0"
 dependencies = [
  "active-win-pos-rs",
  "aes-gcm",
@@ -5589,7 +5589,6 @@ dependencies = [
  "tauri-plugin-autostart",
  "tauri-plugin-deep-link",
  "tauri-plugin-dialog",
- "tauri-plugin-fs",
  "tauri-plugin-global-shortcut",
  "tauri-plugin-log",
  "tauri-plugin-opener",

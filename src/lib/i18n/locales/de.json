@@ -158,7 +158,8 @@
         "label": "API-Schlüssel",
         "description": "Dein API-Schlüssel (optional)",
         "show": "API-Schlüssel anzeigen",
-        "hide": "API-Schlüssel verbergen"
+        "hide": "API-Schlüssel verbergen",
+        "savedPlaceholder": "Gespeichert - zum Ersetzen eintippen"
       },
       "model": {
         "label": "Modellname",
@@ -434,6 +435,21 @@
     "noActiveStashes": "Keine aktiven Stashes",
     "noActiveStashesFound": "Keine aktiven Stashes mit diesen Filtern gefunden.",
     "filterStashes": "Stashes filtern",
+    "search": {
+      "open": "Suchen ({shortcut})",
+      "label": "Stashes durchsuchen",
+      "placeholder": "Diesen Kontext durchsuchen…",
+      "placeholderAll": "Alle Kontexte durchsuchen…",
+      "scope": "Suchen in",
+      "scopeContext": "Dieser Kontext",
+      "scopeAll": "Alle",
+      "close": "Suche schließen",
+      "previous": "Vorheriger Treffer (Umschalt+Enter)",
+      "next": "Nächster Treffer (Enter)",
+      "position": "Treffer {current} von {total}",
+      "noResults": "Kein Stash passt zu deiner Suche.",
+      "noActive": "Kein aktiver Stash passt zu deiner Suche."
+    },
     "attachmentFilter": {
       "any": "Beliebiger Anhang",
       "none": "Keine Anhänge",
@@ -602,6 +618,10 @@
       "taken": "Eine andere App verwendet dieses Tastenkürzel bereits. Wähle ein anderes.",
       "failed": "Dieses Tastenkürzel konnte nicht eingerichtet werden: {reason}",
       "invalid": "Dieses Tastenkürzel kann nicht verwendet werden. Wähle ein anderes."
+    },
+    "cloud": {
+      "subscription_required": "Für die Cloud-Synchronisierung brauchst du ein Abo. Du kannst es in den Einstellungen abschließen.",
+      "storage_full": "Dein Cloud-Speicher ist voll. Entferne Anhänge oder erweitere dein Abo, um mehr hinzuzufügen."
     }
   }
 }

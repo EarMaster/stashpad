@@ -59,8 +59,7 @@
   import { onMount, onDestroy, untrack, tick } from "svelte";
 
   import { findStashAtPosition, findEditorAtPosition } from "$lib/stores/drag-state.svelte";
-  import { stat } from "@tauri-apps/plugin-fs";
-  import { open, message } from "@tauri-apps/plugin-dialog";
+  import { message } from "@tauri-apps/plugin-dialog";
   import {
     checkAttachmentSizeLimits,
     calculateTotalAttachmentSize,
@@ -71,7 +70,6 @@
   import { resizeImage, getAttachmentKind } from "$lib/utils/files";
   import { reportError } from "$lib/utils/error-reporting";
   import { errorText } from "$lib/errors";
-  import { readFile } from "@tauri-apps/plugin-fs";
 
   import { log } from "$lib/utils/log";
   let {
@@ -280,7 +278,7 @@
           if (resizeImages && isImage) {
             try {
               // Read the file manually to resize it
-              const data = await readFile(path);
+              const data = await adapter.readHandedOverFile(path);
               const blob = new Blob([data], { type: "image/jpeg" }); // mime type guess, resizeImage handles check
 
               // resizeImage expects File or Blob.
@@ -1151,13 +1149,9 @@
 
   async function handleAddFile() {
     try {
-      const selected = await open({
-        multiple: true,
-        title: $_("editor.selectFilesTitle"),
-      });
-      if (selected) {
-        // selected can be a string or string[] depending on multiple option
-        const paths = Array.isArray(selected) ? selected : [selected];
+      // The backend opens the dialog, so it knows these files were picked - see handover.rs.
+      const paths = await adapter.pickFiles($_("editor.selectFilesTitle"), true);
+      if (paths.length > 0) {
         for (const path of paths) {
           try {
             const attachment = await adapter.saveAssetFromPath(
@@ -1370,7 +1364,7 @@
           }}
         >
           <span class="shrink-0 opacity-60">{candidate.completed ? "✓" : "→"}</span>
-          <span class="truncate {candidate.completed ? 'line-through opacity-70' : ''}"
+          <span class="truncate {candidate.completed ? 'text-green-500' : ''}"
             >{refLabel(candidate.content)}</span
           >
         </button>

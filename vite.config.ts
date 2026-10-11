@@ -36,7 +36,6 @@ export default defineConfig({
                     'vendor-tauri': [
                         '@tauri-apps/api',
                         '@tauri-apps/plugin-dialog',
-                        '@tauri-apps/plugin-fs',
                         '@tauri-apps/plugin-autostart',
                     ],
                     // Internationalization

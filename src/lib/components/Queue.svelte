@@ -53,6 +53,9 @@
       Video,
       FileText,
       File as FileIcon,
+      Search,
+      X,
+      ChevronUp,
    } from "lucide-svelte";
    import { tooltip } from "$lib/actions/tooltip";
    import {
@@ -62,9 +65,18 @@
    } from "$lib/utils/stash-filters";
    import {
       parseRefIds,
+      refLabel,
       resolveRef,
       type ResolvedRef,
    } from "$lib/utils/stash-refs";
+   import {
+      buildSearchIndex,
+      searchStashes,
+      segments,
+      snippets,
+      type SearchHits,
+   } from "$lib/utils/stash-search";
+   import { liveAttachments } from "$lib/utils/stash-filters";
    import { reportError } from "$lib/utils/error-reporting";
    import { log } from "$lib/utils/log";
 
@@ -204,11 +216,323 @@
       selectedTags.length > 0 || selectedAttachmentFilters.length > 0,
    );
 
+   // Search. Cmd/Ctrl+F opens it on this context; pressing it again searches every
+   // context. It looks through what the page cannot show - collapsed completed stashes,
+   // the hidden part of long cards, AI-enhanced text, attachment names.
+   const isMacPlatform = navigator.platform.includes("Mac");
+   const searchShortcut = isMacPlatform ? "⌘F" : "Ctrl+F";
+   let searchOpen = $state(false);
+   let searchQuery = $state("");
+   let searchScope = $state<"context" | "all">("context");
+   let searchInput = $state<HTMLInputElement>();
+
+   // `stashes` holds every context, so one index serves both scopes.
+   let searchIndex = $derived(buildSearchIndex(stashes));
+   // The query the search runs on: what was typed, once typing pauses. Every search
+   // re-renders the cards it touches, so one per keystroke made typing stutter.
+   let appliedQuery = $state("");
+   $effect(() => {
+      const query = searchQuery;
+      const timer = setTimeout(() => (appliedQuery = query), 150);
+      return () => clearTimeout(timer);
+   });
+   // Two letters at least: a single one prefix-matches nearly every stash, and marking
+   // and unfolding all of them froze the window.
+   const MIN_QUERY = 2;
+   let searching = $derived(
+      searchOpen && appliedQuery.trim().length >= MIN_QUERY,
+   );
+   let searchHits = $derived<SearchHits>(
+      searching ? searchStashes(searchIndex, appliedQuery) : new Map(),
+   );
+   let searchingEverywhere = $derived(searching && searchScope === "all");
+
+   /** Tag, attachment or search filters - anything that hides part of the queue. */
+   let isFiltering = $derived(hasActiveFilters || searching);
+
+   function passes(stash: StashItem): boolean {
+      return (
+         (!hasActiveFilters ||
+            matchesFilters(stash, selectedTags, selectedAttachmentFilters)) &&
+         (!searching || searchHits.has(stash.id))
+      );
+   }
+
+   /**
+    * Matches across every context, grouped by context, best first. Groups are ordered by
+    * their best match, not with the current context first: opening a result switches the
+    * context, and the list - and every position in it - must not reshuffle because of it.
+    */
+   let globalResults = $derived.by(() => {
+      if (!searchingEverywhere) return [];
+      const byId = new Map(stashes.map((s) => [s.id, s]));
+      const groups = new Map<
+         string,
+         { contextId: string; items: { item: StashItem; terms: string[] }[] }
+      >();
+      for (const [id, terms] of searchHits) {
+         const item = byId.get(id);
+         if (!item || item.deleted) continue;
+         const contextId = item.contextId || "default";
+         if (!groups.has(contextId)) groups.set(contextId, { contextId, items: [] });
+         groups.get(contextId)!.items.push({ item, terms });
+      }
+      return [...groups.values()];
+   });
+
+   /**
+    * A result's lines of context, one per match: from the text, else the enhanced text,
+    * else a file name - the same place its card shows, so the counts agree.
+    */
+   function resultSnippets(item: StashItem, terms: string[]) {
+      const sources = [
+         item.content,
+         item.enhancedContent ?? "",
+         liveAttachments(item)
+            .map((a) => a.fileName)
+            .join(", "),
+      ];
+      const text =
+         sources.find((t) => segments(t, terms).some((seg) => seg.hit)) ??
+         item.content;
+      return snippets(text, terms);
+   }
+
+   async function openSearch(scope: "context" | "all" = "context") {
+      searchOpen = true;
+      searchScope = scope;
+      await tick();
+      searchInput?.focus();
+      searchInput?.select();
+   }
+
+   function closeSearch() {
+      searchOpen = false;
+      searchQuery = "";
+      appliedQuery = "";
+      searchScope = "context";
+   }
+
+   /** Shared by every card the search did not match, so none of them re-renders. */
+   const NO_TERMS: string[] = [];
+
+   /** Whether a card in this context is hidden by the search. */
+   function hiddenBySearch(stash: StashItem): boolean {
+      return searching && !searchingEverywhere && !searchHits.has(stash.id);
+   }
+
+   // Previous/next, like a browser's find: through every marked word in this context's
+   // cards - or the card itself, when its match is in something not shown, such as an
+   // attachment name - and through the results when searching everywhere.
+   let searchTargets = $state<HTMLElement[]>([]);
+   let searchCurrent = $state(-1);
+
+   function collectSearchTargets(): HTMLElement[] {
+      if (!scrollContainer) return [];
+      if (searchingEverywhere) {
+         const targets: HTMLElement[] = [];
+         for (const result of scrollContainer.querySelectorAll<HTMLElement>(
+            "[data-search-result]",
+         )) {
+            const marks = result.querySelectorAll<HTMLElement>("mark.search-hit");
+            if (marks.length > 0) targets.push(...marks);
+            else targets.push(result);
+         }
+         return targets;
+      }
+      const targets: HTMLElement[] = [];
+      // The list items only: the card inside each carries the id too.
+      for (const card of scrollContainer.querySelectorAll<HTMLElement>(
+         '[role="listitem"][data-stash-id]',
+      )) {
+         if (!searchHits.has(card.dataset.stashId ?? "")) continue;
+         const marks = card.querySelectorAll<HTMLElement>("mark.search-hit");
+         if (marks.length > 0) targets.push(...marks);
+         else targets.push(card);
+      }
+      return targets;
+   }
+
+   function goToSearchTarget(index: number) {
+      for (const el of scrollContainer?.querySelectorAll(".search-hit-current") ?? []) {
+         el.classList.remove("search-hit-current");
+      }
+      const count = searchTargets.length;
+      if (count === 0) {
+         searchCurrent = -1;
+         return;
+      }
+      searchCurrent = ((index % count) + count) % count;
+      const el = searchTargets[searchCurrent];
+      el.classList.add("search-hit-current");
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+   }
+
+   /** Move to the next (1) or previous (-1) match, from wherever the last one was. */
+   function stepSearch(delta: 1 | -1) {
+      // Cards re-render as they are edited or synced, so the marks are found afresh and
+      // the position kept by element where it still exists.
+      const previous = searchTargets[searchCurrent];
+      searchTargets = collectSearchTargets();
+      const at = previous ? searchTargets.indexOf(previous) : -1;
+      goToSearchTarget(
+         at >= 0 ? at + delta : searchCurrent < 0 ? (delta > 0 ? 0 : -1) : searchCurrent,
+      );
+   }
+
+   /** A stash opened from an all-contexts search: the count starts at its matches. */
+   let searchFocusId: string | null = null;
+   /** Where the all-contexts results were when a result was opened, to return to. */
+   let savedEverywhere: { query: string; index: number } | null = null;
+
+   // A new query, scope or context starts the count again - at the first match, or at
+   // the stash just opened from a result - once the cards have marked theirs (they do
+   // that a tick after rendering). The context matters on its own: opening a result in
+   // another one switches the scope first, while the results are still on screen, and
+   // the context only after.
+   $effect(() => {
+      searchHits;
+      searchScope;
+      currentContextId;
+      if (!searching) {
+         searchTargets = [];
+         searchCurrent = -1;
+         return;
+      }
+      let cancelled = false;
+      tick()
+         .then(() => tick())
+         .then(() =>
+            requestAnimationFrame(() => {
+               if (cancelled) return;
+               searchTargets = collectSearchTargets();
+               const focus = searchFocusId;
+               const at = focus
+                  ? searchTargets.findIndex((el) =>
+                       el.closest('[role="listitem"][data-stash-id]')?.getAttribute("data-stash-id") === focus,
+                    )
+                  : -1;
+               if (at >= 0) searchFocusId = null;
+               // Back on "All" for the same search: where it was left, not the top.
+               const back =
+                  searchingEverywhere && savedEverywhere?.query === appliedQuery
+                     ? savedEverywhere.index
+                     : -1;
+               goToSearchTarget(back >= 0 ? back : Math.max(at, 0));
+            }),
+         );
+      return () => {
+         cancelled = true;
+      };
+   });
+
+   /** Open the result the previous/next buttons are on, when searching everywhere. */
+   function openCurrentResult() {
+      const id = searchTargets[searchCurrent]
+         ?.closest<HTMLElement>("[data-search-result]")
+         ?.dataset.searchResult;
+      const item = stashes.find((s) => s.id === id) ?? globalResults[0]?.items[0]?.item;
+      if (item) openResult(item);
+   }
+
+   /**
+    * Cmd/Ctrl+F: open on this context; again, while in the field, switch scope.
+    * F3 and Cmd/Ctrl+G step through the matches, Shift going back.
+    */
+   function handleSearchShortcut(e: KeyboardEvent) {
+      const mod = isMacPlatform ? e.metaKey : e.ctrlKey;
+      if (
+         searchOpen &&
+         searching &&
+         !e.altKey &&
+         (e.key === "F3" || (mod && e.key.toLowerCase() === "g"))
+      ) {
+         e.preventDefault();
+         stepSearch(e.shiftKey ? -1 : 1);
+         return;
+      }
+      if (!mod || e.shiftKey || e.altKey || e.key.toLowerCase() !== "f") return;
+      e.preventDefault();
+      if (!searchOpen) {
+         openSearch("context");
+      } else if (document.activeElement !== searchInput) {
+         searchInput?.focus();
+         searchInput?.select();
+      } else {
+         searchScope = searchScope === "context" ? "all" : "context";
+      }
+   }
+
+   function handleSearchKeydown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+         e.preventDefault();
+         closeSearch();
+      } else if (e.key === "Enter" && searchingEverywhere && !e.shiftKey) {
+         e.preventDefault();
+         openCurrentResult();
+      } else if (e.key === "Enter") {
+         e.preventDefault();
+         stepSearch(e.shiftKey ? -1 : 1);
+      } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+         e.preventDefault();
+         stepSearch(e.key === "ArrowDown" ? 1 : -1);
+      }
+   }
+
+   /** Go to a stash found by an all-contexts search, in its own context. */
+   function openResult(item: StashItem) {
+      // The result opened, clicked or stepped to: its first match is where to return.
+      const current = searchTargets[searchCurrent]
+         ?.closest<HTMLElement>("[data-search-result]")
+         ?.dataset.searchResult;
+      const index =
+         current === item.id
+            ? searchCurrent
+            : searchTargets.findIndex(
+                 (el) =>
+                    el.closest<HTMLElement>("[data-search-result]")?.dataset
+                       .searchResult === item.id,
+              );
+      savedEverywhere = { query: appliedQuery, index: Math.max(index, 0) };
+      searchFocusId = item.id;
+      searchScope = "context";
+      const contextId = item.contextId || "default";
+      if (contextId !== (currentContextId || "default")) {
+         pendingRevealId = item.id;
+         onSwitchContext?.(contextId);
+         return;
+      }
+      revealStash(item.id);
+   }
+
+   // A search matching completed stashes shows them, rather than a count behind a fold,
+   // and folds them away again when it ends - left open, closing the search rendered
+   // every completed stash at once.
+   let collapsedBeforeSearch: boolean | null = null;
+   $effect(() => {
+      if (searching && filteredCompletedStashes.length > 0) {
+         untrack(() => {
+            collapsedBeforeSearch ??= completedCollapsed;
+            completedCollapsed = false;
+         });
+      } else if (!searching) {
+         untrack(() => {
+            if (collapsedBeforeSearch !== null) {
+               completedCollapsed = collapsedBeforeSearch;
+               collapsedBeforeSearch = null;
+            }
+         });
+      }
+   });
+
    let showFilterButton = $derived(
       availableTags.length > 0 || availableAttachmentFilters.length > 0,
    );
 
    // Filtered Active Stashes
+   // Tag and attachment filters only. The search hides the active stashes it does not
+   // match instead (see hiddenBySearch): unmounting and re-creating every card when it
+   // closed is what froze the window.
    let filteredStashes = $derived.by(() => {
       if (!hasActiveFilters) return activeStashes;
       return activeStashes.filter((stash) =>
@@ -216,12 +540,15 @@
       );
    });
 
+   let visibleActiveCount = $derived(
+      filteredStashes.filter((s) => !s.isDndShadowItem && !hiddenBySearch(s))
+         .length,
+   );
+
    // Filtered Completed Stashes
    let filteredCompletedStashes = $derived.by(() => {
-      if (!hasActiveFilters) return completedStashes;
-      return completedStashes.filter((stash) =>
-         matchesFilters(stash, selectedTags, selectedAttachmentFilters),
-      );
+      if (!isFiltering) return completedStashes;
+      return completedStashes.filter(passes);
    });
 
    $effect(() => {
@@ -326,6 +653,7 @@
          selectedTags = [];
          selectedAttachmentFilters = [];
       }
+      if (searching && !searchHits.has(id)) searchQuery = "";
       if (target.completed) completedCollapsed = false;
       await tick();
 
@@ -702,6 +1030,8 @@
    let unlistenLeave: UnlistenFn | null = null;
 
    onMount(async () => {
+      window.addEventListener("keydown", handleSearchShortcut);
+
       // Listen for Tauri's native drag events to coordinate StashCard drop zones
       unlistenEnter = await listen<{ position: { x: number; y: number } }>(
          "tauri://drag-enter",
@@ -782,6 +1112,7 @@
    });
 
    onDestroy(() => {
+      window.removeEventListener("keydown", handleSearchShortcut);
       unlistenEnter?.();
       unlistenOver?.();
       unlistenLeave?.();
@@ -790,6 +1121,104 @@
 </script>
 
 <div class="relative flex-1 flex flex-col min-h-0 bg-[var(--background-queue)]">
+   <!-- Above the scrolling list, not in a section header: a sticky header only sticks
+        within its own section, so the controls scrolled away with the active stashes. -->
+   {#if searchOpen}
+      <div class="shrink-0 px-4 pt-2 pb-2">
+         <div
+            class="flex items-center gap-1.5"
+            transition:fade={{ duration: 150 }}
+         >
+            <div class="relative flex-1 min-w-0">
+               <Search
+                  size={12}
+                  class="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none"
+               />
+               <input
+                  bind:this={searchInput}
+                  bind:value={searchQuery}
+                  type="text"
+                  spellcheck="false"
+                  autocomplete="off"
+                  placeholder={searchScope === "all"
+                     ? $_("queue.search.placeholderAll")
+                     : $_("queue.search.placeholder")}
+                  aria-label={$_("queue.search.label")}
+                  class="w-full rounded-md border border-border bg-background pl-7 pr-2 py-1 text-xs text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:border-primary"
+                  onkeydown={handleSearchKeydown}
+               />
+            </div>
+            {#if searching}
+               <span
+                  class="shrink-0 text-[10px] tabular-nums text-muted-foreground"
+                  aria-label={$_("queue.search.position", {
+                     values: {
+                        current: searchCurrent + 1,
+                        total: searchTargets.length,
+                     },
+                  })}
+               >
+                  {searchTargets.length > 0
+                     ? `${searchCurrent + 1}/${searchTargets.length}`
+                     : "0/0"}
+               </span>
+               <div class="flex shrink-0 -mx-1">
+                  <button
+                     type="button"
+                     class="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-40 disabled:pointer-events-none"
+                     onclick={() => stepSearch(-1)}
+                     disabled={searchTargets.length === 0}
+                     title={$_("queue.search.previous")}
+                     aria-label={$_("queue.search.previous")}
+                  >
+                     <ChevronUp size={12} />
+                  </button>
+                  <button
+                     type="button"
+                     class="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-40 disabled:pointer-events-none"
+                     onclick={() => stepSearch(1)}
+                     disabled={searchTargets.length === 0}
+                     title={$_("queue.search.next")}
+                     aria-label={$_("queue.search.next")}
+                  >
+                     <ChevronDown size={12} />
+                  </button>
+               </div>
+            {/if}
+            <div
+               class="flex shrink-0 rounded-md border border-border overflow-hidden text-[10px] font-medium"
+               role="group"
+               aria-label={$_("queue.search.scope")}
+            >
+               {#each [["context", $_("queue.search.scopeContext")], ["all", $_("queue.search.scopeAll")]] as [scope, label] (scope)}
+                  <button
+                     type="button"
+                     class="px-2 py-1 transition-colors {searchScope ===
+                     scope
+                        ? 'bg-primary/15 text-primary'
+                        : 'text-muted-foreground hover:bg-muted'}"
+                     aria-pressed={searchScope === scope}
+                     onclick={() => {
+                        searchScope = scope as "context" | "all";
+                        searchInput?.focus();
+                     }}
+                  >
+                     {label}
+                  </button>
+               {/each}
+            </div>
+            <button
+               type="button"
+               class="p-1 shrink-0 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+               onclick={closeSearch}
+               title={$_("queue.search.close")}
+               aria-label={$_("queue.search.close")}
+            >
+               <X size={12} />
+            </button>
+         </div>
+      </div>
+   {/if}
    <div
       bind:this={scrollContainer}
       onscroll={handleScroll}
@@ -821,6 +1250,21 @@
                         {$_("queue.backToTop")}
                      </button>
                   {/if}
+
+
+                  <button
+                     class="p-1 rounded-md hover:bg-muted text-muted-foreground hover:text-primary transition-colors {searchOpen
+                        ? 'text-primary bg-primary/10'
+                        : ''}"
+                     onclick={() => (searchOpen ? closeSearch() : openSearch())}
+                     title={$_("queue.search.open", {
+                        values: { shortcut: searchShortcut },
+                     })}
+                     aria-pressed={searchOpen}
+                     use:tooltip
+                  >
+                     <Search size={14} />
+                  </button>
 
                   {#if showFilterButton}
                      <button
@@ -978,12 +1422,62 @@
             {/if}
          </div>
 
+         {#if searchingEverywhere}
+            <div class="flex flex-col gap-4">
+               {#each globalResults as group (group.contextId)}
+                  <div class="flex flex-col gap-1.5">
+                     <h3
+                        class="text-[10px] font-bold uppercase tracking-wider text-muted-foreground"
+                     >
+                        {contextName(group.contextId)} ({group.items.length})
+                     </h3>
+                     {#each group.items as { item, terms } (item.id)}
+                        <button
+                           type="button"
+                           class="flex flex-col gap-1 rounded-lg border border-border bg-card p-2.5 text-left transition-colors hover:border-primary/50 focus-visible:border-primary focus-visible:outline-none"
+                           data-search-result={item.id}
+                           onclick={() => openResult(item)}
+                        >
+                           <span
+                              class="flex items-center gap-1.5 text-xs font-medium {item.completed
+                                 ? 'text-green-500'
+                                 : 'text-foreground'}"
+                           >
+                              {#if item.completed}
+                                 <Check size={12} class="shrink-0" />
+                              {/if}
+                              <span class="truncate"
+                                 >{refLabel(item.content) ||
+                                    item.id.slice(0, 8)}</span
+                              >
+                           </span>
+                           {#each resultSnippets(item, terms) as line}
+                              <span
+                                 class="block text-[11px] leading-snug text-muted-foreground break-words"
+                              >
+                                 {#each line as seg}{#if seg.hit}<mark
+                                          class="search-hit">{seg.text}</mark
+                                       >{:else}{seg.text}{/if}{/each}
+                              </span>
+                           {/each}
+                        </button>
+                     {/each}
+                  </div>
+               {:else}
+                  <div
+                     class="flex flex-col items-center justify-center py-12 text-muted-foreground/30 border border-dashed border-border/50 rounded-lg"
+                  >
+                     <span class="text-sm">{$_("queue.search.noResults")}</span>
+                  </div>
+               {/each}
+            </div>
+         {:else}
          <div
             class="flex flex-col gap-3 min-h-[50px]"
             use:dragHandleZone={{
                items: filteredStashes,
                flipDurationMs,
-               dragDisabled: hasActiveFilters,
+               dragDisabled: isFiltering,
             }}
             onconsider={handleDndConsider}
             onfinalize={handleDndFinalize}
@@ -992,7 +1486,7 @@
                <div
                   class="dnd-item {draggedItemId === item.id
                      ? 'is-dragging'
-                     : ''}"
+                     : ''} {hiddenBySearch(item) ? 'hidden' : ''}"
                   role="listitem"
                   data-stash-id={item.id}
                   animate:flip={{ duration: flipDurationMs }}
@@ -1006,7 +1500,7 @@
                      <StashCard
                         {item}
                         mode={effectiveMode}
-                        showReorderHandle={!hasActiveFilters}
+                        showReorderHandle={!isFiltering}
                         {stripTagsOnCopy}
                         isFirst={index === 0}
                         isLast={index ===
@@ -1037,27 +1531,31 @@
                         onReferenceClick={followRef}
                         {refCandidates}
                         {autoDetectedWindowTitle}
+                        searchTerms={searchHits.get(item.id) ?? NO_TERMS}
                      />
                   {/if}
                </div>
             {/each}
 
-            {#if filteredStashes.filter((s) => !s.isDndShadowItem).length === 0}
+            {#if visibleActiveCount === 0}
                <div
                   class="flex flex-col items-center justify-center py-12 text-muted-foreground/30 border border-dashed border-border/50 rounded-lg"
                >
                   <span class="text-sm">
-                     {hasActiveFilters
-                        ? $_("queue.noActiveStashesFound")
-                        : $_("queue.noActiveStashes")}
+                     {searching && !hasActiveFilters
+                        ? $_("queue.search.noActive")
+                        : isFiltering
+                          ? $_("queue.noActiveStashesFound")
+                          : $_("queue.noActiveStashes")}
                   </span>
                </div>
             {/if}
          </div>
+         {/if}
       </section>
 
       <!-- Completed Section -->
-      {#if filteredCompletedStashes.length > 0 || (completedStashes.length > 0 && !hasActiveFilters)}
+      {#if !searchingEverywhere && (filteredCompletedStashes.length > 0 || (completedStashes.length > 0 && !isFiltering))}
          <section class="space-y-4">
             <div
                class="flex items-center justify-between sticky top-0 py-3 z-10 -mx-4 px-4 mb-2 pointer-events-none"
@@ -1079,7 +1577,7 @@
                   <h2
                      class="text-[10px] font-bold text-muted-foreground/60 uppercase tracking-wider group-hover:text-muted-foreground/80 transition-colors"
                   >
-                     {$_("queue.completed")} ({hasActiveFilters
+                     {$_("queue.completed")} ({isFiltering
                         ? filteredCompletedStashes.length
                         : completedStashes.length})
                   </h2>
@@ -1142,6 +1640,7 @@
                               onReferenceClick={followRef}
                               {refCandidates}
                               {autoDetectedWindowTitle}
+                              searchTerms={searchHits.get(item.id) ?? NO_TERMS}
                            />
                         </div>
                      {/each}

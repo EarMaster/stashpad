@@ -134,6 +134,9 @@ async fn fetch_state(
     };
     let state: ServerState = serde_json::from_value(body)
         .map_err(|e| format!("Could not read the account's encryption state: {}", e))?;
+    if state.state == "sealed" {
+        e2ee_session::mark_sealed();
+    }
     Ok((state, user_id, device_id))
 }
 

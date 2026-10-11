@@ -29,6 +29,8 @@
     checkAttachmentSizeLimits,
   } from "$lib/utils/format";
   import { fade, fly } from "svelte/transition";
+  import { tick } from "svelte";
+  import { highlight } from "$lib/utils/stash-search";
   import { dragHandle } from "svelte-dnd-action";
   import {
     Circle,
@@ -55,8 +57,7 @@
   import Editor from "./Editor.svelte";
   import FilePreviewTooltip from "./FilePreviewTooltip.svelte";
   import FilePreviewModal from "./FilePreviewModal.svelte";
-  import { stat } from "@tauri-apps/plugin-fs";
-  import { open, message } from "@tauri-apps/plugin-dialog";
+  import { message } from "@tauri-apps/plugin-dialog";
   import { getRelativeTime } from "$lib/utils/date";
   import {
     safeParse,
@@ -105,6 +106,7 @@
     contextName,
     onReferenceClick,
     refCandidates = [],
+    searchTerms = [],
   } = $props<{
     item: StashItem;
     mode: "Drag" | "Copy";
@@ -136,6 +138,8 @@
     onReferenceClick?: (ref: ResolvedRef) => void;
     /** Stashes the editor's `>>` picker offers */
     refCandidates?: StashItem[];
+    /** Words a search matched in this stash: shown marked, and the card unclamped */
+    searchTerms?: string[];
   }>();
 
   const adapter = new DesktopStorageAdapter();
@@ -193,7 +197,18 @@
   let contentHeight = $state(0);
   let expanded = $state(false);
   let isLong = $derived(contentHeight > COLLAPSED_MAX_PX + COLLAPSE_SLACK_PX);
-  let isClamped = $derived(isLong && !expanded);
+  // A search match may sit below the fold, so a matched card shows all of itself.
+  let isClamped = $derived(isLong && !expanded && searchTerms.length === 0);
+
+  // Re-marked whenever the rendered content or the search changes; the marks go in
+  // after the content is rendered, as text, never through the HTML.
+  $effect(() => {
+    renderedContent;
+    const terms = searchTerms;
+    const el = contentRef;
+    if (!el) return;
+    tick().then(() => highlight(el, terms));
+  });
 
   $effect(() => {
     if (!contentRef) return;
@@ -439,12 +454,9 @@
    */
   async function handleAddFile() {
     try {
-      const selected = await open({
-        multiple: true,
-        title: "Select files to attach",
-      });
-      if (selected) {
-        const paths = Array.isArray(selected) ? selected : [selected];
+      // The backend opens the dialog, so it knows these files were picked - see handover.rs.
+      const paths = await adapter.pickFiles($_("editor.selectFilesTitle"), true);
+      if (paths.length > 0) {
         let newAttachments = [...item.attachments];
 
         const currentTotal = calculateTotalAttachmentSize(item.attachments);
@@ -453,9 +465,9 @@
         for (const path of paths) {
           try {
             // Check size limits
-            const metadata = await stat(path);
+            const size = (await adapter.fileSize(path)) ?? 0;
             const results = checkAttachmentSizeLimits(
-              metadata.size,
+              size,
               currentTotal + plannedAddition,
             );
 
@@ -490,7 +502,7 @@
             }
 
             // If check passes, track the size
-            plannedAddition += metadata.size;
+            plannedAddition += size;
 
             const attachment = await adapter.saveAssetFromPath(
               path,

@@ -158,7 +158,8 @@
         "label": "API Key",
         "description": "Your API key (optional)",
         "show": "Show API key",
-        "hide": "Hide API key"
+        "hide": "Hide API key",
+        "savedPlaceholder": "Saved - type to replace"
       },
       "model": {
         "label": "Model Name",
@@ -442,6 +443,21 @@
     "sortNewest": "Date: Newest first",
     "stashAdded": "Stash added",
     "filterStashes": "Filter stashes",
+    "search": {
+      "open": "Search ({shortcut})",
+      "label": "Search stashes",
+      "placeholder": "Search this context…",
+      "placeholderAll": "Search all contexts…",
+      "scope": "Search in",
+      "scopeContext": "This context",
+      "scopeAll": "All",
+      "close": "Close search",
+      "previous": "Previous match (Shift+Enter)",
+      "next": "Next match (Enter)",
+      "position": "Match {current} of {total}",
+      "noResults": "No stash matches your search.",
+      "noActive": "No active stash matches your search."
+    },
     "attachmentFilter": {
       "any": "Any attachment",
       "none": "No attachments",
@@ -602,6 +618,10 @@
       "taken": "Another app already uses this shortcut. Choose a different one.",
       "failed": "This shortcut couldn't be set up: {reason}",
       "invalid": "This shortcut can't be used. Choose a different one."
+    },
+    "cloud": {
+      "subscription_required": "Cloud Sync needs a subscription. You can upgrade under Settings.",
+      "storage_full": "Your cloud storage is full. Remove attachments or upgrade to add more."
     }
   }
 }

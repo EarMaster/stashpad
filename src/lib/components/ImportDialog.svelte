@@ -8,7 +8,6 @@
     import { compareTimestamps } from "$lib/utils/time";
     import { portal } from "$lib/actions/portal";
     import { trapFocus } from "$lib/actions/trapFocus";
-    import { open as openFile } from "@tauri-apps/plugin-dialog";
     import { getCurrentWebview } from "@tauri-apps/api/webview";
     import { onDestroy } from "svelte";
     import type {
@@ -196,19 +195,16 @@
      * Open file picker and load file
      */
     async function selectFile() {
-        const filePath = await openFile({
-            title: $_("contexts.importDialog.selectFile"),
-            filters: [
-                {
-                    name: $_("contexts.importDialog.fileFilter"),
-                    extensions: ["md", "zip"],
-                },
-            ],
-        });
+        // The backend opens the dialog, so it knows this file was picked - see handover.rs.
+        const [filePath] = await adapter.pickFiles(
+            $_("contexts.importDialog.selectFile"),
+            false,
+            [{ name: $_("contexts.importDialog.fileFilter"), extensions: ["md", "zip"] }],
+        );
 
         if (!filePath) return;
 
-        await loadFromPath(filePath as string);
+        await loadFromPath(filePath);
     }
 
     /**

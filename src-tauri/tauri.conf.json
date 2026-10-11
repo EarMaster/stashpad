@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "stashpad",
-  "version": "1.10.2",
+  "version": "1.11.0",
   "identifier": "org.stashpad",
   "build": {
     "frontendDist": "../dist",
@@ -26,11 +26,12 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: https://asset.localhost data: blob:; connect-src * ipc: http://ipc.localhost; font-src 'self' data:; media-src 'self' asset: https://asset.localhost",
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: https://asset.localhost data: blob:; connect-src ipc: http://ipc.localhost; font-src 'self' data:; media-src 'self' asset: https://asset.localhost; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'",
+      "devCsp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: https://asset.localhost data: blob:; connect-src ipc: http://ipc.localhost ws://localhost:1420 http://localhost:1420; font-src 'self' data:; media-src 'self' asset: https://asset.localhost; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'",
       "assetProtocol": {
         "enable": true,
         "scope": [
-          "$HOME/.stashpad/**/*"
+          "$HOME/.stashpad/cache/**/*"
         ]
       }
     }
