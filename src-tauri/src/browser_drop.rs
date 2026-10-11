@@ -44,7 +44,10 @@ fn nothing_usable() -> UiError {
 pub async fn read_dropped_image() -> Result<String, UiError> {
     #[cfg(target_os = "macos")]
     {
-        macos::read().await
+        // The scratch file is the user's drop in another form, so it may be saved like one.
+        let path = macos::read().await?;
+        crate::handover::record([&path]);
+        Ok(path)
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -88,7 +91,7 @@ mod macos {
     use crate::uierror::UiError;
 
     /// Scratch folder for the image of the latest browser drop. Emptied on every drop, so at
-    /// most one stale file lingers - and it is under the app folder the fs scope allows.
+    /// most one stale file lingers.
     fn scratch_dir() -> PathBuf {
         crate::utils::get_app_dir().join("tmp").join("drop")
     }

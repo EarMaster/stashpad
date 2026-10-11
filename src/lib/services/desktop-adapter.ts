@@ -13,7 +13,7 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import type { LogLevel } from '../utils/log';
-import type { IStorageService, StashItem, AppContext, Settings, FilePreviewData, Context, Attachment, CloudConfig, ExportSummary, ImportPreview, CloudUsage, StashPosition, LocalKeyStatus, E2eeStatus, E2eeEnableResult, E2eeConversionProgress, CreatedAccessKey, AttachmentConversion } from '../types';
+import type { IStorageService, StashItem, AppContext, Settings, FilePreviewData, Context, Attachment, CloudConfig, ExportSummary, ImportPreview, CloudUsage, StashPosition, LocalKeyStatus, E2eeStatus, E2eeEnableResult, E2eeConversionProgress, CreatedAccessKey, AttachmentConversion, FileFilter } from '../types';
 
 import { log } from '$lib/utils/log';
 /** Called after any local write so cloud sync can be scheduled. */
@@ -336,6 +336,23 @@ export class DesktopStorageAdapter implements IStorageService {
 
     async aiTestConnection(test: { endpoint: string; model: string; apiKey: string }): Promise<void> {
         await invoke('ai_test_connection', { test });
+    }
+
+    async pickFiles(title: string, multiple: boolean, filters?: FileFilter[]): Promise<string[]> {
+        return await invoke('pick_files', { title, multiple, filters: filters ?? null });
+    }
+
+    async pickSavePath(title: string, defaultName: string, filters?: FileFilter[]): Promise<string | null> {
+        return await invoke('pick_save_path', { title, defaultName, filters: filters ?? null });
+    }
+
+    async readHandedOverFile(path: string): Promise<Uint8Array<ArrayBuffer>> {
+        const bytes = await invoke<ArrayBuffer>('read_handed_over_file', { path });
+        return new Uint8Array(bytes);
+    }
+
+    async fileSize(path: string): Promise<number | null> {
+        return await invoke('file_size', { path });
     }
 
     async getSystemPrompt(): Promise<string> {

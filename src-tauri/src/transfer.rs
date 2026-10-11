@@ -701,9 +701,22 @@ fn safe_entry_path(base: &Path, name: &str) -> Option<PathBuf> {
 // ---------------------------------------------------------------------------
 
 /// Write a context's stashes to `dest_path`, as a zip when attachments are included and
-/// there is at least one, otherwise as a plain markdown file.
+/// there is at least one, otherwise as a plain markdown file. `dest_path` has to be the
+/// place the user chose in the save dialog - see handover.rs.
 #[tauri::command]
 pub async fn export_context_archive(
+    state: State<'_, Arc<DbState>>,
+    context_id: String,
+    stash_ids: Vec<String>,
+    include_attachments: bool,
+    dest_path: String,
+) -> Result<ExportSummary, UiError> {
+    crate::handover::check(&dest_path)?;
+    write_context_archive(state, context_id, stash_ids, include_attachments, dest_path).await
+}
+
+/// [`export_context_archive`] without the check, for callers that chose the path themselves.
+pub async fn write_context_archive(
     state: State<'_, Arc<DbState>>,
     context_id: String,
     stash_ids: Vec<String>,
@@ -881,7 +894,8 @@ pub async fn read_import_archive(
     path: String,
     context_id: String,
 ) -> Result<ImportPreview, UiError> {
-    let source = PathBuf::from(&path);
+    // Only an archive the user dropped or picked - see handover.rs.
+    let source = crate::handover::check(&path)?;
     if !source.exists() {
         return Err("File does not exist".into());
     }

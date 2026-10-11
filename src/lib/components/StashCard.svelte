@@ -55,8 +55,7 @@
   import Editor from "./Editor.svelte";
   import FilePreviewTooltip from "./FilePreviewTooltip.svelte";
   import FilePreviewModal from "./FilePreviewModal.svelte";
-  import { stat } from "@tauri-apps/plugin-fs";
-  import { open, message } from "@tauri-apps/plugin-dialog";
+  import { message } from "@tauri-apps/plugin-dialog";
   import { getRelativeTime } from "$lib/utils/date";
   import {
     safeParse,
@@ -439,12 +438,9 @@
    */
   async function handleAddFile() {
     try {
-      const selected = await open({
-        multiple: true,
-        title: "Select files to attach",
-      });
-      if (selected) {
-        const paths = Array.isArray(selected) ? selected : [selected];
+      // The backend opens the dialog, so it knows these files were picked - see handover.rs.
+      const paths = await adapter.pickFiles($_("editor.selectFilesTitle"), true);
+      if (paths.length > 0) {
         let newAttachments = [...item.attachments];
 
         const currentTotal = calculateTotalAttachmentSize(item.attachments);
@@ -453,9 +449,9 @@
         for (const path of paths) {
           try {
             // Check size limits
-            const metadata = await stat(path);
+            const size = (await adapter.fileSize(path)) ?? 0;
             const results = checkAttachmentSizeLimits(
-              metadata.size,
+              size,
               currentTotal + plannedAddition,
             );
 
@@ -490,7 +486,7 @@
             }
 
             // If check passes, track the size
-            plannedAddition += metadata.size;
+            plannedAddition += size;
 
             const attachment = await adapter.saveAssetFromPath(
               path,

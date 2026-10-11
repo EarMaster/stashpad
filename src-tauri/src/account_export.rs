@@ -300,7 +300,8 @@ pub struct AccountExportSummary {
     pub stashes: usize,
 }
 
-/// Write every context out as Markdown, one file per context, into a directory.
+/// Write every context out as Markdown, one file per context, into a directory - one the
+/// user handed over, see handover.rs.
 ///
 /// Reuses the per-context writer rather than inventing a second format, so what comes out
 /// is the same thing the existing exporter produces and the existing importer reads.
@@ -309,6 +310,7 @@ pub async fn export_whole_account(
     state: State<'_, Arc<DbState>>,
     dest_dir: String,
 ) -> Result<AccountExportSummary, UiError> {
+    crate::handover::check(&dest_dir)?;
     let (contexts, by_context) = {
         let db = state.lock_db();
         let contexts = db.get_contexts().map_err(|e| e.to_string())?;
@@ -343,7 +345,7 @@ pub async fn export_whole_account(
         let file =
             std::path::Path::new(&dest_dir).join(format!("{}.md", safe_file_name(&context.name)));
 
-        crate::transfer::export_context_archive(
+        crate::transfer::write_context_archive(
             state.clone(),
             context.id.clone(),
             ids,

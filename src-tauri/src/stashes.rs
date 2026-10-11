@@ -706,7 +706,8 @@ pub async fn save_asset_from_path(
         context_id,
         stash_id
     );
-    let source_path = std::path::Path::new(&path);
+    // Only a file the user dropped or picked - see handover.rs.
+    let source_path = &crate::handover::check(&path)?;
     if !source_path.exists() {
         return Err("File does not exist".into());
     }

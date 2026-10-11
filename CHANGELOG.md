@@ -58,6 +58,10 @@ popover, not for the person who wrote the commit.
   backend now makes those requests, the window can no longer reach the network at all, and
   Settings only shows that a key is saved. A saved key is kept for the endpoint it was
   entered for: change the endpoint, and enter the key again
+- **Stashpad only reads the files you give it.** The app window could read any file in your
+  Downloads, Desktop and Documents folders, and could ask the backend to attach a file from
+  anywhere on your computer. Now only files you drop on the window or choose in a file dialog
+  can be attached, imported or exported to, and the window itself can no longer read files
 
 ## [1.10.2] - 2026-10-05
 

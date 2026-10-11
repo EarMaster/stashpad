@@ -34,6 +34,7 @@ mod e2ee;
 mod e2ee_enrol;
 mod e2ee_session;
 mod envelope;
+mod handover;
 pub mod ids;
 mod keychain;
 mod localkey;
@@ -442,7 +443,6 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
-        .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
@@ -542,6 +542,10 @@ pub fn run() {
             account_export::read_account_export,
             account_export::import_account_export,
             account_export::export_whole_account,
+            handover::pick_files,
+            handover::pick_save_path,
+            handover::read_handed_over_file,
+            handover::file_size,
             utils::is_windows_10,
             contexts::get_contexts,
             contexts::save_contexts,
@@ -589,6 +593,31 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| {
+            // A drop is the user handing these files over; only they may be read later.
+            // Recorded here, before the webview hears of the drop. Enter carries the same
+            // paths, so they are known even before the drop lands. See handover.rs.
+            if let tauri::RunEvent::WindowEvent {
+                event:
+                    tauri::WindowEvent::DragDrop(
+                        tauri::DragDropEvent::Enter { paths, .. }
+                        | tauri::DragDropEvent::Drop { paths, .. },
+                    ),
+                ..
+            } = &event
+            {
+                handover::record(paths);
+            }
+            if let tauri::RunEvent::WebviewEvent {
+                event:
+                    tauri::WebviewEvent::DragDrop(
+                        tauri::DragDropEvent::Enter { paths, .. }
+                        | tauri::DragDropEvent::Drop { paths, .. },
+                    ),
+                ..
+            } = &event
+            {
+                handover::record(paths);
+            }
             if let tauri::RunEvent::Exit = event {
                 log::info!("App exiting, cleaning up...");
                 cleanup_websocket_state(app_handle);

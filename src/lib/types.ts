@@ -162,6 +162,12 @@ export interface AttachmentConversion {
     unrecoverable: number;
 }
 
+/** A file type a dialog offers. */
+export interface FileFilter {
+    name: string;
+    extensions: string[];
+}
+
 export interface IStorageService {
     saveStash(stash: StashItem, options?: { invertPosition?: boolean }): Promise<void>;
     saveStashes(stashes: StashItem[]): Promise<void>;
@@ -288,6 +294,13 @@ export interface IStorageService {
     /** Test the provider the settings form shows. An empty key means the saved one, which
      *  the backend only uses for the saved endpoint. */
     aiTestConnection(test: { endpoint: string; model: string; apiKey: string }): Promise<void>;
+    // Files the user hands over. The backend only reads or writes outside paths that came
+    // from a drop or from these dialogs - see handover.rs.
+    pickFiles(title: string, multiple: boolean, filters?: FileFilter[]): Promise<string[]>;
+    pickSavePath(title: string, defaultName: string, filters?: FileFilter[]): Promise<string | null>;
+    readHandedOverFile(path: string): Promise<Uint8Array<ArrayBuffer>>;
+    /** Size of a handed-over file or one in the attachment cache; null for anything else. */
+    fileSize(path: string): Promise<number | null>;
     // AI System Prompt management
     getSystemPrompt(): Promise<string>;
     getSystemPromptPath(): Promise<string>;

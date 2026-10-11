@@ -8,20 +8,7 @@
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",
-    "dialog:default",
-    "dialog:allow-save",
-    "fs:default",
-    "fs:allow-read",
-    {
-      "identifier": "fs:scope",
-      "allow": [
-        "$HOME/.stashpad/cache/**/*",
-        "$HOME/.stashpad/tmp/drop/**/*",
-        "$DOWNLOAD/**/*",
-        "$DESKTOP/**/*",
-        "$DOCUMENT/**/*"
-      ]
-    },
+    "dialog:allow-message",
     "shell:default",
     "opener:default",
     "window-state:default",
