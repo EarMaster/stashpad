@@ -30,6 +30,11 @@ popover, not for the person who wrote the commit.
   `#tags` into badges ran after the content was cleaned, and a link title written a particular
   way let text through as real page elements, such as a form or an overlay. Tags are now found
   in the text itself, so the cleaned content stays clean, and tags render exactly as before
+- **An encrypted account no longer accepts unencrypted stashes from the server.** While an
+  account was being converted, unencrypted records were accepted on purpose, and that stayed
+  true after the conversion had finished - so the server could have slipped in content it never
+  encrypted. Once your account is fully encrypted, Stashpad now leaves such records out of the
+  sync instead of showing them
 
 ## [1.10.2] - 2026-10-05
 
