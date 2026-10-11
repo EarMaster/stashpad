@@ -11,6 +11,14 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+### Security
+- **A synced stash can no longer place files outside Stashpad's own folder.** Stash and
+  context ids from the cloud were used as folder names when an attachment was downloaded, so a
+  stash pushed with a crafted id could write a file anywhere on every device linked to the
+  account - including a folder whose contents run when you sign in. Ids that are not in the
+  expected format are now refused when they arrive, and downloads are checked to stay inside
+  the attachment cache
+
 ## [1.10.2] - 2026-10-05
 
 ### Added

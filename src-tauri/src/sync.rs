@@ -870,12 +870,34 @@ pub async fn download_attachment_from_cloud(
     };
 
     // Mirror the layout save_asset uses so cleanup on delete keeps working.
-    let mut dir = get_app_dir().join("cache");
+    //
+    // Every one of these ids came from sync, and each becomes part of a path: a stash id of
+    // `..\..\Startup` used to put the download in the Startup folder of every linked
+    // device. They are checked here as well as on import, because a row written before
+    // that check existed would otherwise still reach this join.
+    if !crate::ids::is_record_id(&stash_id)
+        || !crate::ids::is_record_id(&attachment_id)
+        || !context_id
+            .as_deref()
+            .map_or(true, crate::ids::is_context_id)
+    {
+        return Err("Attachment has a malformed id".into());
+    }
+    let cache_root = get_app_dir().join("cache");
+    let mut dir = cache_root.clone();
     if let Some(cid) = context_id.as_deref() {
         dir = dir.join(cid);
     }
     dir = dir.join(&stash_id);
     fs::create_dir_all(&dir).map_err(|e| format!("Failed to create cache dir: {}", e))?;
+    // Belt and braces: whatever the ids were, the directory must still be inside the cache.
+    let inside_cache = match (dir.canonicalize(), cache_root.canonicalize()) {
+        (Ok(d), Ok(root)) => d.starts_with(root),
+        _ => false,
+    };
+    if !inside_cache {
+        return Err("Attachment would be written outside the cache".into());
+    }
 
     // Write to a temporary file and rename into place. A direct write that is
     // interrupted - crash, power loss, full disk - leaves a truncated file at the real

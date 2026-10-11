@@ -33,6 +33,7 @@ mod e2ee;
 mod e2ee_enrol;
 mod e2ee_session;
 mod envelope;
+pub mod ids;
 mod keychain;
 mod localkey;
 mod logging;

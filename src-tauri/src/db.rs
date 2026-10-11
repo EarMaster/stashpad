@@ -760,6 +760,12 @@ impl DbManager {
     pub fn import_contexts(&mut self, contexts: &[Context]) -> Result<Vec<(String, String)>> {
         let tx = self.conn.transaction()?;
         for ctx in contexts {
+            // A context id names a cache directory, so one that is not a UUID is refused
+            // rather than written: see `ids`.
+            if !crate::ids::is_context_id(&ctx.id) {
+                log::warn!("Skipping a synced context with a malformed id");
+                continue;
+            }
             // Nothing deletes the default context, so a tombstone for it is dropped rather
             // than allowed to take every unfiled stash with it.
             if ctx.id == "default" && ctx.deleted {
@@ -1218,6 +1224,15 @@ impl DbManager {
         };
         let tx = self.conn.transaction()?;
         for stash in stashes {
+            // These ids become cache directory names, and they come from the server, another
+            // device or an imported file. One that is not a UUID is dropped here, at the
+            // door, so nothing downstream ever has to wonder: see `ids`.
+            if !crate::ids::is_record_id(&stash.id) || !crate::ids::is_context_id(&stash.context_id)
+            {
+                log::warn!("Skipping a stash with a malformed id");
+                continue;
+            }
+
             let files_json = serde_json::to_string(&stash.files).unwrap_or_default();
 
             let existing_pos = read_position(&tx, &stash.id)?;
@@ -1256,6 +1271,15 @@ impl DbManager {
             )?;
 
             for att in &stash.attachments {
+                // An attachment hangs off this stash and nowhere else, and its id names the
+                // partial file a download writes.
+                // An empty `stash_id` means the parent below; any other one must match it.
+                if !crate::ids::is_record_id(&att.id)
+                    || !(att.stash_id.is_empty() || att.stash_id == stash.id)
+                {
+                    log::warn!("Skipping an attachment with a malformed id");
+                    continue;
+                }
                 tx.execute(
                     // Never blank an existing local path: the server has no concept of a
                     // local file_path and always sends it empty, so an incoming empty
@@ -1263,7 +1287,7 @@ impl DbManager {
                     "INSERT INTO attachments (id, stash_id, file_path, file_name, file_size, mime_type, syntax, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8) ON CONFLICT(id) DO UPDATE SET stash_id=excluded.stash_id, file_path=CASE WHEN TRIM(excluded.file_path)='' THEN attachments.file_path ELSE excluded.file_path END, file_name=excluded.file_name, file_size=excluded.file_size, mime_type=excluded.mime_type, syntax=excluded.syntax",
                     params![
                         att.id,
-                        att.stash_id,
+                        stash.id,
                         att.file_path,
                         att.file_name,
                         att.file_size,
@@ -1720,20 +1744,38 @@ mod tests {
     #[test]
     fn deleting_a_context_deletes_its_stashes() {
         let mut db = create_test_db();
-        db.save_context(&plain_context("work", false), WriteOrigin::LocalEdit)
-            .unwrap();
-        insert_raw_stash(&db, "s-work", Some("work"));
+        db.save_context(
+            &plain_context("00000000-0000-4000-8000-00000000c0de", false),
+            WriteOrigin::LocalEdit,
+        )
+        .unwrap();
+        insert_raw_stash(
+            &db,
+            "00000000-0000-4000-8000-0000000000a1",
+            Some("00000000-0000-4000-8000-00000000c0de"),
+        );
         insert_raw_stash(&db, "s-default", Some("default"));
 
-        let deleted = db.delete_context("work").unwrap();
+        let deleted = db
+            .delete_context("00000000-0000-4000-8000-00000000c0de")
+            .unwrap();
 
-        assert_eq!(deleted, vec![("s-work".to_string(), "work".to_string())]);
-        assert_eq!(stored(&db, "s-work"), ("work".to_string(), true));
+        assert_eq!(
+            deleted,
+            vec![(
+                "00000000-0000-4000-8000-0000000000a1".to_string(),
+                "00000000-0000-4000-8000-00000000c0de".to_string()
+            )]
+        );
+        assert_eq!(
+            stored(&db, "00000000-0000-4000-8000-0000000000a1"),
+            ("00000000-0000-4000-8000-00000000c0de".to_string(), true)
+        );
         assert_eq!(stored(&db, "s-default"), ("default".to_string(), false));
         let pending: i32 = db
             .conn
             .query_row(
-                "SELECT pending_sync FROM stashes WHERE id = 's-work'",
+                "SELECT pending_sync FROM stashes WHERE id = '00000000-0000-4000-8000-0000000000a1'",
                 [],
                 |row| row.get(0),
             )
@@ -1744,14 +1786,21 @@ mod tests {
     #[test]
     fn a_context_deleted_on_another_device_takes_its_stashes_here_too() {
         let mut db = create_test_db();
-        db.import_contexts(&[plain_context("work", false)]).unwrap();
-        insert_raw_stash(&db, "s-work", Some("work"));
+        db.import_contexts(&[plain_context("00000000-0000-4000-8000-00000000c0de", false)])
+            .unwrap();
+        insert_raw_stash(
+            &db,
+            "00000000-0000-4000-8000-0000000000a1",
+            Some("00000000-0000-4000-8000-00000000c0de"),
+        );
 
-        let deleted = db.import_contexts(&[plain_context("work", true)]).unwrap();
+        let deleted = db
+            .import_contexts(&[plain_context("00000000-0000-4000-8000-00000000c0de", true)])
+            .unwrap();
 
         assert_eq!(deleted.len(), 1);
         assert!(
-            stored(&db, "s-work").1,
+            stored(&db, "00000000-0000-4000-8000-0000000000a1").1,
             "a stash in a deleted context is deleted"
         );
     }
@@ -2316,7 +2365,7 @@ mod tests {
         let mut db = create_test_db();
 
         db.import_stashes(&vec![stash_with_updated_at(
-            "s-remote",
+            "00000000-0000-4000-8000-0000000000a2",
             "from elsewhere",
             Some(1_000),
         )])
@@ -2331,7 +2380,7 @@ mod tests {
         // And the placeholder ordering must not block the real one from being applied.
         let applied = db
             .import_positions(&[StashPosition {
-                id: "s-remote".to_string(),
+                id: "00000000-0000-4000-8000-0000000000a2".to_string(),
                 position: -5.0,
                 position_updated_at: 1_500,
             }])
@@ -2341,7 +2390,7 @@ mod tests {
         let position: f64 = db
             .conn
             .query_row(
-                "SELECT position FROM stashes WHERE id = 's-remote'",
+                "SELECT position FROM stashes WHERE id = '00000000-0000-4000-8000-0000000000a2'",
                 [],
                 |r| r.get(0),
             )
@@ -2524,6 +2573,64 @@ mod tests {
         assert_eq!(row.3, 0, "and must not queue the record for a push");
     }
 
+    #[test]
+    fn synced_records_with_path_shaped_ids_are_refused() {
+        // A stash id became a cache directory name, so one pushed as `..\..\Startup` put
+        // its attachment in the Startup folder of every device that downloaded it.
+        let mut db = create_test_db();
+        let good = "00000000-0000-4000-8000-0000000000b1";
+        let mut traversal = stash_with_updated_at("..\\..\\..\\Startup", "x", Some(1_000));
+        traversal.attachments.push(Attachment {
+            id: "00000000-0000-4000-8000-0000000000b2".to_string(),
+            stash_id: traversal.id.clone(),
+            file_path: String::new(),
+            file_name: "x.bat".to_string(),
+            file_size: 1,
+            mime_type: None,
+            syntax: None,
+            created_at: crate::time::now_iso(),
+        });
+        let mut bad_context = stash_with_updated_at(good, "y", Some(1_000));
+        bad_context.context_id = "../../.config/autostart".to_string();
+        let mut bad_attachment = stash_with_updated_at(good, "z", Some(1_000));
+        bad_attachment.attachments.push(Attachment {
+            id: "../escape".to_string(),
+            stash_id: good.to_string(),
+            file_path: String::new(),
+            file_name: "x".to_string(),
+            file_size: 1,
+            mime_type: None,
+            syntax: None,
+            created_at: crate::time::now_iso(),
+        });
+
+        db.import_stashes(&vec![traversal, bad_context]).unwrap();
+        db.import_contexts(&[plain_context("..", false)]).unwrap();
+        db.import_stashes(&vec![bad_attachment]).unwrap();
+
+        let stashes: i64 = db
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM stashes WHERE id LIKE '%..%' OR context_id LIKE '%..%'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let attachments: i64 = db
+            .conn
+            .query_row("SELECT COUNT(*) FROM attachments", [], |r| r.get(0))
+            .unwrap();
+        let contexts: i64 = db
+            .conn
+            .query_row("SELECT COUNT(*) FROM contexts WHERE id = '..'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(stashes, 0, "no path-shaped id is written");
+        assert_eq!(attachments, 0, "an attachment with a bad id is dropped");
+        assert_eq!(contexts, 0);
+    }
+
     fn stash_with_updated_at(id: &str, content: &str, updated_at: Option<u64>) -> StashItem {
         StashItem {
             id: id.to_string(),
@@ -2596,12 +2703,16 @@ mod tests {
         let mut db = create_test_db();
 
         let server_ts = 1_700_000_000_u64;
-        let stash = stash_with_updated_at("from-server", "remote content", Some(server_ts));
+        let stash = stash_with_updated_at(
+            "00000000-0000-4000-8000-0000000000a3",
+            "remote content",
+            Some(server_ts),
+        );
         db.import_stashes(&vec![stash])
             .expect("import should succeed");
 
         assert_eq!(
-            stored_updated_at(&db, "from-server"),
+            stored_updated_at(&db, "00000000-0000-4000-8000-0000000000a3"),
             server_ts,
             "sync import must not restamp the server's timestamp"
         );
@@ -2616,7 +2727,7 @@ mod tests {
 
         let server_ts = 1_700_000_000_u64;
         let ctx = Context {
-            id: "ctx-remote".to_string(),
+            id: "00000000-0000-4000-8000-0000000000c3".to_string(),
             name: "Remote".to_string(),
             description: Some("Rust + Svelte".to_string()),
             rules: vec![],
@@ -2630,7 +2741,7 @@ mod tests {
         let stored = db.get_contexts().expect("load should succeed");
         let found = stored
             .iter()
-            .find(|c| c.id == "ctx-remote")
+            .find(|c| c.id == "00000000-0000-4000-8000-0000000000c3")
             .expect("context should be present");
 
         assert_eq!(found.updated_at, Some(server_ts));
@@ -2850,19 +2961,26 @@ mod tests {
         // Otherwise every pulled record would bounce straight back, and the incremental
         // push would never shrink.
         let mut db = create_test_db();
-        let stash = stash_with_updated_at("s-remote", "from another device", Some(1_700_000_000));
+        let stash = stash_with_updated_at(
+            "00000000-0000-4000-8000-0000000000a2",
+            "from another device",
+            Some(1_700_000_000),
+        );
 
         db.import_stashes(&vec![stash])
             .expect("import should succeed");
 
-        assert_eq!(pending_flag(&db, "stashes", "s-remote"), 0);
+        assert_eq!(
+            pending_flag(&db, "stashes", "00000000-0000-4000-8000-0000000000a2"),
+            0
+        );
         // Scoped to this record: a fresh database also seeds starter stashes, which are
         // local creations and legitimately do need pushing.
         assert!(
             !db.claim_pending_stashes()
                 .expect("claim")
                 .iter()
-                .any(|s| s.id == "s-remote"),
+                .any(|s| s.id == "00000000-0000-4000-8000-0000000000a2"),
             "imported records are already in sync by definition"
         );
     }
@@ -2991,10 +3109,13 @@ mod tests {
 
         // And a pulled context is not queued.
         let mut remote = ctx.clone();
-        remote.id = "c-remote".to_string();
+        remote.id = "00000000-0000-4000-8000-0000000000c2".to_string();
         remote.updated_at = Some(1_700_000_000);
         db.import_contexts(&[remote]).expect("import");
-        assert_eq!(pending_flag(&db, "contexts", "c-remote"), 0);
+        assert_eq!(
+            pending_flag(&db, "contexts", "00000000-0000-4000-8000-0000000000c2"),
+            0
+        );
     }
 
     #[test]
