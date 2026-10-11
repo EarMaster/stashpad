@@ -1458,7 +1458,7 @@ dependencies = [
 [[package]]
 name = "drag"
 version = "2.1.0"
-source = "git+https://github.com/crabnebula-dev/drag-rs#8c88ba0084615f2b1e7796d9ff7611b37f5ea31b"
+source = "git+https://github.com/crabnebula-dev/drag-rs?rev=8c88ba0084615f2b1e7796d9ff7611b37f5ea31b#8c88ba0084615f2b1e7796d9ff7611b37f5ea31b"
 dependencies = [
  "cocoa",
  "core-graphics 0.24.0",

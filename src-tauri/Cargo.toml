@@ -32,7 +32,7 @@ temporal_rs = { version = "0.2.6", default-features = false, features = ["sys"] 
 base64 = "0.22"
 dirs = "6.0.0"
 arboard = "3.6.1"
-drag = { git = "https://github.com/crabnebula-dev/drag-rs" }
+drag = { git = "https://github.com/crabnebula-dev/drag-rs", rev = "8c88ba0084615f2b1e7796d9ff7611b37f5ea31b" }
 tauri-plugin-global-shortcut = "2.3.1"
 # Only for its error type: the plugin flattens errors to strings, and telling "another app
 # holds this shortcut" apart from other failures means rebuilding that exact message.

@@ -275,7 +275,7 @@ export function sanitizeHtml(html: string): string {
             // Table attributes
             'align', 'valign', 'colspan', 'rowspan',
             // Misc
-            'id', 'name', 'open',
+            'open',
         ],
         // Allow data: URIs for base64 images but not javascript:
         ALLOW_DATA_ATTR: false,
