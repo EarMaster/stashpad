@@ -678,12 +678,17 @@ fn transfer_temp_root() -> PathBuf {
 }
 
 /// Reject an archive entry whose name would escape the directory it is extracted into.
+///
+/// Only plain names are allowed. Rejecting `..` and a leading `/` was not enough on
+/// Windows: an entry named `C:version.dll` has a drive prefix and no root, and
+/// `base.join` *replaces* the base with it - a path relative to the process's working
+/// directory on that drive, written during the preview, before anything was confirmed.
 fn safe_entry_path(base: &Path, name: &str) -> Option<PathBuf> {
     let candidate = Path::new(name);
-    if candidate.components().any(|c| {
+    if !candidate.components().all(|c| {
         matches!(
             c,
-            std::path::Component::ParentDir | std::path::Component::RootDir
+            std::path::Component::Normal(_) | std::path::Component::CurDir
         )
     }) {
         return None;
@@ -1469,5 +1474,18 @@ old
         let base = Path::new("/tmp/import");
         assert!(safe_entry_path(base, "attachments/ok.png").is_some());
         assert!(safe_entry_path(base, "../../etc/passwd").is_none());
+        assert!(safe_entry_path(base, "/etc/passwd").is_none());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_drive_prefixed_archive_entry_is_refused() {
+        // `C:version.dll` has a prefix and no root, so it slipped past a check for `..`
+        // and `/` while `join` threw the base away.
+        let base = Path::new("C:\\import");
+        assert!(safe_entry_path(base, "C:version.dll").is_none());
+        assert!(safe_entry_path(base, "C:\\Windows\\x.dll").is_none());
+        assert!(safe_entry_path(base, "\\\\server\\share\\x").is_none());
+        assert!(safe_entry_path(base, "attachments\\ok.png").is_some());
     }
 }

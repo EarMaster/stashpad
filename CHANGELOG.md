@@ -22,6 +22,10 @@ popover, not for the person who wrote the commit.
   received through sync was stored and later read by the upload step, so a compromised sync
   server could have named any file on your computer and had it uploaded. Synced attachments no
   longer carry a location, and uploads refuse any file outside the attachment cache
+- **A crafted import file can no longer write outside its folder on Windows.** An entry named
+  with a drive letter, such as `C:file.dll`, slipped past the check while the file was being
+  previewed, before you had confirmed anything. Import files now only accept plain names inside
+  the archive
 
 ## [1.10.2] - 2026-10-05
 
