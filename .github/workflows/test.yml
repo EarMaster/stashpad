@@ -33,6 +33,11 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.head.sha || github.sha }}
   cancel-in-progress: true
 
+# Tests read the code and nothing else; the token they get says so, whatever the repository
+# default is.
+permissions:
+  contents: read
+
 jobs:
   # Green between releases, since package.json and the newest CHANGELOG.md heading agree.
   # It goes red in the window between a version bump and a written changelog - which is
