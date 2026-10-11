@@ -43,13 +43,13 @@ jobs:
       tag: ${{ steps.decide.outputs.tag }}
       prerelease: ${{ steps.decide.outputs.prerelease }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Full history and tags: the compare link in the release body is built from the
           # previous tag, and a shallow clone has neither.
           fetch-depth: 0
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
 
@@ -149,7 +149,7 @@ jobs:
           echo "--- release notes ---"
           cat release-notes.md
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-notes
           path: release-notes.md
@@ -177,7 +177,7 @@ jobs:
     outputs:
       release_id: ${{ steps.create.outputs.release_id }}
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-notes
 
@@ -270,7 +270,7 @@ jobs:
     # for a cold dependency cache.
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
@@ -293,14 +293,15 @@ jobs:
           sudo rm -rf /opt/ghc /usr/local/share/boost >/dev/null 2>&1 &
 
       - name: setup node
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: 'npm'
 
       - name: install Rust stable
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable branch
         with:
+          toolchain: stable
           # Those targets are only used on macos runners so it's skip on linux and windows
           targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
@@ -309,7 +310,7 @@ jobs:
       # roughly 600 of windows-latest's 694. test.yml has cached since it was written; the
       # build matrix simply never got one.
       - name: Cache Rust dependencies
-        uses: swatinem/rust-cache@v2
+        uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src-tauri -> target
 
@@ -443,7 +444,7 @@ jobs:
       # is what the in-app updater renders, and composing it once per leg is five more
       # chances for the release body and the update notes to come apart - which is how they
       # came apart before.
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-notes
 
@@ -458,7 +459,7 @@ jobs:
             printf '%s\n' "$delim"
           } >> "$GITHUB_ENV"
 
-      - uses: tauri-apps/tauri-action@v1
+      - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # action-v1.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -504,6 +505,22 @@ jobs:
           prerelease: ${{ needs.prepare.outputs.prerelease }}
 
           args: ${{ matrix.args }}
+
+      # The signing keys went into $GITHUB_ENV above, conditionally, because an exported
+      # empty value makes the bundler try to sign with nothing and fail - so they cannot
+      # simply be scoped to the tauri-action step with `env:`. That leaves them visible to
+      # every later step, and post-steps such as rust-cache's run with the job's environment
+      # at the very end. Blank them as soon as the build is done, whatever its outcome, so
+      # nothing after this point can read the updater key or the Apple credentials.
+      - name: Forget the signing secrets
+        if: always()
+        shell: bash
+        run: |
+          for name in TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD \
+                      APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY \
+                      APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            echo "$name=" >> "$GITHUB_ENV"
+          done
 
   publish:
     name: Publish release
