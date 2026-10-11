@@ -49,6 +49,10 @@ popover, not for the person who wrote the commit.
   tells Stashpad about changes from your other devices carried your session in its address,
   where servers along the way can log it. It now travels in a header instead. This version
   needs the matching update to Stashpad Cloud, which ships with it
+- **Only the browser page you opened from Stashpad can link it to an account.** While the link
+  dialog was open, any web page could open a Stashpad link of its own and connect the app to
+  a different account, so your stashes would sync there. The app now ignores links it did
+  not ask for; typing the code by hand works as before
 
 ## [1.10.2] - 2026-10-05
 

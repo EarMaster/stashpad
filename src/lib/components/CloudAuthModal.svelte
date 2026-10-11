@@ -81,14 +81,24 @@
      * Falls back to the API endpoint's /account/home route if the endpoint does
      * not follow the expected pattern.
      */
+    /**
+     * A fresh random value for each time this dialog opens. The browser carries it to the
+     * account page and back in the `stashpad://` link, and a link without it is ignored.
+     * Any page the user happened to visit while the dialog was open could otherwise fire
+     * its own `stashpad://auth/callback?token=…` and link this app to someone else's
+     * account, sending its stashes there.
+     */
+    let linkNonce = $state("");
+
     function getAccountUrl(): string {
         const endpoint = settings.cloudConfig?.endpoint;
         if (!endpoint) return "";
 
         const origin = websiteOriginFromEndpoint(endpoint);
+        const query = `action=link-desktop&nonce=${encodeURIComponent(linkNonce)}`;
         return origin
-            ? `${origin}/account?action=link-desktop`
-            : `${endpoint}/account/home?action=link-desktop`;
+            ? `${origin}/account?${query}`
+            : `${endpoint}/account/home?${query}`;
     }
 
     /**
@@ -177,6 +187,11 @@
                         try {
                             const parsedUrl = new URL(url);
                             const token = parsedUrl.searchParams.get("token");
+                            // Only the link that carries this dialog's nonce; see `linkNonce`.
+                            if (!linkNonce || parsedUrl.searchParams.get("nonce") !== linkNonce) {
+                                log.warn("[CloudAuthModal] Ignoring a sign-in link this dialog did not ask for");
+                                continue;
+                            }
                             if (token) {
                                 linkCode = token;
                                 exchangeLinkCode();
@@ -214,6 +229,7 @@
             linkCode = "";
             linkCodeError = null;
             linkCodeLoading = false;
+            linkNonce = crypto.randomUUID();
             openBrowser();
         }
     });
