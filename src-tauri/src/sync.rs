@@ -52,6 +52,30 @@ const ERROR_SNIPPET_CHARS: usize = 100;
 /// invoke(...)` never settled. `cloud-sync.ts` therefore never ran its
 /// `finally { isSyncing = false }`, and its own guard refused every later sync for
 /// the rest of the session: sync died silently and stayed dead until a restart.
+/// A refusal the interface handles on its own rather than printing.
+///
+/// The cloud answers `/sync/*` and `/attachments/*` with a coded 403 when the account has
+/// no cloud storage (`subscription_required`) or is out of it (`storage_full`). Passed on
+/// as a code, the frontend can switch to its upgrade state instead of showing a sync error
+/// it would then retry on every cycle.
+fn coded_refusal(status: reqwest::StatusCode, body: &str) -> Option<UiError> {
+    if status != reqwest::StatusCode::FORBIDDEN {
+        return None;
+    }
+    let json: serde_json::Value = serde_json::from_str(body).ok()?;
+    match json["code"].as_str()? {
+        "subscription_required" => Some(UiError::new(
+            "cloud.subscription_required",
+            "Cloud sync needs a subscription.",
+        )),
+        "storage_full" => Some(UiError::new(
+            "cloud.storage_full",
+            "Your cloud storage is full.",
+        )),
+        _ => None,
+    }
+}
+
 fn error_snippet(body: &str) -> String {
     let snippet: String = body.chars().take(ERROR_SNIPPET_CHARS).collect();
     if body.chars().nth(ERROR_SNIPPET_CHARS).is_some() {
@@ -336,6 +360,9 @@ pub async fn sync_stashes_api(
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
+        if let Some(refusal) = coded_refusal(status, &body) {
+            return Err(refusal);
+        }
         let snippet = error_snippet(&body);
         return Err(format!("Stash sync failed ({}): {}", status, snippet).into());
     }
@@ -655,6 +682,9 @@ pub async fn upload_attachment_to_cloud(
         .map_err(|e| format!("Failed to read upload URL response: {}", e))?;
 
     if !status.is_success() {
+        if let Some(refusal) = coded_refusal(status, &resp_text) {
+            return Err(refusal);
+        }
         let msg = format!(
             "Cloud rejected upload request for {}: {} - {}",
             attachment.id, status, resp_text
@@ -1016,6 +1046,9 @@ pub async fn sync_contexts_api(
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
+        if let Some(refusal) = coded_refusal(status, &body) {
+            return Err(refusal);
+        }
         let snippet = error_snippet(&body);
         return Err(format!("Context sync failed ({}): {}", status, snippet).into());
     }
@@ -1328,6 +1361,23 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_coded_storage_refusal_reaches_the_interface_as_a_code() {
+        let refused = coded_refusal(
+            reqwest::StatusCode::FORBIDDEN,
+            r#"{"error":"Cloud sync needs a subscription.","code":"subscription_required"}"#,
+        )
+        .expect("a coded refusal");
+        assert_eq!(refused.code, "cloud.subscription_required");
+        assert!(
+            coded_refusal(reqwest::StatusCode::FORBIDDEN, r#"{"error":"suspended"}"#).is_none()
+        );
+        assert!(coded_refusal(
+            reqwest::StatusCode::BAD_REQUEST,
+            r#"{"code":"subscription_required"}"#
+        )
+        .is_none());
+    }
     #[test]
     fn a_short_error_body_is_quoted_whole_and_unmarked() {
         let snippet = error_snippet("Bad Gateway");

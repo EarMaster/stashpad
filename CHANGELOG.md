@@ -11,6 +11,12 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+### Changed
+- **When a subscription ends, Stashpad says so instead of showing a sync error.** If the cloud
+  no longer counts your account as entitled to sync - a subscription that ran out while the
+  app stayed signed in - sync now stops and Settings offers the upgrade, rather than failing
+  with the same error every few minutes. A full cloud storage is reported in plain words too
+
 ### Security
 - **A synced stash can no longer place files outside Stashpad's own folder.** Stash and
   context ids from the cloud were used as folder names when an attachment was downloaded, so a

@@ -602,6 +602,10 @@
       "taken": "Eine andere App verwendet dieses Tastenkürzel bereits. Wähle ein anderes.",
       "failed": "Dieses Tastenkürzel konnte nicht eingerichtet werden: {reason}",
       "invalid": "Dieses Tastenkürzel kann nicht verwendet werden. Wähle ein anderes."
+    },
+    "cloud": {
+      "subscription_required": "Für die Cloud-Synchronisierung brauchst du ein Abo. Du kannst es in den Einstellungen abschließen.",
+      "storage_full": "Dein Cloud-Speicher ist voll. Entferne Anhänge oder erweitere dein Abo, um mehr hinzuzufügen."
     }
   }
 }

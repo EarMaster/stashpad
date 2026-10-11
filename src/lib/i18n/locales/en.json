@@ -602,6 +602,10 @@
       "taken": "Another app already uses this shortcut. Choose a different one.",
       "failed": "This shortcut couldn't be set up: {reason}",
       "invalid": "This shortcut can't be used. Choose a different one."
+    },
+    "cloud": {
+      "subscription_required": "Cloud Sync needs a subscription. You can upgrade under Settings.",
+      "storage_full": "Your cloud storage is full. Remove attachments or upgrade to add more."
     }
   }
 }
