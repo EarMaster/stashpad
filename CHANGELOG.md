@@ -26,6 +26,10 @@ popover, not for the person who wrote the commit.
   with a drive letter, such as `C:file.dll`, slipped past the check while the file was being
   previewed, before you had confirmed anything. Import files now only accept plain names inside
   the archive
+- **Hashtags in a stash can no longer be used to sneak in page elements.** The step that turns
+  `#tags` into badges ran after the content was cleaned, and a link title written a particular
+  way let text through as real page elements, such as a form or an overlay. Tags are now found
+  in the text itself, so the cleaned content stays clean, and tags render exactly as before
 
 ## [1.10.2] - 2026-10-05
 

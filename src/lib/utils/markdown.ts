@@ -283,55 +283,81 @@ export function sanitizeHtml(html: string): string {
     });
 }
 
+const TAG_PATTERN = /(^|[^a-zA-Z0-9_])(#[\w-]+)/g;
+
+/**
+ * The badge markup for one `#tag` or `#hex`. `fullTag` only ever matches `#[\w-]+`, so it
+ * cannot carry markup of its own; the rest is constant.
+ */
+function badgeHtml(fullTag: string): string {
+    if (isHexColor(fullTag)) {
+        return (
+            `<span class="ai-color">` +
+            `<span class="ai-color-swatch" style="background-color: ${fullTag};"></span>` +
+            `<span class="font-mono lowercase opacity-90">${fullTag}</span>` +
+            `</span>`
+        );
+    }
+
+    const label = fullTag.slice(1);
+    const h = getTagHue(fullTag);
+    const style = [
+        `--tag-bg: hsla(${h}, 75%, 45%, 0.1)`,
+        `--tag-bg-dark: hsla(${h}, 80%, 70%, 0.1)`,
+        `--tag-border: hsla(${h}, 75%, 45%, 0.2)`,
+        `--tag-border-dark: hsla(${h}, 80%, 70%, 0.2)`,
+        `--tag-text: hsl(${h}, 75%, 45%)`,
+        `--tag-text-dark: hsl(${h}, 80%, 70%)`,
+    ].join('; ');
+
+    return `<span class="ai-tag" style="${style}">${HASH_ICON_SVG}${label}</span>`;
+}
+
 /**
  * Replace #tag and #hex occurrences in sanitized HTML with badges.
- * Ensures we don't match inside HTML tags (like href anchors).
+ *
+ * This runs after DOMPurify on purpose: the badge carries an SVG icon and inline CSS
+ * variables that the sanitizer would strip. It used to find text by splitting the
+ * serialized HTML on `<[^>]*>`, which assumes `>` never appears inside an attribute - and
+ * a link title can hold one. The split then landed mid-attribute, the inserted badge
+ * closed it, and whatever followed in the title became live markup. So it now parses the
+ * sanitized HTML and touches text nodes only, which by construction never sit inside a tag.
+ * Text inside `<pre>` and `<code>` is left alone, as before.
  */
 function injectBadges(html: string): string {
-    // 1. Split by blocks that we MUST NOT touch (pre, code)
-    const blocks = html.split(/(<pre[\s\S]*?<\/pre>|<code[\s\S]*?<\/code>)/gi);
+    const template = document.createElement('template');
+    template.innerHTML = html;
 
-    return blocks.map((block, i) => {
-        if (i % 2 === 1) return block; // It's pre/code, return as is
+    const walker = document.createTreeWalker(template.content, NodeFilter.SHOW_TEXT);
+    const textNodes: Text[] = [];
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        if (!(node as Text).parentElement?.closest('pre, code')) {
+            textNodes.push(node as Text);
+        }
+    }
 
-        // 2. Split the remaining HTML by any HTML tag to avoid matching in attributes
-        const segments = block.split(/(<[^>]*>)/g);
-        return segments.map((segment, j) => {
-            if (j % 2 === 1) return segment; // It's an HTML tag like <a href="...">
+    for (const node of textNodes) {
+        const text = node.data;
+        TAG_PATTERN.lastIndex = 0;
+        if (!TAG_PATTERN.test(text)) continue;
+        TAG_PATTERN.lastIndex = 0;
 
-            // 3. Process text nodes
-            return segment.replace(/(^|[^a-zA-Z0-9_])(#[\w-]+)/g, (match, prefix, fullTag) => {
-                if (isHexColor(fullTag)) {
-                    // Return ColorBadge HTML
-                    return (
-                        prefix +
-                        `<span class="ai-color">` +
-                        `<span class="ai-color-swatch" style="background-color: ${fullTag};"></span>` +
-                        `<span class="font-mono lowercase opacity-90">${fullTag}</span>` +
-                        `</span>`
-                    );
-                }
+        const fragment = document.createDocumentFragment();
+        let last = 0;
+        for (const match of text.matchAll(TAG_PATTERN)) {
+            const [, prefix, fullTag] = match;
+            const tagStart = (match.index ?? 0) + prefix.length;
+            fragment.append(text.slice(last, tagStart));
+            const badge = document.createElement('template');
+            badge.innerHTML = badgeHtml(fullTag);
+            fragment.append(badge.content);
+            last = tagStart + fullTag.length;
+        }
+        fragment.append(text.slice(last));
+        node.replaceWith(fragment);
+    }
 
-                const label = fullTag.slice(1);
-                const h = getTagHue(fullTag);
-                const style = [
-                    `--tag-bg: hsla(${h}, 75%, 45%, 0.1)`,
-                    `--tag-bg-dark: hsla(${h}, 80%, 70%, 0.1)`,
-                    `--tag-border: hsla(${h}, 75%, 45%, 0.2)`,
-                    `--tag-border-dark: hsla(${h}, 80%, 70%, 0.2)`,
-                    `--tag-text: hsl(${h}, 75%, 45%)`,
-                    `--tag-text-dark: hsl(${h}, 80%, 70%)`,
-                ].join('; ');
-
-                return (
-                    prefix +
-                    `<span class="ai-tag" style="${style}">` +
-                    `${HASH_ICON_SVG}${label}` +
-                    `</span>`
-                );
-            });
-        }).join('');
-    }).join('');
+    return template.innerHTML;
 }
 
 /**

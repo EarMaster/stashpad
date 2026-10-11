@@ -146,5 +146,22 @@ describe('markdown utilities', () => {
             const result = safeParse('file#utils and foo#bar');
             expect(result).not.toContain('class="ai-tag"');
         });
+
+        it('should never turn a link title into markup', () => {
+            // Badges are added after sanitizing. Finding text by splitting the HTML on
+            // `<[^>]*>` broke on a `>` inside an attribute: the badge closed the title and
+            // the rest of it came out as live elements.
+            const result = safeParse('[x](https://a "q> #foo <img src=x onerror=alert(1)> <b>INJ</b>")');
+            const doc = new DOMParser().parseFromString(result, 'text/html');
+            expect(doc.querySelector('img')).toBeNull();
+            expect(doc.querySelector('b')).toBeNull();
+            expect(doc.querySelector('a')?.getAttribute('title')).toContain('#foo');
+        });
+
+        it('should still badge a tag inside link text', () => {
+            const result = safeParse('[see #docs](https://example.com)');
+            const doc = new DOMParser().parseFromString(result, 'text/html');
+            expect(doc.querySelector('a .ai-tag')?.textContent).toBe('docs');
+        });
     });
 });
