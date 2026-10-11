@@ -11,6 +11,8 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-10-11
+
 ### Added
 - **Search your stashes with Cmd+F (Ctrl+F on Windows and Linux).** It searches the current
   context; press it again to search all of them. Unlike finding text on the page, it also
