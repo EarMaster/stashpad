@@ -443,6 +443,21 @@
     "sortNewest": "Date: Newest first",
     "stashAdded": "Stash added",
     "filterStashes": "Filter stashes",
+    "search": {
+      "open": "Search ({shortcut})",
+      "label": "Search stashes",
+      "placeholder": "Search this context…",
+      "placeholderAll": "Search all contexts…",
+      "scope": "Search in",
+      "scopeContext": "This context",
+      "scopeAll": "All",
+      "close": "Close search",
+      "previous": "Previous match (Shift+Enter)",
+      "next": "Next match (Enter)",
+      "position": "Match {current} of {total}",
+      "noResults": "No stash matches your search.",
+      "noActive": "No active stash matches your search."
+    },
     "attachmentFilter": {
       "any": "Any attachment",
       "none": "No attachments",

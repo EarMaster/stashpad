@@ -29,6 +29,8 @@
     checkAttachmentSizeLimits,
   } from "$lib/utils/format";
   import { fade, fly } from "svelte/transition";
+  import { tick } from "svelte";
+  import { highlight } from "$lib/utils/stash-search";
   import { dragHandle } from "svelte-dnd-action";
   import {
     Circle,
@@ -104,6 +106,7 @@
     contextName,
     onReferenceClick,
     refCandidates = [],
+    searchTerms = [],
   } = $props<{
     item: StashItem;
     mode: "Drag" | "Copy";
@@ -135,6 +138,8 @@
     onReferenceClick?: (ref: ResolvedRef) => void;
     /** Stashes the editor's `>>` picker offers */
     refCandidates?: StashItem[];
+    /** Words a search matched in this stash: shown marked, and the card unclamped */
+    searchTerms?: string[];
   }>();
 
   const adapter = new DesktopStorageAdapter();
@@ -192,7 +197,18 @@
   let contentHeight = $state(0);
   let expanded = $state(false);
   let isLong = $derived(contentHeight > COLLAPSED_MAX_PX + COLLAPSE_SLACK_PX);
-  let isClamped = $derived(isLong && !expanded);
+  // A search match may sit below the fold, so a matched card shows all of itself.
+  let isClamped = $derived(isLong && !expanded && searchTerms.length === 0);
+
+  // Re-marked whenever the rendered content or the search changes; the marks go in
+  // after the content is rendered, as text, never through the HTML.
+  $effect(() => {
+    renderedContent;
+    const terms = searchTerms;
+    const el = contentRef;
+    if (!el) return;
+    tick().then(() => highlight(el, terms));
+  });
 
   $effect(() => {
     if (!contentRef) return;

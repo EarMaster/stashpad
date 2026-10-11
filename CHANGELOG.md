@@ -11,6 +11,13 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+### Added
+- **Search your stashes with Cmd+F (Ctrl+F on Windows and Linux).** It searches the current
+  context; press it again to search all of them. Unlike finding text on the page, it also
+  looks through completed stashes, the hidden part of long stashes, AI-enhanced versions and
+  attachment names, and it forgives typos and unfinished words. Matching stashes open up with
+  the words marked, and a result from another context takes you there
+
 ### Changed
 - **When a subscription ends, Stashpad says so instead of showing a sync error.** If the cloud
   no longer counts your account as entitled to sync - a subscription that ran out while the

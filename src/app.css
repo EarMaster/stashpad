@@ -372,6 +372,26 @@
   text-decoration: line-through;
 }
 
+/* A word a search matched, in a stash card or a search result. */
+mark.search-hit {
+  background-color: color-mix(in srgb, var(--primary), transparent 60%);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+/* The match the search's previous/next buttons are on. */
+mark.search-hit.search-hit-current {
+  background-color: var(--primary);
+  color: var(--primary-foreground);
+}
+
+/* A match with no word to mark - in an attachment name, or a search result. */
+.search-hit-current:not(mark) {
+  border-radius: 0.5rem;
+  box-shadow: 0 0 0 2px var(--primary);
+}
+
 /* Brief highlight on a stash revealed by clicking a reference to it. */
 .stash-ref-target {
   border-radius: 0.5rem;

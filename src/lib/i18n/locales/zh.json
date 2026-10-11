@@ -443,6 +443,21 @@
     "sortNewest": "日期：最新的在前",
     "stashAdded": "已添加暂存项",
     "filterStashes": "筛选暂存项",
+    "search": {
+      "open": "搜索（{shortcut}）",
+      "label": "搜索暂存项",
+      "placeholder": "在当前上下文中搜索…",
+      "placeholderAll": "在所有上下文中搜索…",
+      "scope": "搜索范围",
+      "scopeContext": "当前上下文",
+      "scopeAll": "全部",
+      "close": "关闭搜索",
+      "previous": "上一个匹配项（Shift+Enter）",
+      "next": "下一个匹配项（Enter）",
+      "position": "第 {current} 个，共 {total} 个匹配项",
+      "noResults": "没有与你的搜索匹配的暂存项。",
+      "noActive": "没有与你的搜索匹配的活动暂存项。"
+    },
     "attachmentFilter": {
       "any": "有附件",
       "none": "无附件",

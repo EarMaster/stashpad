@@ -435,6 +435,21 @@
     "noActiveStashes": "Keine aktiven Stashes",
     "noActiveStashesFound": "Keine aktiven Stashes mit diesen Filtern gefunden.",
     "filterStashes": "Stashes filtern",
+    "search": {
+      "open": "Suchen ({shortcut})",
+      "label": "Stashes durchsuchen",
+      "placeholder": "Diesen Kontext durchsuchen…",
+      "placeholderAll": "Alle Kontexte durchsuchen…",
+      "scope": "Suchen in",
+      "scopeContext": "Dieser Kontext",
+      "scopeAll": "Alle",
+      "close": "Suche schließen",
+      "previous": "Vorheriger Treffer (Umschalt+Enter)",
+      "next": "Nächster Treffer (Enter)",
+      "position": "Treffer {current} von {total}",
+      "noResults": "Kein Stash passt zu deiner Suche.",
+      "noActive": "Kein aktiver Stash passt zu deiner Suche."
+    },
     "attachmentFilter": {
       "any": "Beliebiger Anhang",
       "none": "Keine Anhänge",
