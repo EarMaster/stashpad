@@ -66,7 +66,7 @@ describe('refLabel / makeRefLink', () => {
 
     it('truncates long lines', () => {
         const label = refLabel('x'.repeat(200));
-        expect(label.length).toBeLessThanOrEqual(60);
+        expect(label.length).toBeLessThanOrEqual(42);
         expect(label.endsWith('…')).toBe(true);
     });
 

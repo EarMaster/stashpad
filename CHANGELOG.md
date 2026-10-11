@@ -16,6 +16,11 @@ popover, not for the person who wrote the commit.
   no longer counts your account as entitled to sync - a subscription that ran out while the
   app stayed signed in - sync now stops and Settings offers the upgrade, rather than failing
   with the same error every few minutes. A full cloud storage is reported in plain words too
+- **A link to a finished stash now looks finished, not deleted.** Links to completed stashes
+  were struck through, which read as if the stash were gone. They now show the checkmark in
+  green, like the complete button, and so does their hover preview. Strikethrough is kept for
+  links to stashes that were deleted. Link labels are also shorter, so a line of them stays
+  readable
 
 ### Security
 - **A synced stash can no longer place files outside Stashpad's own folder.** Stash and

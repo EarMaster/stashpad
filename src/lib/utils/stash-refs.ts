@@ -32,7 +32,7 @@ export const STASH_REF_PATTERN =
     /\[([^\]\n]*)\]\(stash:([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\)/g;
 
 /** Longest label written into a new link. */
-const LABEL_MAX = 60;
+const LABEL_MAX = 42;
 
 /**
  * Where a reference points, from the point of view of the stash holding it.

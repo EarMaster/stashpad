@@ -1364,7 +1364,7 @@
           }}
         >
           <span class="shrink-0 opacity-60">{candidate.completed ? "✓" : "→"}</span>
-          <span class="truncate {candidate.completed ? 'line-through opacity-70' : ''}"
+          <span class="truncate {candidate.completed ? 'text-green-500' : ''}"
             >{refLabel(candidate.content)}</span
           >
         </button>

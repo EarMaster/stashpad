@@ -338,8 +338,17 @@
   white-space: nowrap;
 }
 
-.stash-ref-completed .stash-ref-label {
-  text-decoration: line-through;
+/* Done, not gone: the checkmark and the green of the complete button, readable as ever.
+   Strikethrough is for a stash that no longer exists. */
+.stash-ref-completed {
+  border-color: color-mix(in srgb, var(--color-green-500), transparent 60%);
+  background-color: color-mix(in srgb, var(--color-green-500), transparent 90%);
+  color: var(--color-green-500);
+}
+
+.stash-ref-completed[role="link"]:hover,
+.stash-ref-completed[role="link"]:focus-visible {
+  background-color: color-mix(in srgb, var(--color-green-500), transparent 80%);
 }
 
 .stash-ref-completed::before {
@@ -357,6 +366,10 @@
   color: var(--muted-foreground);
   font-style: italic;
   cursor: default;
+}
+
+.stash-ref-gone .stash-ref-label {
+  text-decoration: line-through;
 }
 
 /* Brief highlight on a stash revealed by clicking a reference to it. */
