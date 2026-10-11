@@ -26,6 +26,7 @@ use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::Manager;
 
 mod account_export;
+mod ai;
 mod browser_drop;
 mod contexts;
 pub mod db;
@@ -509,6 +510,8 @@ pub fn run() {
             stashes::trigger_auto_cleanup,
             stashes::save_asset,
             stashes::save_asset_from_path,
+            ai::ai_enhance,
+            ai::ai_test_connection,
             stashes::delete_asset,
             stashes::read_file_for_preview,
             utils::show_in_folder,

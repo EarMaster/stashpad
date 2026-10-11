@@ -158,7 +158,8 @@
         "label": "API Key",
         "description": "Your API key (optional)",
         "show": "Show API key",
-        "hide": "Hide API key"
+        "hide": "Hide API key",
+        "savedPlaceholder": "Saved - type to replace"
       },
       "model": {
         "label": "Model Name",

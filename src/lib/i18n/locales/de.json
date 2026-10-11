@@ -158,7 +158,8 @@
         "label": "API-Schlüssel",
         "description": "Dein API-Schlüssel (optional)",
         "show": "API-Schlüssel anzeigen",
-        "hide": "API-Schlüssel verbergen"
+        "hide": "API-Schlüssel verbergen",
+        "savedPlaceholder": "Gespeichert - zum Ersetzen eintippen"
       },
       "model": {
         "label": "Modellname",

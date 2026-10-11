@@ -330,6 +330,14 @@ export class DesktopStorageAdapter implements IStorageService {
         return invoke<string>('apple_intelligence_enhance', { content, systemPrompt });
     }
 
+    async aiEnhance(systemPrompt: string, userContent: string): Promise<string> {
+        return invoke<string>('ai_enhance', { systemPrompt, userContent });
+    }
+
+    async aiTestConnection(test: { endpoint: string; model: string; apiKey: string }): Promise<void> {
+        await invoke('ai_test_connection', { test });
+    }
+
     async getSystemPrompt(): Promise<string> {
         return await invoke('get_system_prompt');
     }

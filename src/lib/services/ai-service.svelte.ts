@@ -173,53 +173,16 @@ Use this context to make the prompt more specific and relevant to the project.
             return await adapter.appleIntelligenceEnhance(content, systemPrompt);
         }
 
-        // API key is optional
         if (!config.endpoint || !config.model) {
             throw new Error('AI configuration is incomplete');
         }
 
-        // Build the API URL
-        const url = `${config.endpoint.replace(/\/$/, '')}/chat/completions`;
-
-        // Prepare the request body
-        const body = {
-            model: config.model,
-            messages: [
-                { role: 'system', content: systemPrompt },
-                { role: 'user', content: `<user_notes>\n${content}\n</user_notes>` },
-            ],
-            temperature: 0.3, // Lower temperature for more consistent, focused output
-            max_tokens: 1024, // Reduced since we want concise output
-            stream: false,
-        };
-
-        // Build headers - only add Authorization if API key is provided
-        const headers: Record<string, string> = {
-            'Content-Type': 'application/json',
-        };
-        if (config.apiKey) {
-            headers['Authorization'] = `Bearer ${config.apiKey}`;
-        }
-
-        // Make the API request
-        const response = await fetch(url, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify(body),
-        });
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(`API error: ${response.status} - ${errorText}`);
-        }
-
-        const data = await response.json();
-
-        // Extract the enhanced content from the response
-        let enhancedContent = data.choices?.[0]?.message?.content;
-        if (!enhancedContent) {
-            throw new Error('No content in API response');
-        }
+        // The backend makes the request with the saved endpoint, model and key - the key is
+        // never handed to this webview. See ai.rs.
+        let enhancedContent = await adapter.aiEnhance(
+            systemPrompt,
+            `<user_notes>\n${content}\n</user_notes>`,
+        );
 
         // Post-process to ensure no hallucinated tag headers if original had none
         const originalTags = content.match(/#[\w-]+/g);
@@ -247,41 +210,17 @@ Use this context to make the prompt more specific and relevant to the project.
             return true;
         }
 
-        // API key is optional
         if (!config.endpoint || !config.model) {
             throw new Error('Configuration is incomplete');
         }
 
-        const url = `${config.endpoint.replace(/\/$/, '')}/chat/completions`;
-
-        const body = {
+        // What the form shows, which may not be saved yet. An empty key means the saved one,
+        // and the backend only pairs that with the saved endpoint.
+        await adapter.aiTestConnection({
+            endpoint: config.endpoint,
             model: config.model,
-            messages: [
-                { role: 'system', content: 'You are a connection tester.' },
-                { role: 'user', content: 'Say "OK" to confirm the connection works.' },
-            ],
-            max_tokens: 10,
-            stream: false,
-        };
-
-        // Build headers - only add Authorization if API key is provided
-        const headers: Record<string, string> = {
-            'Content-Type': 'application/json',
-        };
-        if (config.apiKey) {
-            headers['Authorization'] = `Bearer ${config.apiKey}`;
-        }
-
-        const response = await fetch(url, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify(body),
+            apiKey: config.apiKey ?? '',
         });
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(`${response.status}: ${errorText}`);
-        }
 
         return true;
     }

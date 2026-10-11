@@ -82,6 +82,9 @@ export interface AIConfig {
     model: string;
     /** Which preset was used, if any */
     presetId?: string;
+    /** Whether a key is saved. The backend never sends the key itself: it makes the
+     *  provider requests, so `apiKey` only ever holds what was just typed. */
+    hasApiKey?: boolean;
 }
 
 /** Configuration for Stashpad Cloud sync */
@@ -280,6 +283,11 @@ export interface IStorageService {
     // Apple Intelligence
     checkAppleIntelligenceAvailable(): Promise<boolean>;
     appleIntelligenceEnhance(content: string, systemPrompt: string): Promise<string>;
+    /** Ask the saved AI provider; the backend holds the endpoint, model and key. */
+    aiEnhance(systemPrompt: string, userContent: string): Promise<string>;
+    /** Test the provider the settings form shows. An empty key means the saved one, which
+     *  the backend only uses for the saved endpoint. */
+    aiTestConnection(test: { endpoint: string; model: string; apiKey: string }): Promise<void>;
     // AI System Prompt management
     getSystemPrompt(): Promise<string>;
     getSystemPromptPath(): Promise<string>;

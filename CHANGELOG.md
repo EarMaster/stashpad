@@ -53,6 +53,11 @@ popover, not for the person who wrote the commit.
   dialog was open, any web page could open a Stashpad link of its own and connect the app to
   a different account, so your stashes would sync there. The app now ignores links it did
   not ask for; typing the code by hand works as before
+- **Your AI provider key now stays inside Stashpad's backend.** The app window used to hold
+  the key and call the provider itself, so it had to be allowed to connect anywhere. The
+  backend now makes those requests, the window can no longer reach the network at all, and
+  Settings only shows that a key is saved. A saved key is kept for the endpoint it was
+  entered for: change the endpoint, and enter the key again
 
 ## [1.10.2] - 2026-10-05
 

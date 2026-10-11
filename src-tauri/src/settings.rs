@@ -377,6 +377,12 @@ pub async fn get_settings(state: State<'_, Arc<SettingsState>>) -> Result<Settin
     if let Some(ref mut cloud_config) = settings.cloud_config {
         cloud_config.access_token = None;
     }
+    // The AI key stays in the backend too: the provider calls are made from `ai.rs`, so the
+    // webview only needs to know whether one is saved.
+    if let Some(ref mut ai_config) = settings.ai_config {
+        ai_config.has_api_key = !ai_config.api_key.is_empty();
+        ai_config.api_key = String::new();
+    }
     Ok(settings)
 }
 
@@ -392,10 +398,19 @@ pub async fn save_settings(
     let (old_theme, old_autostart, old_toggle) = {
         let current = state.lock_settings();
 
-        // Don't save empty api keys if we already have one
+        // An empty key means "keep the saved one" - the webview never has it to send back -
+        // but only for the endpoint it was saved with. Otherwise a new endpoint from the
+        // webview would inherit the key, and the next request would hand it to that host.
         if let Some(ref mut new_ai_config) = settings.ai_config {
+            new_ai_config.has_api_key = false;
             if let Some(ref current_ai_config) = current.ai_config {
-                if new_ai_config.api_key.is_empty() && !current_ai_config.api_key.is_empty() {
+                if new_ai_config.api_key.is_empty()
+                    && !current_ai_config.api_key.is_empty()
+                    && crate::ai::same_endpoint(
+                        &new_ai_config.endpoint,
+                        &current_ai_config.endpoint,
+                    )
+                {
                     new_ai_config.api_key = current_ai_config.api_key.clone();
                 }
             }

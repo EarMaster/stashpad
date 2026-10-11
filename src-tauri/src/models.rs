@@ -258,6 +258,10 @@ pub struct AiConfig {
     pub model: String,
     #[serde(default)]
     pub preset_id: Option<String>,
+    /// Whether a key is saved. Set only on the way out to the webview, which is never given
+    /// the key itself; ignored on the way in.
+    #[serde(default)]
+    pub has_api_key: bool,
 }
 
 pub fn default_clear_completed_strategy() -> String {

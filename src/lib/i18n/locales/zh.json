@@ -158,7 +158,8 @@
         "label": "API 密钥",
         "description": "你的 API 密钥（可选）",
         "show": "显示 API 密钥",
-        "hide": "隐藏 API 密钥"
+        "hide": "隐藏 API 密钥",
+        "savedPlaceholder": "已保存 - 输入以替换"
       },
       "model": {
         "label": "模型名称",
