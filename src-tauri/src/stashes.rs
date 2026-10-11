@@ -843,8 +843,14 @@ pub async fn delete_asset(
     let file_path = std::path::Path::new(&path);
 
     // Security check: ensure the file is within our cache directory
+    // `starts_with` compares components lexically, so `cache/../../x` passed it while
+    // naming a file anywhere. A path with a `..` in it is refused outright, which also
+    // covers a file that no longer exists and so cannot be canonicalized.
     let cache_dir = get_app_dir().join("cache");
-    if !file_path.starts_with(&cache_dir) {
+    let walks_up = file_path
+        .components()
+        .any(|c| matches!(c, std::path::Component::ParentDir));
+    if walks_up || !file_path.starts_with(&cache_dir) {
         return Err("Cannot delete files outside cache directory".into());
     }
 

@@ -404,8 +404,13 @@ pub async fn save_settings(
         // Verify changes to cloud access token
         if let Some(ref mut new_cloud_config) = settings.cloud_config {
             if let Some(ref current_cloud_config) = current.cloud_config {
+                // The token is restored only for the server it was issued by. The webview
+                // never sees the token, but it can send a new endpoint, and carrying the
+                // token across would hand it to whatever host that names on the next sync.
                 if new_cloud_config.access_token.is_none()
                     && current_cloud_config.access_token.is_some()
+                    && new_cloud_config.endpoint.trim_end_matches('/')
+                        == current_cloud_config.endpoint.trim_end_matches('/')
                 {
                     new_cloud_config.access_token = current_cloud_config.access_token.clone();
                 }

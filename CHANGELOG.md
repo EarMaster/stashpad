@@ -35,6 +35,10 @@ popover, not for the person who wrote the commit.
   true after the conversion had finished - so the server could have slipped in content it never
   encrypted. Once your account is fully encrypted, Stashpad now leaves such records out of the
   sync instead of showing them
+- **Changing the cloud server address now signs you out of the old one.** Your sign-in used to
+  carry over to whatever address was entered, so it would have been sent to that server too.
+  The app window can also no longer reach Stashpad's own settings and database files, only
+  attachments
 
 ## [1.10.2] - 2026-10-05
 

@@ -996,6 +996,12 @@ pub async fn commit_import(
     stashes: Vec<StashItem>,
     token: String,
 ) -> Result<u32, UiError> {
+    // The token names a directory that is removed recursively at the end, so it has to be
+    // the UUID `read_import_archive` issued - `..\..` would have deleted the home folder.
+    // `discard_import` already checked this; this command did not.
+    if Uuid::parse_str(&token).is_err() {
+        return Err("Invalid import token".into());
+    }
     let temp_dir = transfer_temp_root().join(&token);
 
     // All the file copying happens on the blocking pool: an import can move hundreds of
