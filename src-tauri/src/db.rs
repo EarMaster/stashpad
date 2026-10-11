@@ -1288,7 +1288,13 @@ impl DbManager {
                     params![
                         att.id,
                         stash.id,
-                        att.file_path,
+                        // A path is only ever this device's own. One arriving through sync
+                        // could name any file the user can read, and the upload pass would
+                        // send it to the server, so a sync import never records one.
+                        match origin {
+                            WriteOrigin::SyncImport => "",
+                            WriteOrigin::LocalEdit => att.file_path.as_str(),
+                        },
                         att.file_name,
                         att.file_size,
                         att.mime_type,
@@ -2571,6 +2577,36 @@ mod tests {
             "an incoming order must not restamp the record"
         );
         assert_eq!(row.3, 0, "and must not queue the record for a push");
+    }
+
+    #[test]
+    fn a_synced_attachment_never_brings_a_local_path() {
+        // The upload pass reads `file_path` and sends the bytes to the server, so a path
+        // accepted from sync would let the server ask for any file on the machine.
+        let mut db = create_test_db();
+        let id = "00000000-0000-4000-8000-0000000000d1";
+        let mut stash = stash_with_updated_at(id, "x", Some(1_000));
+        stash.attachments.push(Attachment {
+            id: "00000000-0000-4000-8000-0000000000d2".to_string(),
+            stash_id: id.to_string(),
+            file_path: "/home/user/.ssh/id_ed25519".to_string(),
+            file_name: "id_ed25519".to_string(),
+            file_size: 1,
+            mime_type: None,
+            syntax: None,
+            created_at: crate::time::now_iso(),
+        });
+        db.import_stashes(&vec![stash]).unwrap();
+
+        let path: String = db
+            .conn
+            .query_row(
+                "SELECT file_path FROM attachments WHERE id = '00000000-0000-4000-8000-0000000000d2'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(path, "");
     }
 
     #[test]

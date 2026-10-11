@@ -517,6 +517,17 @@ pub async fn upload_attachment_to_cloud(
         return Ok(false);
     }
 
+    // Only a file in the attachment cache is ever uploaded. A recorded path elsewhere did
+    // not come from this device, and a server that wanted `~/.ssh/id_ed25519` could
+    // otherwise name it and receive the bytes at a URL of its choosing.
+    if !crate::utils::is_inside_cache(std::path::Path::new(&attachment.file_path)) {
+        log::warn!(
+            "[Attachment] {} points outside the attachment cache; not uploading it",
+            attachment.id
+        );
+        return Err("Attachment is not in the attachment cache".into());
+    }
+
     // The row and the file can disagree about how big the file is. Two attachments with
     // the same name used to be written to the same path, so the loser's row went on
     // recording the size of bytes that had since been overwritten - and the cloud confirms
@@ -1528,6 +1539,10 @@ async fn reencrypt_attachment(
 
     let plaintext = match source {
         PlaintextSource::Local(path) => {
+            // The same rule as an upload: these bytes leave the machine.
+            if !crate::utils::is_inside_cache(std::path::Path::new(&path)) {
+                return Err("Attachment is not in the attachment cache".into());
+            }
             tauri::async_runtime::spawn_blocking(move || fs::read(path))
                 .await
                 .map_err(|e| format!("Attachment read task failed: {}", e))?

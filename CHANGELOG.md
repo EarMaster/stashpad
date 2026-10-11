@@ -18,6 +18,10 @@ popover, not for the person who wrote the commit.
   account - including a folder whose contents run when you sign in. Ids that are not in the
   expected format are now refused when they arrive, and downloads are checked to stay inside
   the attachment cache
+- **Stashpad only ever uploads files from its own attachment folder.** A file location
+  received through sync was stored and later read by the upload step, so a compromised sync
+  server could have named any file on your computer and had it uploaded. Synced attachments no
+  longer carry a location, and uploads refuse any file outside the attachment cache
 
 ## [1.10.2] - 2026-10-05
 
