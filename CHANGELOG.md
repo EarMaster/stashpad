@@ -11,6 +11,13 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+## [1.11.2] - 2026-10-24
+
+### Fixed
+- **Stashpad opens on the context you last used, without showing the default one first.** At
+  startup the splash screen gave way before your last context had been restored, so the default
+  context flashed up for a moment and was then replaced by the right one
+
 ## [1.11.1] - 2026-10-24
 
 ### Fixed
@@ -18,9 +25,8 @@ popover, not for the person who wrote the commit.
   from Settings or the context manager rebuilt the list from nothing, so it showed "queue empty"
   until the stashes had been read again, which took seconds with a large queue. The list now
   comes back at once and refreshes quietly in the background. The same wait is gone at startup:
-  the splash screen stays up until your stashes are loaded and the app opens straight on the
-  context you last used, rather than showing the default one for a moment first. If that early
-  load fails, the list shows a "Loading stashes…" notice instead of claiming the queue is empty
+  the splash screen stays up until your stashes are loaded, and if that early load fails the
+  list shows a "Loading stashes…" notice instead of claiming the queue is empty
 
 ## [1.11.0] - 2026-10-11
 
