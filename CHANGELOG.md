@@ -11,6 +11,8 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+## [1.11.1] - 2026-10-24
+
 ### Fixed
 - **Your stashes no longer vanish for a few seconds when you come back from Settings.** Returning
   from Settings or the context manager rebuilt the list from nothing, so it showed "queue empty"
