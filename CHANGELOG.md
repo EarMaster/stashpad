@@ -18,8 +18,9 @@ popover, not for the person who wrote the commit.
   from Settings or the context manager rebuilt the list from nothing, so it showed "queue empty"
   until the stashes had been read again, which took seconds with a large queue. The list now
   comes back at once and refreshes quietly in the background. The same wait is gone at startup:
-  the splash screen stays up until your stashes are loaded, and if that early load fails the
-  list shows a "Loading stashes…" notice instead of claiming the queue is empty
+  the splash screen stays up until your stashes are loaded and the app opens straight on the
+  context you last used, rather than showing the default one for a moment first. If that early
+  load fails, the list shows a "Loading stashes…" notice instead of claiming the queue is empty
 
 ## [1.11.0] - 2026-10-11
 
