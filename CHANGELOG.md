@@ -11,6 +11,16 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+## [1.11.1] - 2026-10-24
+
+### Fixed
+- **Your stashes no longer vanish for a few seconds when you come back from Settings.** Returning
+  from Settings or the context manager rebuilt the list from nothing, so it showed "queue empty"
+  until the stashes had been read again, which took seconds with a large queue. The list now
+  comes back at once and refreshes quietly in the background. The same wait is gone at startup:
+  the splash screen stays up until your stashes are loaded, and if that early load fails the
+  list shows a "Loading stashes…" notice instead of claiming the queue is empty
+
 ## [1.11.0] - 2026-10-11
 
 ### Added

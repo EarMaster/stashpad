@@ -434,6 +434,7 @@
     "clearCompleted": "Clear completed",
     "deleteAllCompleted": "Delete all completed stashes",
     "queueEmpty": "Your stashpad is empty. Add something new to start!",
+    "loadingStashes": "Loading stashes…",
     "noActiveStashes": "No active stashes.",
     "noActiveStashesFound": "No active stashes found matching filters.",
     "restoreOrder": "Restore manual order",

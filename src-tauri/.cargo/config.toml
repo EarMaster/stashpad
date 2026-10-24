@@ -1,0 +1,5 @@
+# Only resolve crate versions published at least 7 days ago. See "Dependency cooldown" in
+# the workspace AGENTS.md for why and for the override. Cargo before 1.100 ignores this
+# with a warning.
+[registry]
+global-min-publish-age = "7 days"

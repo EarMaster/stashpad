@@ -21,6 +21,7 @@
    import { fade, fly } from "svelte/transition";
    import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
    import type { StashItem, Context, Attachment, AIConfig } from "$lib/types";
+   import { queueCache } from "$lib/stores/queue-cache";
    import { _ } from "$lib/i18n";
    import { isHexColor, extractTagsAndColors } from "$lib/utils/markdown";
    import StashCard from "./StashCard.svelte";
@@ -56,6 +57,7 @@
       Search,
       X,
       ChevronUp,
+      Loader2,
    } from "lucide-svelte";
    import { tooltip } from "$lib/actions/tooltip";
    import {
@@ -119,7 +121,13 @@
          contexts.find((c) => c.id === "default"),
    );
 
-   let stashes = $state<StashItem[]>([]);
+   let stashes = $state<StashItem[]>(queueCache.stashes ?? []);
+   let loaded = $state(queueCache.stashes !== null);
+   // Every change goes through a reassignment of `stashes`, so this keeps the cache as
+   // current as the screen, not just as current as the last load.
+   $effect(() => {
+      if (loaded) queueCache.stashes = stashes;
+   });
    let effectiveMode = $state<"Drag" | "Copy">("Drag");
 
    // Flash state
@@ -132,8 +140,14 @@
    let showBackToTop = $state(false);
 
    // Separate arrays for dnd - these are the source of truth during drag
-   let activeStashes = $state<StashItem[]>([]);
-   let completedStashes = $state<StashItem[]>([]);
+   // Seeded here rather than by the effect that keeps them in step, so a remount's first
+   // frame already has its cards and the count effect below sees no empty-to-full jump.
+   let activeStashes = $state<StashItem[]>(
+      untrack(() => stashes.filter((s) => !s.completed && inContext(s))),
+   );
+   let completedStashes = $state<StashItem[]>(
+      untrack(() => stashes.filter((s) => s.completed && inContext(s))),
+   );
    let draggedItemId = $state<string | null>(null);
 
    // Confirmation state
@@ -728,18 +742,14 @@
       showMenu = false;
    }
 
+   function inContext(stash: StashItem): boolean {
+      return (stash.contextId || "default") === (currentContextId || "default");
+   }
+
    // Sync stashes to active/completed
    function syncLists() {
-      activeStashes = stashes.filter(
-         (s) =>
-            !s.completed &&
-            (s.contextId || "default") === (currentContextId || "default"),
-      );
-      completedStashes = stashes.filter(
-         (s) =>
-            s.completed &&
-            (s.contextId || "default") === (currentContextId || "default"),
-      );
+      activeStashes = stashes.filter((s) => !s.completed && inContext(s));
+      completedStashes = stashes.filter((s) => s.completed && inContext(s));
    }
 
    // Watch for context changes
@@ -808,9 +818,10 @@
    });
 
    async function load() {
-      const loaded = await adapter.loadStashes();
-      if (loaded) {
-         stashes = loaded;
+      const result = await adapter.loadStashes();
+      if (result) {
+         stashes = result;
+         loaded = true;
          syncLists();
          if (newStashId) {
             checkNewStashVisibility();
@@ -1649,7 +1660,16 @@
             </section>
       {/if}
 
-      {#if stashes.length === 0}
+      {#if !loaded}
+         <!-- Only on a cold start: every later mount begins from queueCache. -->
+         <div
+            class="flex flex-col items-center justify-center py-10 text-muted-foreground/60"
+            role="status"
+         >
+            <Loader2 size={20} class="animate-spin mb-2" aria-hidden="true" />
+            <span class="text-sm">{$_("queue.loadingStashes")}</span>
+         </div>
+      {:else if stashes.length === 0}
          <div
             class="flex flex-col items-center justify-center py-10 text-muted-foreground/30 border border-dashed border-border/50 rounded-lg"
          >

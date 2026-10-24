@@ -14,6 +14,7 @@
 import { mount } from "svelte";
 import "./app.css";
 import App from "./App.svelte";
+import { queueCache } from "$lib/stores/queue-cache";
 import { setupI18n, type SupportedLocale } from "$lib/i18n";
 import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
 import { installGlobalErrorReporter } from "$lib/utils/error-reporting";
@@ -49,6 +50,20 @@ async function loadInitialData(): Promise<{ settings: Settings | null; locale: "
 }
 
 /**
+ * Load the stashes so the queue mounts with them, keeping the splash up meanwhile.
+ *
+ * Without this the splash gave way to an empty queue that filled in seconds later. A
+ * failure is not fatal: the queue loads for itself on mount and shows its own spinner.
+ */
+async function primeStashes(): Promise<void> {
+  try {
+    queueCache.stashes = await new DesktopStorageAdapter().loadStashes();
+  } catch (error) {
+    log.warn("Could not preload stashes, the queue will load them itself:", error);
+  }
+}
+
+/**
  * Hides the splash screen with a smooth fade-out animation.
  * Called after the app is fully mounted and ready.
  */
@@ -80,7 +95,7 @@ async function initApp(): Promise<void> {
   installGlobalErrorReporter();
 
   // Load initial data (settings includes locale preference)
-  const { settings, locale } = await loadInitialData();
+  const [{ settings, locale }] = await Promise.all([loadInitialData(), primeStashes()]);
 
   // Store settings on window to avoid duplicate load in App.svelte
   if (settings) {
