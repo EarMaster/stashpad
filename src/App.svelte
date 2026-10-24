@@ -600,6 +600,21 @@
 
       const initial = (window as Window & { __initialSettings__?: Settings })
          .__initialSettings__;
+      const initialContexts = (
+         window as Window & { __initialContexts__?: Context[] }
+      ).__initialContexts__;
+      delete (window as Window & { __initialContexts__?: Context[] })
+         .__initialContexts__;
+
+      // Both preloaded: apply them now, before the splash fades, so the first frame is
+      // already the context in use rather than the default one.
+      if (initial && initialContexts) {
+         contexts = initialContexts;
+         applySettings(initial);
+         delete (window as Window & { __initialSettings__?: Settings })
+            .__initialSettings__;
+         return;
+      }
 
       loadContexts().then(() => {
          if (initial) {

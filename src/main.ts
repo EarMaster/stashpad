@@ -25,10 +25,11 @@ declare global {
   interface Window {
     __app__?: unknown;
     __initialSettings__?: Settings;
+    __initialContexts__?: Context[];
   }
 }
 
-import type { Settings } from "$lib/types";
+import type { Context, Settings } from "$lib/types";
 
 /**
  * Loads all initial data needed for app startup in parallel.
@@ -64,6 +65,21 @@ async function primeStashes(): Promise<void> {
 }
 
 /**
+ * Load the contexts, so App can switch to the one in use before the splash goes.
+ *
+ * App validates the saved context against this list. Fetched after mount, it arrived
+ * once the splash had faded, so a launch showed the default context first and then
+ * jumped to the right one.
+ */
+async function primeContexts(): Promise<void> {
+  try {
+    window.__initialContexts__ = await new DesktopStorageAdapter().getContexts();
+  } catch (error) {
+    log.warn("Could not preload contexts, App will load them itself:", error);
+  }
+}
+
+/**
  * Hides the splash screen with a smooth fade-out animation.
  * Called after the app is fully mounted and ready.
  */
@@ -95,7 +111,11 @@ async function initApp(): Promise<void> {
   installGlobalErrorReporter();
 
   // Load initial data (settings includes locale preference)
-  const [{ settings, locale }] = await Promise.all([loadInitialData(), primeStashes()]);
+  const [{ settings, locale }] = await Promise.all([
+    loadInitialData(),
+    primeStashes(),
+    primeContexts(),
+  ]);
 
   // Store settings on window to avoid duplicate load in App.svelte
   if (settings) {

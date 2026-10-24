@@ -11,6 +11,13 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+## [1.11.2] - 2026-10-24
+
+### Fixed
+- **Stashpad opens on the context you last used, without showing the default one first.** At
+  startup the splash screen gave way before your last context had been restored, so the default
+  context flashed up for a moment and was then replaced by the right one
+
 ## [1.11.1] - 2026-10-24
 
 ### Fixed
