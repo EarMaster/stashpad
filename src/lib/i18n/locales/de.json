@@ -459,6 +459,7 @@
       "other": "Andere Dateien"
     },
     "queueEmpty": "Warteschlange ist leer",
+    "loadingStashes": "Stashes werden geladen…",
     "backToTop": "Nach oben",
     "sortOldest": "Sortieren: Älteste zuerst",
     "sortNewest": "Sortieren: Neueste zuerst",
