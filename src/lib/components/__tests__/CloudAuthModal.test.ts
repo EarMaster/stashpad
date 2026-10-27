@@ -16,7 +16,7 @@ import { flushSync, mount, unmount } from 'svelte';
 import { readable } from 'svelte/store';
 
 const { openUrl } = vi.hoisted(() => ({
-    openUrl: vi.fn(() => Promise.resolve()),
+    openUrl: vi.fn((_url: string) => Promise.resolve()),
 }));
 
 vi.mock('@tauri-apps/plugin-opener', () => ({ openUrl }));
