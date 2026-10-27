@@ -11,6 +11,13 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Logging in again after a cloud session expires works again.** Clicking "Log In Again"
+  froze the sign-in dialog and could open hundreds of browser tabs at once: opening the dialog
+  kept restarting itself, opening a new sign-in page each time, until the app gave up. It now
+  opens the browser once
+
 ## [1.11.2] - 2026-10-24
 
 ### Fixed

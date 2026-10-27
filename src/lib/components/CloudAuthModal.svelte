@@ -15,6 +15,7 @@
 
 <script lang="ts">
     import { _ } from "$lib/i18n";
+    import { untrack } from "svelte";
     import { fade } from "svelte/transition";
     import { openUrl } from "@tauri-apps/plugin-opener";
     import { websiteOriginFromEndpoint } from "$lib/utils/cloud-urls";
@@ -221,9 +222,15 @@
         };
     });
 
-    // Open the browser and reset state when the dialog is opened
+    // Open the browser and reset state when the dialog is opened.
+    //
+    // Only `open` may trigger this, so the rest runs untracked. It writes `linkNonce` and
+    // then reads it back to build the URL, and a tracked read of a value the same effect
+    // just wrote reruns the effect: a new nonce and another browser tab each time, until
+    // Svelte gave up with effect_update_depth_exceeded and left the dialog frozen.
     $effect(() => {
-        if (open) {
+        if (!open) return;
+        untrack(() => {
             phase = "waiting";
             showManualEntry = false;
             linkCode = "";
@@ -231,7 +238,7 @@
             linkCodeLoading = false;
             linkNonce = crypto.randomUUID();
             openBrowser();
-        }
+        });
     });
 
     // Move focus into the panel once it exists, so Escape and Tab act on the modal
