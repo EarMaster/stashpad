@@ -11,6 +11,8 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+## [1.11.3] - 2026-10-27
+
 ### Fixed
 
 - **Logging in again after a cloud session expires works again.** Clicking "Log In Again"
