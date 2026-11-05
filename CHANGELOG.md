@@ -11,6 +11,13 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+### Added
+
+- **A `stashpad://stash/…` link opens that stash in the app.** When you ask an AI assistant to
+  show you a stash, it can now hand you a link instead of copying the whole text into the chat.
+  Clicking it brings Stashpad forward, switches to the stash's context and scrolls to it. The
+  link carries only the stash's id, so it shows nothing on a device that doesn't have the stash
+
 ## [1.11.3] - 2026-10-27
 
 ### Fixed
