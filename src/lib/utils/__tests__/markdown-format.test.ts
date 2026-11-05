@@ -180,6 +180,19 @@ describe('applyLinePrefix', () => {
         expect(result.content).toBe('- one\n\n- two');
     });
 
+    it('starts an item on an empty line, with the caret after the marker', () => {
+        // Treating the line like any other blank one made the shortcut do nothing there,
+        // which is exactly where a list is usually started.
+        expect(marked(applyLinePrefix('one\n\ntwo', 4, 4, '- '))).toBe('one\n- ||\ntwo');
+        expect(marked(applyLinePrefix('', 0, 0, '1. '))).toBe('1. ||');
+        expect(marked(applyLinePrefix('one\n   ', 6, 6, '### '))).toBe('one\n### ||');
+    });
+
+    it('toggles an item just started on an empty line back off', () => {
+        expect(applyLinePrefix('- ', 2, 2, '- ').content).toBe('');
+        expect(applyLinePrefix('1. ', 3, 3, '1. ').content).toBe('');
+    });
+
     it('toggles off even when the selection contains a blank line', () => {
         // Counting the blank line as "not prefixed" meant a selection like this never
         // read as fully prefixed, so it kept adding instead of removing.

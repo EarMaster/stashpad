@@ -205,6 +205,19 @@ export function applyLinePrefix(
     // bare `###`, and counting it would stop a mixed selection ever reading as "all
     // prefixed" and so make the button impossible to toggle off.
     const filled = lines.filter((line) => line.trim());
+
+    // An empty line on its own is the one place an empty item is wanted: it is how a list
+    // or heading is started before anything is typed. Skipping it like any other blank line
+    // made the shortcut do nothing there.
+    if (filled.length === 0 && lines.length === 1) {
+        const caret = lineStart + prefix.length;
+        return {
+            content: content.slice(0, lineStart) + prefix + content.slice(lineEnd),
+            selectionStart: caret,
+            selectionEnd: caret,
+        };
+    }
+
     const allPrefixed = filled.length > 0 && filled.every(has);
 
     let counter = 0;
