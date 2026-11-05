@@ -81,6 +81,7 @@
    import { liveAttachments } from "$lib/utils/stash-filters";
    import { reportError } from "$lib/utils/error-reporting";
    import { log } from "$lib/utils/log";
+   import { onStashLink } from "$lib/utils/deep-link";
 
    let {
       transferMode,
@@ -655,6 +656,27 @@
       revealStash(ref.stash.id);
    }
 
+   /**
+    * A `stashpad://stash/<id>` link (see `deep-link.ts`). Held until the stash is in the
+    * list, because a link that launched the app arrives before the first load finishes.
+    */
+   let linkedStashId = $state<string | null>(null);
+
+   $effect(() => {
+      const id = linkedStashId;
+      if (!id) return;
+      const target = stashes.find((s) => s.id === id && !s.deleted);
+      if (!target) return;
+      linkedStashId = null;
+      const contextId = target.contextId || "default";
+      if (contextId !== (untrack(() => currentContextId) || "default")) {
+         pendingRevealId = id;
+         onSwitchContext?.(contextId);
+         return;
+      }
+      tick().then(() => revealStash(id));
+   });
+
    async function revealStash(id: string) {
       const target = stashes.find((s) => s.id === id);
       if (!target) return;
@@ -1036,12 +1058,22 @@
 
    // Tauri drag-drop event listeners for StashCard targeting
    let unlistenDrop: UnlistenFn | null = null;
+   let unlistenStashLink: (() => void) | null = null;
    let unlistenEnter: UnlistenFn | null = null;
    let unlistenOver: UnlistenFn | null = null;
    let unlistenLeave: UnlistenFn | null = null;
 
    onMount(async () => {
       window.addEventListener("keydown", handleSearchShortcut);
+
+      try {
+         unlistenStashLink = await onStashLink((id) => {
+            log.info(`[Queue] Opening stash ${id} from a link`);
+            linkedStashId = id;
+         });
+      } catch (err) {
+         log.error("[Queue] Could not listen for stash links:", err);
+      }
 
       // Listen for Tauri's native drag events to coordinate StashCard drop zones
       unlistenEnter = await listen<{ position: { x: number; y: number } }>(
@@ -1124,6 +1156,7 @@
 
    onDestroy(() => {
       window.removeEventListener("keydown", handleSearchShortcut);
+      unlistenStashLink?.();
       unlistenEnter?.();
       unlistenOver?.();
       unlistenLeave?.();
