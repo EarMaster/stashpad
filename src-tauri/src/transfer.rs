@@ -142,17 +142,24 @@ fn parse_heading_date(raw: &str) -> Option<Instant> {
 
 /// The `toLocaleString()` forms older exports used, which no ISO parser reads:
 ///
-/// * `8/20/2026, 10:14:32 AM` and `8/20/2026, 10:14:32` - en-US, month first
+/// * `8/20/2026, 10:14:32 AM` - en-US, month first
 /// * `20.8.2026, 10:14:32` and `20.8.2026 10:14:32` - de-DE
 /// * `20/8/2026, 10:14:32` and `20/8/2026 10:14:32` - en-GB and similar, day first
+/// * `20/8/2026, 10:14:32 am` - en-AU, en-IN and similar, day first
 ///
-/// A slash date is tried month first, as en-US is far the more common, and read day first
-/// only when that cannot be a date - the same order the formats were tried in before.
+/// **A slash date is month first only beside an upper-case `AM`/`PM`.** en-US
+/// `toLocaleString()` always writes one, and the day-first slash locales write either a
+/// 24-hour clock or a lower-case `am`/`pm`. This used to try month first for every slash
+/// date and fall back to day first only when month first was impossible, so an en-GB
+/// archive's `12/03/2026` - 12 March - came back as 3 December, and every date up to the
+/// 12th of a month was silently swapped on import. The other order is still tried when the
+/// preferred one cannot be a date, so a stray `8/20/2026, 22:14:32` reads as 20 August.
 fn parse_locale_heading(text: &str) -> Option<Instant> {
     let (date, rest) = text.split_once([',', ' '])?;
     let mut clock = rest.trim_start_matches([',', ' ']).split(' ');
     let hms = clock.next()?;
     let meridiem = clock.next();
+    let month_first = matches!(meridiem, Some("AM" | "PM"));
     if clock.next().is_some() {
         return None;
     }
@@ -196,7 +203,8 @@ fn parse_locale_heading(text: &str) -> Option<Instant> {
         )
     };
     match separator {
-        '/' => at(a, b).or_else(|| at(b, a)),
+        '/' if month_first => at(a, b).or_else(|| at(b, a)),
+        '/' => at(b, a).or_else(|| at(a, b)),
         _ => at(b, a),
     }
 }
@@ -1425,10 +1433,14 @@ old
             ("8/20/2026, 12:05:00 PM", "2026-08-20 12:05:00"),
             ("8/20/2026, 22:14:32", "2026-08-20 22:14:32"),
             ("20.08.2026 10:14:32", "2026-08-20 10:14:32"),
-            // Day first only when month first cannot be a date.
             ("20/8/2026, 10:14:32", "2026-08-20 10:14:32"),
             ("20/8/2026 10:14:32", "2026-08-20 10:14:32"),
-            ("3/4/2026, 10:14:32", "2026-03-04 10:14:32"),
+            // Month first only beside an upper-case meridiem, which only en-US writes.
+            ("3/4/2026, 10:14:32 AM", "2026-03-04 10:14:32"),
+            // Day first otherwise: en-GB's 24-hour clock, en-AU's lower-case am/pm.
+            ("3/4/2026, 10:14:32", "2026-04-03 10:14:32"),
+            ("12/03/2026, 09:25:39", "2026-03-12 09:25:39"),
+            ("3/4/2026, 10:14:32 pm", "2026-04-03 22:14:32"),
             ("2026-08-20T10:14:32", "2026-08-20 10:14:32"),
             ("2026-08-20", "2026-08-20 00:00:00"),
             ("2026-08-20T10:14:32+02:00", "2026-08-20 08:14:32"),

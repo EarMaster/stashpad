@@ -310,7 +310,7 @@ jobs:
       # roughly 600 of windows-latest's 694. test.yml has cached since it was written; the
       # build matrix simply never got one.
       - name: Cache Rust dependencies
-        uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: src-tauri -> target
 

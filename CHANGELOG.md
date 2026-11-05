@@ -11,6 +11,16 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+## [1.11.5] - 2026-11-05
+
+### Fixed
+
+- **Importing an older export no longer swaps day and month.** Archives from before the export
+  format changed carry dates the way the exporting computer wrote them, and on a computer set
+  to a day-first format such as British English, every stash created up to the 12th of a month
+  came back with day and month swapped - 12 March became 3 December. Stashes already imported
+  keep the dates they were given
+
 ## [1.11.4] - 2026-11-05
 
 ### Added
