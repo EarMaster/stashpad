@@ -11,6 +11,8 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+## [1.11.4] - 2026-11-05
+
 ### Added
 
 - **A `stashpad://stash/…` link opens that stash in the app.** When you ask an AI assistant to
