@@ -11,6 +11,8 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+## [1.11.5] - 2026-11-05
+
 ### Fixed
 
 - **Importing an older export no longer swaps day and month.** Archives from before the export
