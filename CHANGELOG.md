@@ -11,6 +11,15 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+## [1.11.6] - 2026-11-05
+
+### Fixed
+
+- **The list and heading shortcuts work on an empty line again.** Pressing Ctrl+Shift+8,
+  Ctrl+Shift+7 or Ctrl+Alt+3 (Cmd on macOS) on an empty line did nothing, so you had to type
+  something first and add the marker afterwards. They now start the bullet, numbered item or
+  heading right there, with the cursor after the marker
+
 ## [1.11.5] - 2026-11-05
 
 ### Fixed

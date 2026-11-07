@@ -329,6 +329,32 @@ jobs:
           # half-written target directory into the next release.
           cache-on-failure: false
 
+      # The bundler's own tools: NSIS, nsis_tauri_utils.dll and WiX on Windows, linuxdeploy,
+      # its plugins and AppRun on Linux. tauri-bundler downloads each from GitHub into
+      # `<cache dir>/tauri` and skips any that is already there, so restoring that directory
+      # takes GitHub out of the bundle step. v1.11.5's first attempt lost both x86_64 legs to
+      # it: a 504 on nsis_tauri_utils.dll, and linuxdeploy failing after a download in the
+      # same two minutes - with the binaries already built and every other leg green.
+      #
+      # Keyed on the exact @tauri-apps/cli version, which is what decides the tool versions.
+      # No `restore-keys`: the bundler only checks that a tool's folder exists, not which
+      # version is in it, so a cache from an older CLI would bundle with its old NSIS without
+      # a word. A new CLI version is one cold download per leg, then cached again.
+      - name: Read the Tauri CLI version
+        id: tauri_cli
+        shell: bash
+        run: |
+          echo "version=$(node -p "require('./package-lock.json').packages['node_modules/@tauri-apps/cli'].version")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Tauri bundler tools
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/tauri
+            ~/Library/Caches/tauri
+            ~/AppData/Local/tauri
+          key: tauri-tools-${{ matrix.cache_key }}-cli-${{ steps.tauri_cli.outputs.version }}
+
       # Same widening as above, and it matters more here: skipping this step does not fail
       # the leg, it fails the build twenty minutes later with a missing webkit2gtk.
       - name: install dependencies (ubuntu only)
@@ -459,7 +485,10 @@ jobs:
             printf '%s\n' "$delim"
           } >> "$GITHUB_ENV"
 
-      - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # action-v1.0.0
+      # Allowed to fail once - see "Build, second attempt" below.
+      - id: build
+        continue-on-error: true
+        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # action-v1.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -504,6 +533,36 @@ jobs:
           releaseDraft: true
           prerelease: ${{ needs.prepare.outputs.prerelease }}
 
+          args: ${{ matrix.args }}
+
+      # One retry, for the network rather than the code. A leg that fails here costs the whole
+      # release - `cleanup` deletes the draft - and the failures seen so far were GitHub
+      # answering 504 to a download in the middle of bundling, after a clean compile. The
+      # second attempt reuses the compiled target directory, so it only re-bundles: about a
+      # minute, against twenty for a re-run of the release. A real build error fails both
+      # attempts the same way and the leg still goes red.
+      #
+      # Safe after a partial first attempt: tauri-action deletes an asset of the same name
+      # before uploading it again, and latest.json is rewritten whole. The inputs must stay
+      # identical to the step above.
+      - name: Wait before the second attempt
+        if: steps.build.outcome == 'failure'
+        shell: bash
+        run: |
+          echo "::warning::The first build attempt failed; retrying once in 60 seconds."
+          sleep 60
+
+      - name: Build, second attempt
+        if: steps.build.outcome == 'failure'
+        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # action-v1.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          releaseId: ${{ needs.draft.outputs.release_id }}
+          releaseBody: ${{ env.RELEASE_BODY }}
+          uploadUpdaterJson: true
+          releaseDraft: true
+          prerelease: ${{ needs.prepare.outputs.prerelease }}
           args: ${{ matrix.args }}
 
       # The signing keys went into $GITHUB_ENV above, conditionally, because an exported
