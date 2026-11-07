@@ -244,6 +244,10 @@ export interface IStorageService {
     unlinkContextFolder(contextId: string): Promise<void>;
     /** Drop every folder link on this device. */
     clearContextFolders(): Promise<void>;
+    /** What drafting a description from the context's folder would send, and where. Sends nothing. */
+    previewContextDigest(contextId: string): Promise<DigestPreview>;
+    /** Draft a description of the context's project from its folder. A proposal; nothing is saved. */
+    suggestContextDescription(contextId: string): Promise<string>;
     /** The files in a context's linked folder; `refresh` walks the folder again. */
     listContextFiles(contextId: string, refresh: boolean): Promise<FileIndex>;
     isWindows10(): Promise<boolean>;
@@ -452,6 +456,18 @@ export interface ContextFolder {
     path: string;
     /** False when the folder is gone; the link is kept so it can be relinked. */
     exists: boolean;
+}
+
+/** What drafting a description from a folder would send, shown before anything is. */
+export interface DigestPreview {
+    folder: string;
+    /** The files that would be read. */
+    files: string[];
+    /** How many top-level names would go along with them. */
+    layoutEntries: number;
+    /** The provider's host; empty when it runs on this device. */
+    provider: string;
+    onDevice: boolean;
 }
 
 /** The files of a linked folder, relative to it, with `/` separators. */

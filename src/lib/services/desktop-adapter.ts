@@ -13,7 +13,7 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import type { LogLevel } from '../utils/log';
-import type { IStorageService, StashItem, AppContext, Settings, FilePreviewData, Context, Attachment, CloudConfig, ExportSummary, ImportPreview, CloudUsage, StashPosition, LocalKeyStatus, E2eeStatus, E2eeEnableResult, E2eeConversionProgress, CreatedAccessKey, AttachmentConversion, FileFilter, ContextFolder, FileIndex } from '../types';
+import type { IStorageService, StashItem, AppContext, Settings, FilePreviewData, Context, Attachment, CloudConfig, ExportSummary, ImportPreview, CloudUsage, StashPosition, LocalKeyStatus, E2eeStatus, E2eeEnableResult, E2eeConversionProgress, CreatedAccessKey, AttachmentConversion, FileFilter, ContextFolder, FileIndex, DigestPreview } from '../types';
 
 import { log } from '$lib/utils/log';
 /** Called after any local write so cloud sync can be scheduled. */
@@ -352,6 +352,14 @@ export class DesktopStorageAdapter implements IStorageService {
 
     async clearContextFolders(): Promise<void> {
         await invoke('clear_context_folders');
+    }
+
+    async previewContextDigest(contextId: string): Promise<DigestPreview> {
+        return await invoke('preview_context_digest', { contextId });
+    }
+
+    async suggestContextDescription(contextId: string): Promise<string> {
+        return await invoke('ai_suggest_description', { contextId });
     }
 
     async listContextFiles(contextId: string, refresh: boolean): Promise<FileIndex> {

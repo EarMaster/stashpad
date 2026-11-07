@@ -415,6 +415,21 @@
       "pickTitle": "选择项目文件夹",
       "hint": "关联一个文件夹后，输入 @ 时会提示其中的文件。仅保存在这台设备上。",
       "missing": "这个文件夹已不存在。重新选择它即可继续提示文件。"
+    },
+    "suggest": {
+      "button": "建议描述",
+      "working": "正在起草…",
+      "title": "根据文件夹起草描述？",
+      "sends": "这些文件以及文件夹顶层的 {count} 个名称会发送到 {provider}，用于起草描述。在你采用结果之前不会保存任何内容。",
+      "onDevice": "Apple Intelligence 会在这台设备上读取这些文件以及文件夹顶层的 {count} 个名称，用于起草描述。在你采用结果之前不会保存任何内容。",
+      "confirm": "发送并起草",
+      "confirmOnDevice": "起草",
+      "nothingToRead": "文件夹中没有可用于起草描述的 README 或项目文件。",
+      "failed": "无法起草描述。",
+      "proposalLabel": "建议的描述",
+      "replaces": "采用后将替换当前描述。",
+      "use": "采用此描述",
+      "discard": "放弃"
     }
   },
   "contextSwitcher": {

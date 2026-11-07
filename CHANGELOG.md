@@ -25,6 +25,13 @@ popover, not for the person who wrote the commit.
 - Exporting a context includes its project folder. Importing restores the link when that folder
   exists on this device, and skips it otherwise. Signing out asks whether to keep this device's
   folder links, and keeps them by default
+- **A context can draft its own description from its project folder.** With a folder linked and
+  AI set up, a "Suggest description" button in the context manager reads the folder's README,
+  `AGENTS.md` and project files (`package.json`, `Cargo.toml` and similar, each cut short) plus
+  the names in its top level, and asks your AI provider to summarise them. First you see exactly
+  which files would be sent and to which provider, and nothing leaves your machine until you
+  confirm; with Apple Intelligence it stays on the device. The result is only a proposal: you
+  can edit it, then use it as the description or discard it
 
 ## [1.11.6] - 2026-11-05
 

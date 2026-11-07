@@ -90,6 +90,16 @@ export function isAppleIntelligencePreset(id?: string): boolean {
 }
 
 /**
+ * Whether AI is switched on and set up enough to answer: Apple Intelligence needs nothing
+ * more, any other provider needs an endpoint and a model.
+ */
+export function isAIUsable(config?: { enabled?: boolean; presetId?: string; endpoint?: string; model?: string }): boolean {
+    if (!config?.enabled) return false;
+    if (isAppleIntelligencePreset(config.presetId)) return true;
+    return !!config.endpoint?.trim() && !!config.model?.trim();
+}
+
+/**
  * Get a provider preset by its ID.
  * @param id - The preset ID to find
  * @returns The preset or undefined if not found

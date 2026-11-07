@@ -17,6 +17,7 @@
         Braces,
         FolderOpen,
         Unlink,
+        Sparkles,
     } from "lucide-svelte";
     import { formatBytes, ATTACHMENT_SIZE_LIMITS } from "$lib/utils/format";
     import { getRelativeTime } from "$lib/utils/date";
@@ -32,12 +33,17 @@
         unlinkContextFolder,
     } from "$lib/stores/context-folders.svelte";
     import { log } from "$lib/utils/log";
+    import { errorText } from "$lib/errors";
+    import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
+    import ConfirmationDialog from "./ConfirmationDialog.svelte";
+    import type { DigestPreview } from "$lib/types";
 
     let {
         context = $bindable(),
         stats = { count: 0, total: 0, size: 0 },
         isDefault = false,
         autoFocus = false,
+        aiReady = false,
         onSave,
         onDelete,
         onExport,
@@ -52,6 +58,8 @@
         stats: { count: number; total: number; size: number };
         isDefault?: boolean;
         autoFocus?: boolean;
+        /** The AI provider is switched on and set up. */
+        aiReady?: boolean;
         onSave?: (context: Context) => void;
         onDelete?: (shiftKey: boolean) => void;
         onExport: () => void;
@@ -75,6 +83,53 @@
         } catch (e) {
             log.error("Failed to link a project folder:", e);
         }
+    }
+
+    const adapter = new DesktopStorageAdapter();
+
+    // Drafting a description from the folder. Nothing is sent until the user has seen what
+    // would be, and the result is only a proposal until they accept it.
+    let digest = $state<DigestPreview | null>(null);
+    let confirmSuggestOpen = $state(false);
+    let isSuggesting = $state(false);
+    let suggestion = $state<string | null>(null);
+    let suggestError = $state("");
+
+    async function startSuggestion() {
+        suggestError = "";
+        try {
+            const preview = await adapter.previewContextDigest(context.id);
+            if (preview.files.length === 0) {
+                suggestError = $_("contexts.suggest.nothingToRead");
+                return;
+            }
+            digest = preview;
+            confirmSuggestOpen = true;
+        } catch (e) {
+            log.error("Failed to prepare the description suggestion:", e);
+            suggestError = errorText(e, $_("contexts.suggest.failed"));
+        }
+    }
+
+    async function draftDescription() {
+        confirmSuggestOpen = false;
+        isSuggesting = true;
+        suggestError = "";
+        try {
+            suggestion = await adapter.suggestContextDescription(context.id);
+        } catch (e) {
+            log.error("Failed to draft a description:", e);
+            suggestError = errorText(e, $_("contexts.suggest.failed"));
+        } finally {
+            isSuggesting = false;
+        }
+    }
+
+    function acceptSuggestion() {
+        if (suggestion === null) return;
+        context.description = suggestion.trim();
+        suggestion = null;
+        onSave?.(context);
     }
 
     async function unlinkFolder() {
@@ -254,6 +309,19 @@
                     {$_("contexts.folder.label")}
                 </span>
                 <div class="flex gap-1">
+                    {#if folder?.exists && aiReady}
+                        <ActionButton
+                            variant="context"
+                            title={$_("contexts.suggest.button")}
+                            disabled={isSuggesting}
+                            onclick={startSuggestion}
+                        >
+                            <Sparkles size={12} />
+                            {isSuggesting
+                                ? $_("contexts.suggest.working")
+                                : $_("contexts.suggest.button")}
+                        </ActionButton>
+                    {/if}
                     <ActionButton
                         variant="context"
                         title={folder
@@ -296,8 +364,75 @@
                     {$_("contexts.folder.hint")}
                 </p>
             {/if}
+            {#if suggestError}
+                <p class="px-2 pt-1 text-xs text-destructive" role="alert">
+                    {suggestError}
+                </p>
+            {/if}
+            {#if suggestion !== null}
+                <div
+                    class="mt-2 p-2 rounded-md border border-primary/40 bg-primary/5 space-y-2"
+                >
+                    <label
+                        for="context-suggestion-{context.id}"
+                        class="block text-[10px] text-muted-foreground font-medium uppercase tracking-wider"
+                    >
+                        {$_("contexts.suggest.proposalLabel")}
+                    </label>
+                    <textarea
+                        id="context-suggestion-{context.id}"
+                        class="block w-full bg-muted/50 rounded-md px-3 py-2 text-xs border border-transparent focus:border-primary/50 outline-none min-h-[120px]"
+                        bind:value={suggestion}
+                        rows="5"
+                    ></textarea>
+                    {#if context.description}
+                        <p class="text-xs text-muted-foreground">
+                            {$_("contexts.suggest.replaces")}
+                        </p>
+                    {/if}
+                    <div class="flex gap-2 justify-end">
+                        <ActionButton
+                            variant="context"
+                            onclick={() => (suggestion = null)}
+                        >
+                            {$_("contexts.suggest.discard")}
+                        </ActionButton>
+                        <ActionButton
+                            variant="context"
+                            onclick={acceptSuggestion}
+                        >
+                            {$_("contexts.suggest.use")}
+                        </ActionButton>
+                    </div>
+                </div>
+            {/if}
         </div>
     {/if}
+
+    <ConfirmationDialog
+        bind:open={confirmSuggestOpen}
+        title={$_("contexts.suggest.title")}
+        description={digest?.onDevice
+            ? $_("contexts.suggest.onDevice", {
+                  values: { count: digest.layoutEntries },
+              })
+            : $_("contexts.suggest.sends", {
+                  values: {
+                      count: digest?.layoutEntries ?? 0,
+                      provider: digest?.provider ?? "",
+                  },
+              })}
+        confirmText={digest?.onDevice
+            ? $_("contexts.suggest.confirmOnDevice")
+            : $_("contexts.suggest.confirm")}
+        onConfirm={draftDescription}
+    >
+        <ul class="text-xs font-mono space-y-0.5 max-h-32 overflow-y-auto">
+            {#each digest?.files ?? [] as name (name)}
+                <li class="truncate">{name}</li>
+            {/each}
+        </ul>
+    </ConfirmationDialog>
 
     <!-- Rules (only for non-default) -->
     {#if !isDefault}

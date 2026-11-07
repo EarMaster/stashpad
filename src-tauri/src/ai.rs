@@ -25,8 +25,13 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
+use crate::models::AiConfig;
 use crate::state::SettingsState;
 use crate::uierror::UiError;
+
+/// The preset id the settings store for Apple Intelligence, which has no endpoint and runs
+/// on this machine.
+const APPLE_INTELLIGENCE_PRESET: &str = "apple-intelligence";
 
 const AI_TIMEOUT: Duration = Duration::from_secs(120);
 const AI_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
@@ -88,14 +93,13 @@ async fn post_chat(
         .map_err(|e| format!("The AI provider sent an unreadable answer: {}", e).into())
 }
 
-/// Improve a stash's text with the saved provider. The frontend supplies the prompt and the
-/// text; the endpoint, model and key come from the saved settings only.
-#[tauri::command]
-pub async fn ai_enhance(
-    settings_state: State<'_, Arc<SettingsState>>,
-    system_prompt: String,
-    user_content: String,
-) -> Result<String, UiError> {
+/// The saved AI configuration, if AI is switched on and set up.
+///
+/// An endpoint-less configuration is fine for Apple Intelligence and not for anything else,
+/// so the endpoint and model are checked by the callers that need them.
+pub(crate) fn usable_config(
+    settings_state: &State<'_, Arc<SettingsState>>,
+) -> Result<AiConfig, UiError> {
     let config = settings_state
         .lock_settings()
         .ai_config
@@ -104,8 +108,43 @@ pub async fn ai_enhance(
     if !config.enabled {
         return Err("AI configuration is disabled".into());
     }
-    if config.endpoint.trim().is_empty() || config.model.trim().is_empty() {
+    if !is_apple_intelligence(&config)
+        && (config.endpoint.trim().is_empty() || config.model.trim().is_empty())
+    {
         return Err("AI configuration is incomplete".into());
+    }
+    Ok(config)
+}
+
+pub(crate) fn is_apple_intelligence(config: &AiConfig) -> bool {
+    config.preset_id.as_deref() == Some(APPLE_INTELLIGENCE_PRESET)
+}
+
+/// The host a request goes to, for telling the user where their text is headed. Falls back to
+/// the endpoint as written when it is not a URL.
+pub(crate) fn provider_host(endpoint: &str) -> String {
+    reqwest::Url::parse(endpoint.trim())
+        .ok()
+        .and_then(|url| url.host_str().map(str::to_string))
+        .unwrap_or_else(|| endpoint.trim().to_string())
+}
+
+/// One reply from the saved provider - or from Apple Intelligence, which the webview used to
+/// be the only caller of. The backend is the one that holds the key, so this is the single
+/// place a request that is not the settings form's own test is made.
+pub(crate) async fn complete(
+    settings_state: &State<'_, Arc<SettingsState>>,
+    system_prompt: &str,
+    user_content: &str,
+    max_tokens: u32,
+) -> Result<String, UiError> {
+    let config = usable_config(settings_state)?;
+    if is_apple_intelligence(&config) {
+        return crate::utils::apple_intelligence_enhance(
+            user_content.to_string(),
+            system_prompt.to_string(),
+        )
+        .await;
     }
 
     let request = ChatRequest {
@@ -113,15 +152,15 @@ pub async fn ai_enhance(
         messages: vec![
             ChatMessage {
                 role: "system",
-                content: &system_prompt,
+                content: system_prompt,
             },
             ChatMessage {
                 role: "user",
-                content: &user_content,
+                content: user_content,
             },
         ],
         temperature: Some(0.3),
-        max_tokens: 1024,
+        max_tokens,
         stream: false,
     };
     let data = post_chat(&config.endpoint, &config.api_key, &request).await?;
@@ -129,6 +168,22 @@ pub async fn ai_enhance(
         .as_str()
         .map(str::to_string)
         .ok_or_else(|| "No content in API response".into())
+}
+
+/// Improve a stash's text with the saved provider. The frontend supplies the prompt and the
+/// text; the endpoint, model and key come from the saved settings only.
+#[tauri::command]
+pub async fn ai_enhance(
+    settings_state: State<'_, Arc<SettingsState>>,
+    system_prompt: String,
+    user_content: String,
+) -> Result<String, UiError> {
+    let config = usable_config(&settings_state)?;
+    // Apple Intelligence is reached through its own command, with no endpoint to post to.
+    if is_apple_intelligence(&config) {
+        return Err("AI configuration is incomplete".into());
+    }
+    complete(&settings_state, &system_prompt, &user_content, 1024).await
 }
 
 /// The settings a connection test runs against: what the form currently shows, which may not
@@ -197,6 +252,30 @@ mod tests {
             "https://api.openai.com/v1",
             "https://evil.example/v1"
         ));
+    }
+
+    #[test]
+    fn the_provider_host_is_what_the_user_is_told() {
+        assert_eq!(provider_host("https://api.openai.com/v1"), "api.openai.com");
+        assert_eq!(provider_host(" http://localhost:11434/v1/ "), "localhost");
+        assert_eq!(provider_host("not a url"), "not a url");
+    }
+
+    #[test]
+    fn only_the_apple_preset_runs_on_device() {
+        let mut config = AiConfig {
+            enabled: true,
+            endpoint: String::new(),
+            api_key: String::new(),
+            model: String::new(),
+            preset_id: Some("apple-intelligence".to_string()),
+            has_api_key: false,
+        };
+        assert!(is_apple_intelligence(&config));
+        config.preset_id = Some("openai".to_string());
+        assert!(!is_apple_intelligence(&config));
+        config.preset_id = None;
+        assert!(!is_apple_intelligence(&config));
     }
 
     #[test]

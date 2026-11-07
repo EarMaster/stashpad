@@ -415,6 +415,21 @@
       "pickTitle": "Projektordner auswählen",
       "hint": "Verknüpfe einen Ordner, um beim Tippen von @ seine Dateien vorzuschlagen. Wird nur auf diesem Gerät gespeichert.",
       "missing": "Diesen Ordner gibt es nicht mehr. Wähle ihn erneut aus, damit weiter Dateien vorgeschlagen werden."
+    },
+    "suggest": {
+      "button": "Beschreibung vorschlagen",
+      "working": "Entwerfe…",
+      "title": "Beschreibung aus dem Ordner entwerfen?",
+      "sends": "Diese Dateien und die {count} Namen der obersten Ordnerebene werden an {provider} gesendet, um die Beschreibung zu entwerfen. Gespeichert wird erst, wenn du das Ergebnis übernimmst.",
+      "onDevice": "Diese Dateien und die {count} Namen der obersten Ordnerebene liest Apple Intelligence auf diesem Gerät, um die Beschreibung zu entwerfen. Gespeichert wird erst, wenn du das Ergebnis übernimmst.",
+      "confirm": "Senden und entwerfen",
+      "confirmOnDevice": "Entwerfen",
+      "nothingToRead": "Im Ordner gibt es keine README oder Projektdatei, aus der sich eine Beschreibung entwerfen ließe.",
+      "failed": "Die Beschreibung konnte nicht entworfen werden.",
+      "proposalLabel": "Vorgeschlagene Beschreibung",
+      "replaces": "Wenn du sie übernimmst, ersetzt sie die aktuelle Beschreibung.",
+      "use": "Beschreibung übernehmen",
+      "discard": "Verwerfen"
     }
   },
   "contextSwitcher": {
