@@ -11,6 +11,41 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-11-07
+
+### Added
+
+- **Type `@` to reference a file from your project.** Link a context to its project folder in
+  the context manager, and typing `@` in a stash suggests the files in it. Picking one writes
+  `@src/app.ts` into the stash, the same form Claude Code uses (paths with spaces are quoted),
+  so an AI tool working in that project can open the file directly. Files ignored by
+  `.gitignore` are left out. The link is saved only on this device and is never synced, so
+  each computer can point at its own copy of the project
+- **Stashes show when a referenced file has moved.** In a context with a linked folder, an
+  `@path` that no longer exists is shown dashed and underlined, and hovering it suggests a file
+  of the same name elsewhere in the project. The stash text itself is never changed
+- **Hovering an `@path` previews the file.** The card looks like an attachment's: an image shows
+  the picture, a text file its opening lines. Only files the picker lists can be previewed, and
+  files named like secrets (`.env`, `*.pem`, SSH keys) show a note instead of their contents.
+  Videos in a project folder show only their name
+- Exporting a context includes its project folder. Importing restores the link when that folder
+  exists on this device, and skips it otherwise. Signing out asks whether to keep this device's
+  folder links, and keeps them by default
+- **A context can draft its own description from its project folder.** With a folder linked and
+  AI set up, a "Suggest description" button in the context manager reads the folder's README,
+  `AGENTS.md` and project files (`package.json`, `Cargo.toml` and similar, each cut short) plus
+  the names in its top level, and asks your AI provider to summarise them. First you see exactly
+  which files would be sent and to which provider, and nothing leaves your machine until you
+  confirm; with Apple Intelligence it stays on the device. The result is only a proposal: you
+  can edit it, then use it as the description or discard it
+- **Auto-switch rules can match the name of the context's project folder.** Write `{folder}` in
+  a rule's value, for example `{folder} - Visual Studio Code`, and it stands for the name of the
+  folder linked to that context on this device. One rule then works for every project, and each
+  computer can keep its folder wherever it likes. A rule that uses it matches nothing, rather
+  than everything, on a computer where the context has no folder, and the context manager says
+  so beside the rule. In a regular expression the folder name is taken literally, so a folder
+  called `c++` is not read as a pattern
+
 ## [1.11.6] - 2026-11-05
 
 ### Fixed

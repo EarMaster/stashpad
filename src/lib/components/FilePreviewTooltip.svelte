@@ -17,7 +17,6 @@
     import { _ } from "$lib/i18n";
     import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
     import type { FilePreviewData } from "$lib/types";
-    import { convertFileSrc } from "@tauri-apps/api/core";
     import {
         FileText,
         Image,
@@ -28,6 +27,7 @@
         Loader2,
     } from "lucide-svelte";
     import Tooltip from "./Tooltip.svelte";
+    import FilePreviewContent from "./FilePreviewContent.svelte";
     import { attachmentSync } from "$lib/stores/attachment-sync.svelte";
     import { formatBytes } from "$lib/utils/format";
     import { getAttachmentKind } from "$lib/utils/files";
@@ -180,11 +180,6 @@
         adapter.startDrag("", [resolvedPath]);
     }
 
-    function getVideoSrc(content: string): string {
-        // Convert file path to Tauri asset URL for local files
-        return convertFileSrc(content);
-    }
-
     // Derive from the name, not the path: a pending attachment has no path yet, but its
     // filename is always known.
     const fileType = $derived(getAttachmentKind(fileName || filePath));
@@ -241,69 +236,6 @@
     position={showBelow ? "bottom" : "top"}
 >
     {#snippet children()}
-        {#if isLoading}
-            <!-- Loading State -->
-            <div
-                class="flex items-center justify-center w-48 h-32 bg-muted/50 p-2"
-            >
-                <div class="animate-pulse text-xs text-background/70">
-                    {$_("common.loading")}
-                </div>
-            </div>
-        {:else if error}
-            <!-- Error State -->
-            <div
-                class="flex items-center justify-center w-48 h-32 bg-muted/50 p-2"
-            >
-                <div class="text-xs text-destructive p-2 text-center">
-                    {error}
-                </div>
-            </div>
-        {:else if previewData}
-            <!-- Preview Content -->
-            {#if previewData.fileType === "image" || previewData.fileType === "video" || previewData.fileType === "text"}
-                <div class="p-2 pb-0 flex justify-center">
-                    {#if previewData.fileType === "image"}
-                        <img
-                            src={previewData.content}
-                            alt={previewData.fileName}
-                            class="block max-w-[280px] max-h-[200px] object-contain rounded"
-                        />
-                    {:else if previewData.fileType === "video"}
-                        <!-- svelte-ignore a11y_media_has_caption -->
-                        <video
-                            src={getVideoSrc(previewData.content)}
-                            class="block max-w-[280px] max-h-[200px] object-contain rounded"
-                            muted
-                            autoplay
-                            loop
-                            playsinline
-                        >
-                        </video>
-                    {:else if previewData.fileType === "text"}
-                        <pre
-                            class="w-44 h-28 overflow-hidden bg-background/20 p-2 text-[9px] font-mono text-background whitespace-pre-wrap break-words rounded">{previewData.content.slice(
-                                0,
-                                500,
-                            )}</pre>
-                    {/if}
-                </div>
-            {/if}
-            <!-- File Name Footer -->
-            <div class="p-2">
-                <div
-                    class="text-[10px] text-background/70 truncate text-center"
-                >
-                    {previewData.fileName}
-                </div>
-            </div>
-        {:else}
-            <!-- Fallback: Show filename if no preview data  -->
-            <div class="flex items-center justify-center w-48 h-16 p-2">
-                <div class="text-xs text-background/70 text-center">
-                    {fileName}
-                </div>
-            </div>
-        {/if}
+        <FilePreviewContent {isLoading} {error} {previewData} {fileName} />
     {/snippet}
 </Tooltip>

@@ -13,6 +13,17 @@
 
 import type { ContextRule } from "$lib/types";
 
+/**
+ * What a rule's value writes to mean the name of its context's project folder. The backend
+ * expands it (`FOLDER_VARIABLE` in project_folders.rs) - keep the two spelled the same.
+ */
+export const FOLDER_VARIABLE = "{folder}";
+
+/** Whether a rule's value uses the project folder variable. */
+export function usesFolderVariable(rule: Pick<ContextRule, "value">): boolean {
+    return rule.value.includes(FOLDER_VARIABLE);
+}
+
 /** One rule reduced to what it means, in a fixed shape. */
 function canonical(rule: ContextRule): string {
     return JSON.stringify([

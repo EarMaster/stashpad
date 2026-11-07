@@ -176,6 +176,20 @@ impl DbManager {
             [],
         )?;
 
+        // The project folder each context is linked to on this device. Its own table, not a
+        // column on `contexts`: every context write there is INSERT OR REPLACE, which would
+        // reset a column the statement does not name, so each save or sync pull would unlink
+        // the folder. No foreign key either, for the same reason - REPLACE deletes the row
+        // and a cascade would fire. Sync never reads or writes this table.
+        self.conn.execute(
+            "CREATE TABLE IF NOT EXISTS context_folders (
+                context_id TEXT PRIMARY KEY,
+                path TEXT NOT NULL,
+                linked_at INTEGER NOT NULL
+            )",
+            [],
+        )?;
+
         // Check/Migrate syntax column
         let syntax_exists: bool = self
             .conn
@@ -720,6 +734,47 @@ impl DbManager {
             contexts.push(context?);
         }
         Ok(contexts)
+    }
+
+    /// Every context's linked project folder on this device, as `(context_id, path)`.
+    pub fn get_context_folders(&self) -> Result<Vec<(String, String)>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT context_id, path FROM context_folders")?;
+        let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        rows.collect()
+    }
+
+    pub fn get_context_folder(&self, context_id: &str) -> Result<Option<String>> {
+        self.conn
+            .query_row(
+                "SELECT path FROM context_folders WHERE context_id = ?1",
+                params![context_id],
+                |row| row.get(0),
+            )
+            .optional()
+    }
+
+    pub fn set_context_folder(&self, context_id: &str, path: &str) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO context_folders (context_id, path, linked_at) VALUES (?1, ?2, ?3)
+             ON CONFLICT(context_id) DO UPDATE SET path = excluded.path, linked_at = excluded.linked_at",
+            params![context_id, path, now_ts()],
+        )?;
+        Ok(())
+    }
+
+    pub fn remove_context_folder(&self, context_id: &str) -> Result<()> {
+        self.conn.execute(
+            "DELETE FROM context_folders WHERE context_id = ?1",
+            params![context_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn clear_context_folders(&self) -> Result<()> {
+        self.conn.execute("DELETE FROM context_folders", [])?;
+        Ok(())
     }
 
     pub fn save_context(&mut self, ctx: &Context, origin: WriteOrigin) -> Result<()> {
@@ -3248,5 +3303,57 @@ mod tests {
             .find(|s| s.id == "doomed")
             .expect("tombstone must be sent to the server");
         assert!(tombstone.deleted, "tombstone must be flagged as deleted");
+    }
+    #[test]
+    fn a_folder_link_survives_saves_and_sync_pulls_of_its_context() {
+        // Every context write is INSERT OR REPLACE. A link stored on the row - or one
+        // hanging off it by a cascading foreign key - would be gone after either of these.
+        let mut db = create_test_db();
+        db.conn
+            .execute_batch("PRAGMA foreign_keys = ON;")
+            .expect("enable foreign keys");
+        let id = "00000000-0000-4000-8000-00000000f01d";
+        db.save_context(&plain_context(id, false), WriteOrigin::LocalEdit)
+            .unwrap();
+        db.set_context_folder(id, "/home/me/project").unwrap();
+
+        let mut renamed = plain_context(id, false);
+        renamed.name = "Renamed".to_string();
+        db.save_context(&renamed, WriteOrigin::LocalEdit).unwrap();
+        renamed.updated_at = Some(now_ts() + 1_000);
+        db.import_contexts(&[renamed]).unwrap();
+
+        assert_eq!(
+            db.get_context_folder(id).unwrap().as_deref(),
+            Some("/home/me/project")
+        );
+    }
+
+    #[test]
+    fn a_folder_link_never_reaches_the_sync_payload() {
+        let mut db = create_test_db();
+        let id = "00000000-0000-4000-8000-00000000f01e";
+        db.save_context(&plain_context(id, false), WriteOrigin::LocalEdit)
+            .unwrap();
+        db.set_context_folder(id, "/home/me/secret-project")
+            .unwrap();
+
+        let payload = serde_json::to_string(&db.get_contexts_for_sync().unwrap()).unwrap();
+        assert!(!payload.contains("secret-project"));
+    }
+
+    #[test]
+    fn relinking_replaces_the_folder_and_clearing_removes_every_link() {
+        let db = create_test_db();
+        db.set_context_folder("a", "/one").unwrap();
+        db.set_context_folder("a", "/two").unwrap();
+        db.set_context_folder("b", "/three").unwrap();
+        assert_eq!(db.get_context_folder("a").unwrap().as_deref(), Some("/two"));
+
+        db.remove_context_folder("b").unwrap();
+        assert_eq!(db.get_context_folders().unwrap().len(), 1);
+
+        db.clear_context_folders().unwrap();
+        assert!(db.get_context_folders().unwrap().is_empty());
     }
 }

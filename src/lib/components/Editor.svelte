@@ -45,6 +45,16 @@
     refLabel,
   } from "$lib/utils/stash-refs";
   import {
+    findFileTrigger,
+    formatFileRef,
+    rankFileCandidates,
+  } from "$lib/utils/file-refs";
+  import {
+    getContextFiles,
+    loadContextFiles,
+    loadContextFolders,
+  } from "$lib/stores/context-folders.svelte";
+  import {
     applyWrap,
     applyCode,
     applyLinePrefix,
@@ -152,6 +162,21 @@
   let refSuggestions = $state<StashItem[]>([]);
   let focusedRefIndex = $state(0);
   let refTriggerStart = $state<number | null>(null);
+
+  // File picker, opened by `@` when the context has a project folder on this device
+  let showFileSuggestions = $state(false);
+  let fileSuggestions = $state<string[]>([]);
+  let focusedFileIndex = $state(0);
+  let fileTriggerStart = $state<number | null>(null);
+  let projectFiles = $derived(getContextFiles(currentContextId));
+
+  // Walk the folder again whenever an editor opens on a context, so files added since the
+  // last walk are offered.
+  $effect(() => {
+    const contextId = currentContextId;
+    if (!contextId) return;
+    loadContextFolders().then(() => loadContextFiles(contextId, true));
+  });
 
   // File preview state
   let previewModalOpen = $state(false);
@@ -377,6 +402,50 @@
   function handleInput() {
     checkForTagTrigger();
     checkForRefTrigger();
+    checkForFileTrigger();
+  }
+
+  function checkForFileTrigger() {
+    if (!textareaRef || !projectFiles) {
+      showFileSuggestions = false;
+      return;
+    }
+
+    const end = getCursorParams().end;
+    const trigger = findFileTrigger(content.slice(0, end));
+    if (!trigger) {
+      showFileSuggestions = false;
+      return;
+    }
+
+    fileSuggestions = rankFileCandidates(trigger.query, projectFiles);
+    if (fileSuggestions.length === 0) {
+      showFileSuggestions = false;
+      return;
+    }
+    showSuggestions = false;
+    showRefSuggestions = false;
+    showFileSuggestions = true;
+    focusedFileIndex = 0;
+    fileTriggerStart = trigger.start;
+    updateSuggestionPosition(end);
+  }
+
+  function insertFile(path: string) {
+    if (!textareaRef || fileTriggerStart === null) return;
+
+    const before = content.slice(0, fileTriggerStart);
+    const after = content.slice(textareaRef.selectionEnd);
+    const ref = formatFileRef(path);
+    content = before + ref + " " + after;
+
+    const newCursorPos = before.length + ref.length + 1;
+    showFileSuggestions = false;
+
+    setTimeout(() => {
+      textareaRef?.focus();
+      textareaRef?.setSelectionRange(newCursorPos, newCursorPos);
+    }, 0);
   }
 
   function checkForRefTrigger() {
@@ -805,6 +874,32 @@
   }
 
   function handleKeydown(e: KeyboardEvent) {
+    if (showFileSuggestions && fileSuggestions.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        focusedFileIndex = (focusedFileIndex + 1) % fileSuggestions.length;
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        focusedFileIndex =
+          (focusedFileIndex - 1 + fileSuggestions.length) % fileSuggestions.length;
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        if (fileSuggestions[focusedFileIndex]) {
+          insertFile(fileSuggestions[focusedFileIndex]);
+        }
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        showFileSuggestions = false;
+        return;
+      }
+    }
+
     if (showRefSuggestions && refSuggestions.length > 0) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
@@ -1309,6 +1404,7 @@
         if (!hoveringSuggestions) {
           showSuggestions = false;
           showRefSuggestions = false;
+          showFileSuggestions = false;
         }
       }, 200)}
     use:focusOnMount
@@ -1367,6 +1463,40 @@
           <span class="truncate {candidate.completed ? 'text-green-500' : ''}"
             >{refLabel(candidate.content)}</span
           >
+        </button>
+      {/each}
+    </div>
+  {/if}
+
+  {#if showFileSuggestions}
+    <div
+      class="absolute z-50 bg-popover border border-border rounded-md shadow-lg flex flex-col w-80 max-h-[220px] overflow-y-auto"
+      style="top: {suggestionPosition.top}px; left: {suggestionPosition.left}px;"
+      onmouseenter={() => (hoveringSuggestions = true)}
+      onmouseleave={() => (hoveringSuggestions = false)}
+      role="listbox"
+      aria-label={$_("editor.referenceFile")}
+      tabindex="-1"
+    >
+      {#each fileSuggestions as path, i (path)}
+        {@const slash = path.lastIndexOf("/")}
+        <button
+          type="button"
+          role="option"
+          aria-selected={i === focusedFileIndex}
+          class="flex items-baseline gap-1.5 text-xs px-2 py-1.5 text-left font-mono hover:bg-muted transition-colors {i ===
+          focusedFileIndex
+            ? 'bg-primary/10 text-primary'
+            : ''}"
+          onclick={() => {
+            insertFile(path);
+            hoveringSuggestions = false;
+          }}
+        >
+          <span class="shrink-0">{path.slice(slash + 1)}</span>
+          {#if slash > 0}
+            <span class="truncate opacity-50">{path.slice(0, slash)}</span>
+          {/if}
         </button>
       {/each}
     </div>

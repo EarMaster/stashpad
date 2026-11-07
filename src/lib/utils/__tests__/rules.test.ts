@@ -13,7 +13,9 @@
 
 import { describe, it, expect } from 'vitest';
 import type { ContextRule } from '$lib/types';
-import { sameRules } from '../rules';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { FOLDER_VARIABLE, sameRules, usesFolderVariable } from '../rules';
 
 const coil: ContextRule = {
     ruleType: 'title',
@@ -50,5 +52,24 @@ describe('sameRules', () => {
     it('keeps the order of the rules significant', () => {
         const other: ContextRule = { ...coil, ruleType: 'process', value: 'Code.exe' };
         expect(sameRules([coil, other], [other, coil])).toBe(false);
+    });
+});
+
+describe('the project folder variable', () => {
+    it('is recognised anywhere in a rule value', () => {
+        expect(usesFolderVariable({ value: '{folder}' })).toBe(true);
+        expect(usesFolderVariable({ value: 'x - {folder} - code' })).toBe(true);
+        expect(usesFolderVariable({ value: 'folder' })).toBe(false);
+        expect(usesFolderVariable({ value: '{ folder }' })).toBe(false);
+    });
+
+    it('is spelled the way the backend expands it', () => {
+        // FOLDER_VARIABLE in src-tauri/src/project_folders.rs. Changing one without the
+        // other leaves rules that the editor warns about and the matcher ignores.
+        const backend = readFileSync(
+            resolve(__dirname, '../../../../src-tauri/src/project_folders.rs'),
+            'utf-8',
+        );
+        expect(backend).toContain(`pub const FOLDER_VARIABLE: &str = "${FOLDER_VARIABLE}";`);
     });
 });

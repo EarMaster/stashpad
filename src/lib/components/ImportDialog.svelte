@@ -4,6 +4,7 @@
 -->
 
 <script lang="ts">
+    import { loadContextFolders } from "$lib/stores/context-folders.svelte";
     import { _ } from "$lib/i18n";
     import { compareTimestamps } from "$lib/utils/time";
     import { portal } from "$lib/actions/portal";
@@ -378,6 +379,8 @@
 
             await adapter.commitImport(context.id, selectedStashes, importToken);
             importToken = null;
+            // The import links the archive's project folder when it exists here.
+            await loadContextFolders(true);
 
             onImportComplete();
             handleClose();

@@ -18,6 +18,7 @@
     import ContextManagerItem from "./ContextManagerItem.svelte";
 
     import { log } from "$lib/utils/log";
+    import { isAIUsable } from "$lib/utils/ai-presets";
     let { onBack, onSelect } = $props<{
         onBack: () => void;
         onSelect?: (id: string) => void;
@@ -73,9 +74,17 @@
         }),
     );
 
+    // Whether the AI provider is set up, which gates drafting a description from a folder.
+    let aiReady = $state(false);
+
     async function load() {
         try {
             contexts = await adapter.getContexts();
+            try {
+                aiReady = isAIUsable((await adapter.getSettings()).aiConfig);
+            } catch (e) {
+                log.error("Failed to read the AI settings", e);
+            }
 
             // Load stashes and count per context
             const stashes = await adapter.loadStashes();
@@ -301,6 +310,7 @@
                                 total: stashTotals["default"] || 0,
                                 size: contextSizes["default"] || 0,
                             }}
+                            aiReady={aiReady}
                             onSave={saveContext}
                             onExport={() => openExportDialog(defaultContext)}
                             onImport={() => openImportDialog(defaultContext)}
@@ -322,6 +332,7 @@
                                 total: stashTotals[context.id] || 0,
                                 size: contextSizes[context.id] || 0,
                             }}
+                            aiReady={aiReady}
                             onSave={saveContext}
                             onDelete={(shift) => {
                                 if (shift) {

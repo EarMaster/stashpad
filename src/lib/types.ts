@@ -236,6 +236,26 @@ export interface IStorageService {
     commitImport(contextId: string, stashes: StashItem[], token: string): Promise<number>;
     /** Drop the files an abandoned import had extracted. */
     discardImport(token: string): Promise<void>;
+
+    /** Every context's linked project folder on this device. */
+    getContextFolders(): Promise<ContextFolder[]>;
+    /** Ask for a context's project folder and link it; null when the dialog is cancelled. */
+    pickContextFolder(contextId: string, title: string): Promise<ContextFolder | null>;
+    unlinkContextFolder(contextId: string): Promise<void>;
+    /** Drop every folder link on this device. */
+    clearContextFolders(): Promise<void>;
+    /** What drafting a description from the context's folder would send, and where. Sends nothing. */
+    previewContextDigest(contextId: string): Promise<DigestPreview>;
+    /** Draft a description of the context's project from its folder. A proposal; nothing is saved. */
+    suggestContextDescription(contextId: string): Promise<string>;
+    /**
+     * The preview of a file in a context's linked folder, for the hover card on an `@path` -
+     * the same shape an attachment's has. `fileType` is `withheld` for a file named like
+     * one that holds secrets, whose contents are never read.
+     */
+    previewContextFile(contextId: string, path: string): Promise<FilePreviewData>;
+    /** The files in a context's linked folder; `refresh` walks the folder again. */
+    listContextFiles(contextId: string, refresh: boolean): Promise<FileIndex>;
     isWindows10(): Promise<boolean>;
     getDeviceName(): Promise<string>;
     /**
@@ -426,6 +446,41 @@ export interface ArchiveMetadata {
     name: string;
     description: string;
     rules: unknown[];
+    /**
+     * The project folder the archive's context was linked to - present only when that
+     * folder exists on this device, and then linked by the import.
+     */
+    projectFolder?: string;
+}
+
+/**
+ * A context's project folder on this device. Never part of `Context`: a path only means
+ * something on the machine it was picked on, so it is stored apart and never synced.
+ */
+export interface ContextFolder {
+    contextId: string;
+    path: string;
+    /** False when the folder is gone; the link is kept so it can be relinked. */
+    exists: boolean;
+}
+
+/** What drafting a description from a folder would send, shown before anything is. */
+export interface DigestPreview {
+    folder: string;
+    /** The files that would be read. */
+    files: string[];
+    /** How many top-level names would go along with them. */
+    layoutEntries: number;
+    /** The provider's host; empty when it runs on this device. */
+    provider: string;
+    onDevice: boolean;
+}
+
+/** The files of a linked folder, relative to it, with `/` separators. */
+export interface FileIndex {
+    files: string[];
+    /** The folder held more files than the picker lists. */
+    truncated: boolean;
 }
 
 /** What an account is storing in the cloud. Attachment bytes are the only capped part. */

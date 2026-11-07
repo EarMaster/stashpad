@@ -256,7 +256,12 @@
         "attachmentUploadFailed": "{fileName} konnte nicht hochgeladen werden — neuer Versuch in {minutes} Min.",
         "attachmentUploadFailedMany": "{fileName} und {count} weitere konnten nicht hochgeladen werden — neuer Versuch in {minutes} Min.",
         "sessionExpired": "Sitzung abgelaufen",
-        "loginAgain": "Erneut Anmelden"
+        "loginAgain": "Erneut Anmelden",
+        "logoutConfirm": {
+          "title": "Abmelden?",
+          "description": "Die Synchronisierung auf diesem Gerät stoppt. Deine Stashes bleiben hier.",
+          "keepFolders": "Die mit deinen Kontexten verknüpften Projektordner auf diesem Gerät behalten"
+        }
       }
     }
   },
@@ -393,7 +398,9 @@
       "exact": "ist exakt",
       "valuePlaceholder": "Wert (z.B. 'code', 'Projekt X')",
       "matchCase": "Groß-/Kleinschreibung",
-      "useRegex": "RegEx verwenden"
+      "useRegex": "RegEx verwenden",
+      "folderHint": "Verwende {token} in einem Wert für den Namen des Projektordners dieses Kontexts. Dafür muss auf diesem Gerät ein Ordner verknüpft sein.",
+      "folderMissing": "Auf diesem Gerät ist kein Projektordner verknüpft, deshalb trifft diese Regel nie zu."
     },
     "stats": {
       "stash": "Stash",
@@ -401,6 +408,30 @@
       "storage": "Speicher verwendet",
       "used": "verwendet",
       "lastUsed": "zuletzt verwendet"
+    },
+    "folder": {
+      "label": "Projektordner",
+      "link": "Ordner verknüpfen",
+      "change": "Ändern",
+      "unlink": "Trennen",
+      "pickTitle": "Projektordner auswählen",
+      "hint": "Verknüpfe einen Ordner, um beim Tippen von @ seine Dateien vorzuschlagen. Wird nur auf diesem Gerät gespeichert.",
+      "missing": "Diesen Ordner gibt es nicht mehr. Wähle ihn erneut aus, damit weiter Dateien vorgeschlagen werden."
+    },
+    "suggest": {
+      "button": "Beschreibung vorschlagen",
+      "working": "Entwerfe…",
+      "title": "Beschreibung aus dem Ordner entwerfen?",
+      "sends": "Diese Dateien und die {count} Namen der obersten Ordnerebene werden an {provider} gesendet, um die Beschreibung zu entwerfen. Gespeichert wird erst, wenn du das Ergebnis übernimmst.",
+      "onDevice": "Diese Dateien und die {count} Namen der obersten Ordnerebene liest Apple Intelligence auf diesem Gerät, um die Beschreibung zu entwerfen. Gespeichert wird erst, wenn du das Ergebnis übernimmst.",
+      "confirm": "Senden und entwerfen",
+      "confirmOnDevice": "Entwerfen",
+      "nothingToRead": "Im Ordner gibt es keine README oder Projektdatei, aus der sich eine Beschreibung entwerfen ließe.",
+      "failed": "Die Beschreibung konnte nicht entworfen werden.",
+      "proposalLabel": "Vorgeschlagene Beschreibung",
+      "replaces": "Wenn du sie übernimmst, ersetzt sie die aktuelle Beschreibung.",
+      "use": "Beschreibung übernehmen",
+      "discard": "Verwerfen"
     }
   },
   "contextSwitcher": {
@@ -548,7 +579,8 @@
     "clearConfirm": {
       "title": "Editor leeren?",
       "description": "Dies entfernt den gesamten Text und alle Anhänge. Diese Aktion kann nicht rückgängig gemacht werden."
-    }
+    },
+    "referenceFile": "Auf eine Datei verweisen"
   },
   "shortcutInput": {
     "ariaLabel": "Tastenkürzel-Eingabe. Drücke Enter, um ein neues Tastenkürzel aufzuzeichnen."
@@ -624,5 +656,10 @@
       "subscription_required": "Für die Cloud-Synchronisierung brauchst du ein Abo. Du kannst es in den Einstellungen abschließen.",
       "storage_full": "Dein Cloud-Speicher ist voll. Entferne Anhänge oder erweitere dein Abo, um mehr hinzuzufügen."
     }
+  },
+  "fileRef": {
+    "missing": "Nicht im Projektordner",
+    "didYouMean": "Meintest du {path}?",
+    "withheld": "Keine Vorschau: Solche Dateien enthalten meist Geheimnisse"
   }
 }

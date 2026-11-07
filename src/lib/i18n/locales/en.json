@@ -256,7 +256,12 @@
         "attachmentUploadFailed": "Could not upload {fileName} — trying again in {minutes} min",
         "attachmentUploadFailedMany": "Could not upload {fileName} and {count} more — trying again in {minutes} min",
         "sessionExpired": "Session expired",
-        "loginAgain": "Log In Again"
+        "loginAgain": "Log In Again",
+        "logoutConfirm": {
+          "title": "Sign out?",
+          "description": "Sync stops on this device. Your stashes stay here.",
+          "keepFolders": "Keep the project folders linked to your contexts on this device"
+        }
       }
     }
   },
@@ -393,7 +398,9 @@
       "exact": "is exactly",
       "valuePlaceholder": "Value (e.g. 'code', 'Project X')",
       "matchCase": "Match Case",
-      "useRegex": "Use Regex"
+      "useRegex": "Use Regex",
+      "folderHint": "Use {token} in a value for the name of this context's project folder. It needs a folder linked on this device.",
+      "folderMissing": "No project folder is linked on this device, so this rule never matches."
     },
     "stats": {
       "stash": "stash",
@@ -401,6 +408,30 @@
       "storage": "storage used",
       "used": "used",
       "lastUsed": "last used"
+    },
+    "folder": {
+      "label": "Project folder",
+      "link": "Link folder",
+      "change": "Change",
+      "unlink": "Unlink",
+      "pickTitle": "Choose the project folder",
+      "hint": "Link a folder to suggest its files when you type @. Only saved on this device.",
+      "missing": "This folder no longer exists. Choose it again to keep suggesting files."
+    },
+    "suggest": {
+      "button": "Suggest description",
+      "working": "Drafting…",
+      "title": "Draft a description from the folder?",
+      "sends": "These files, and the {count} names in the folder's top level, will be sent to {provider} to draft the description. Nothing is saved until you accept the result.",
+      "onDevice": "These files, and the {count} names in the folder's top level, are read by Apple Intelligence on this device to draft the description. Nothing is saved until you accept the result.",
+      "confirm": "Send and draft",
+      "confirmOnDevice": "Draft",
+      "nothingToRead": "There is no README or project file in the folder to draft a description from.",
+      "failed": "Could not draft a description.",
+      "proposalLabel": "Suggested description",
+      "replaces": "Using it replaces the current description.",
+      "use": "Use this description",
+      "discard": "Discard"
     }
   },
   "contextSwitcher": {
@@ -548,7 +579,8 @@
     "clearConfirm": {
       "title": "Clear Editor?",
       "description": "This will remove all text and attachments. This action cannot be undone."
-    }
+    },
+    "referenceFile": "Reference a file"
   },
   "shortcutInput": {
     "ariaLabel": "Keyboard shortcut input. Press Enter to record a new shortcut."
@@ -624,5 +656,10 @@
       "subscription_required": "Cloud Sync needs a subscription. You can upgrade under Settings.",
       "storage_full": "Your cloud storage is full. Remove attachments or upgrade to add more."
     }
+  },
+  "fileRef": {
+    "missing": "Not in the project folder",
+    "didYouMean": "Did you mean {path}?",
+    "withheld": "No preview: files like this usually hold secrets"
   }
 }

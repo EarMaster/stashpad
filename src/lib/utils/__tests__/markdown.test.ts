@@ -13,6 +13,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { getTagHue, safeParse } from '../markdown';
+import { makeFileRefResolver } from '../file-refs';
 
 describe('markdown utilities', () => {
     describe('safeParse', () => {
@@ -31,6 +32,46 @@ describe('markdown utilities', () => {
             const result = safeParse('@path/to/file.ts');
             expect(result).toContain('class="ai-mention"');
             expect(result).toContain('@path/to/file.ts');
+        });
+
+        it('should highlight a quoted @ path with spaces as one mention', () => {
+            const result = safeParse('See @"docs/release notes.md" first');
+            expect(result).toContain('<span class="ai-mention">@"docs/release notes.md"</span>');
+        });
+
+        it('should leave sentence punctuation outside an @ mention', () => {
+            const result = safeParse('Look at @src/app.ts.');
+            expect(result).toContain('<span class="ai-mention">@src/app.ts</span>.');
+        });
+
+        it('should turn @ paths into hoverable file chips when a folder is linked', () => {
+            const resolve = makeFileRefResolver(['src/app.ts', 'docs/release notes.md']);
+            const result = safeParse(
+                '@src/app.ts and @src/gone.ts and @"docs/release notes.md"',
+                undefined,
+                resolve,
+            );
+            expect(result).toContain(
+                '<span class="ai-mention file-ref" data-file-path="src/app.ts" tabindex="0">@src/app.ts</span>',
+            );
+            expect(result).toContain(
+                '<span class="ai-mention file-ref file-ref-unresolved" data-file-path="src/gone.ts" tabindex="0">',
+            );
+            expect(result).toContain('data-file-path="docs/release notes.md"');
+            // No native tooltip left to compete with the preview card.
+            expect(result).not.toContain('title="file:');
+        });
+
+        it('should keep markup in a path inert in the file chip', () => {
+            const result = safeParse('@a<img>.ts', undefined, makeFileRefResolver([]));
+            // The serializer leaves `<` unescaped inside an attribute value, so look at what
+            // the markup builds rather than at its text: one chip, no element from the path.
+            const template = document.createElement('template');
+            template.innerHTML = result;
+            expect(template.content.querySelector('img')).toBeNull();
+            const chip = template.content.querySelector<HTMLElement>('[data-file-path]');
+            expect(chip?.dataset.filePath).toBe('a<img>.ts');
+            expect(chip?.textContent).toBe('@a<img>.ts');
         });
 
         it('should highlight @ mentions after whitespace', () => {

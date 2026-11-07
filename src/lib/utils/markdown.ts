@@ -15,6 +15,7 @@ import { markedHighlight } from "marked-highlight";
 import hljs from "highlight.js";
 import DOMPurify from "dompurify";
 import type { RefState } from "./stash-refs";
+import { readFileRef, type FileRefResolver } from "./file-refs";
 
 /**
  * How a `stash:` link should look, supplied by the component rendering it.
@@ -33,6 +34,8 @@ export type RefResolver = (id: string) => RefDisplay;
 // Set only for the duration of one synchronous `safeParse` call. marked renders
 // synchronously, so no other parse can observe it.
 let activeRefResolver: RefResolver | null = null;
+// The same, for `@path` references to files in the context's linked project folder.
+let activeFileResolver: FileRefResolver | null = null;
 
 const STASH_HREF = /^stash:([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/;
 
@@ -86,19 +89,34 @@ const markedInstance = new Marked(
                     }
                     return undefined;
                 },
-                tokenizer(src, tokens) {
-                    const rule = /^@\S+/;
-                    const match = rule.exec(src);
-                    if (match) {
+                // `@"quoted path"` or a bare `@path`, read the way the editor writes them.
+                // Sentence punctuation after a bare path stays outside the mention.
+                tokenizer(src) {
+                    const ref = readFileRef(src);
+                    if (ref) {
                         return {
                             type: 'mention',
-                            raw: match[0],
-                            text: match[0]
+                            raw: ref.raw,
+                            text: ref.raw,
+                            path: ref.path,
                         };
                     }
                 },
+                // With a linked folder, the mention becomes a file chip the card can show a
+                // preview for, marked when the folder does not hold it. Like a stash chip,
+                // the path rides in `title` because DOMPurify drops data attributes;
+                // `injectFileRefs` moves it after sanitizing. Without a folder, a mention
+                // renders as it always has.
                 renderer(token) {
-                    return `<span class="ai-mention">${token.text}</span>`;
+                    const display = activeFileResolver?.(token.path as string);
+                    if (!display) {
+                        return `<span class="ai-mention">${escapeHtml(token.text)}</span>`;
+                    }
+                    const state = display.state === 'resolved' ? '' : ' file-ref-unresolved';
+                    return (
+                        `<span class="ai-mention file-ref${state}" title="file:${escapeHtml(token.path as string)}">` +
+                        `${escapeHtml(token.text)}</span>`
+                    );
                 }
             },
             {
@@ -378,6 +396,27 @@ function injectRefs(html: string): string {
 }
 
 /**
+ * Give the file chips left by the mention renderer their behaviour: the path moves from
+ * `title` (so no native tooltip competes with the preview card) to `data-file-path`, and
+ * the chip becomes focusable so the preview is reachable from the keyboard.
+ *
+ * Only spans that carry the renderer's own class are touched, and the path is read back as
+ * an attribute value, never spliced into markup.
+ */
+function injectFileRefs(html: string): string {
+    if (!html.includes('title="file:')) return html;
+    const template = document.createElement('template');
+    template.innerHTML = html;
+    for (const chip of template.content.querySelectorAll<HTMLElement>('span.file-ref[title^="file:"]')) {
+        const path = chip.getAttribute('title')!.slice('file:'.length);
+        chip.removeAttribute('title');
+        chip.setAttribute('data-file-path', path);
+        chip.setAttribute('tabindex', '0');
+    }
+    return template.innerHTML;
+}
+
+/**
  * Parse markdown content and sanitize the output to prevent XSS.
  * Use this instead of raw `marked.parse()` + `{@html}`.
  *
@@ -386,19 +425,27 @@ function injectRefs(html: string): string {
  *  2. DOMPurify – strips anything unsafe (XSS prevention)
  *  3. injectBadges – expands placeholders into fully-styled badge HTML
  *  4. injectRefs – makes `stash:` reference chips clickable
+ *  5. injectFileRefs – makes `@path` file chips hoverable
  *
- * `resolveRef` supplies the live label and state of each referenced stash.
+ * `resolveRef` supplies the live label and state of each referenced stash, and
+ * `resolveFile` checks `@path`s against the context's linked project folder.
  */
-export function safeParse(content: string, resolveRef?: RefResolver): string {
+export function safeParse(
+    content: string,
+    resolveRef?: RefResolver,
+    resolveFile?: FileRefResolver,
+): string {
     activeRefResolver = resolveRef ?? null;
+    activeFileResolver = resolveFile ?? null;
     let raw: string;
     try {
         raw = markedInstance.parse(content) as string;
     } finally {
         activeRefResolver = null;
+        activeFileResolver = null;
     }
     const sanitized = sanitizeHtml(raw);
-    return injectRefs(injectBadges(sanitized));
+    return injectFileRefs(injectRefs(injectBadges(sanitized)));
 }
 
 

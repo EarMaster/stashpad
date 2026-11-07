@@ -40,6 +40,8 @@ mod keychain;
 mod localkey;
 mod logging;
 mod models;
+mod project_digest;
+mod project_folders;
 mod settings;
 mod shortcuts;
 mod stashes;
@@ -85,38 +87,49 @@ impl ContextMatcher {
     }
 
     /// The id of the first context whose rules match, if any.
+    ///
+    /// `folder_names` maps a context id to the name of the project folder linked to it on
+    /// this device, which a rule's `{folder}` stands for. A rule using it for a context with
+    /// no folder never matches.
     fn match_context(
         &mut self,
         contexts: &[Context],
+        folder_names: &HashMap<String, String>,
         app_name: &str,
         title: &str,
     ) -> Option<String> {
         for ctx in contexts {
+            let folder = folder_names.get(&ctx.id).map(String::as_str);
             for rule in &ctx.rules {
                 let target = if rule.rule_type == "process" {
                     app_name
                 } else {
                     title
                 };
+                let Some(value) =
+                    project_folders::expand_folder_variable(&rule.value, folder, rule.use_regex)
+                else {
+                    continue;
+                };
 
                 let matched = if rule.use_regex {
                     let pattern = if rule.match_case {
-                        rule.value.clone()
+                        value
                     } else {
-                        format!("(?i){}", rule.value)
+                        format!("(?i){}", value)
                     };
                     self.regex_for(pattern)
                         .map(|re| re.is_match(target))
                         .unwrap_or(false)
                 } else if rule.match_case {
                     if rule.match_type == "exact" {
-                        target == rule.value
+                        target == value
                     } else {
-                        target.contains(&rule.value)
+                        target.contains(&value)
                     }
                 } else {
                     let target = target.to_lowercase();
-                    let value = rule.value.to_lowercase();
+                    let value = value.to_lowercase();
                     if rule.match_type == "exact" {
                         target == value
                     } else {
@@ -228,12 +241,21 @@ pub fn run() {
 
                     // Copy the rules out and drop the lock immediately. Matching is
                     // pure computation and has no business holding the database.
-                    let contexts = {
+                    let (contexts, folder_names) = {
                         let db = db_state_clone.lock_db();
-                        db.get_contexts().unwrap_or_default()
+                        let folder_names: HashMap<String, String> = db
+                            .get_context_folders()
+                            .unwrap_or_default()
+                            .into_iter()
+                            .filter_map(|(id, path)| {
+                                project_folders::folder_name(&path).map(|name| (id, name))
+                            })
+                            .collect();
+                        (db.get_contexts().unwrap_or_default(), folder_names)
                     };
 
-                    let matched_context_id = matcher.match_context(&contexts, &app_name, &title);
+                    let matched_context_id =
+                        matcher.match_context(&contexts, &folder_names, &app_name, &title);
 
                     let app_name_lower = app_name.to_lowercase();
                     if !app_name_lower.contains("stashpad")
@@ -554,6 +576,14 @@ pub fn run() {
             contexts::claim_pending_contexts,
             contexts::mark_contexts_synced,
             contexts::delete_context,
+            project_folders::get_context_folders,
+            project_folders::pick_context_folder,
+            project_folders::unlink_context_folder,
+            project_folders::clear_context_folders,
+            project_folders::list_context_files,
+            project_folders::preview_context_file,
+            project_digest::preview_context_digest,
+            project_digest::ai_suggest_description,
             utils::set_autostart,
             utils::get_autostart_enabled,
             sync::fetch_cloud_account,
@@ -683,5 +713,187 @@ fn cleanup_database_state<R: tauri::Runtime>(app_handle: &tauri::AppHandle<R>) {
                 thread::sleep(RETRY_DELAY);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod matcher_tests {
+    use super::*;
+    use crate::models::ContextRule;
+
+    fn rule(rule_type: &str, value: &str, match_type: &str, use_regex: bool) -> ContextRule {
+        ContextRule {
+            rule_type: rule_type.to_string(),
+            value: value.to_string(),
+            match_type: match_type.to_string(),
+            match_case: false,
+            use_regex,
+        }
+    }
+
+    fn context(id: &str, rules: Vec<ContextRule>) -> Context {
+        Context {
+            id: id.to_string(),
+            name: id.to_string(),
+            description: None,
+            rules,
+            last_used: None,
+            updated_at: None,
+            deleted: false,
+        }
+    }
+
+    fn folders(pairs: &[(&str, &str)]) -> HashMap<String, String> {
+        pairs
+            .iter()
+            .map(|(id, name)| (id.to_string(), name.to_string()))
+            .collect()
+    }
+
+    fn matched(
+        contexts: &[Context],
+        folder_names: &HashMap<String, String>,
+        app: &str,
+        title: &str,
+    ) -> Option<String> {
+        ContextMatcher::new().match_context(contexts, folder_names, app, title)
+    }
+
+    #[test]
+    fn rules_without_the_variable_match_as_they_always_did() {
+        let contexts = vec![
+            context("work", vec![rule("process", "excel", "contains", false)]),
+            context("notes", vec![rule("title", "Project X", "exact", false)]),
+        ];
+        let none = HashMap::new();
+
+        assert_eq!(
+            matched(&contexts, &none, "EXCEL.EXE", "Book1").as_deref(),
+            Some("work")
+        );
+        assert_eq!(
+            matched(&contexts, &none, "code", "project x").as_deref(),
+            Some("notes")
+        );
+        assert_eq!(matched(&contexts, &none, "code", "Project X - draft"), None);
+    }
+
+    #[test]
+    fn the_variable_matches_the_name_of_the_contexts_own_folder() {
+        let contexts = vec![
+            context(
+                "a",
+                vec![rule(
+                    "title",
+                    "{folder} - Visual Studio Code",
+                    "contains",
+                    false,
+                )],
+            ),
+            context(
+                "b",
+                vec![rule(
+                    "title",
+                    "{folder} - Visual Studio Code",
+                    "contains",
+                    false,
+                )],
+            ),
+        ];
+        let names = folders(&[("a", "stashpad"), ("b", "website")]);
+
+        assert_eq!(
+            matched(
+                &contexts,
+                &names,
+                "code",
+                "main.rs - stashpad - Visual Studio Code"
+            )
+            .as_deref(),
+            Some("a")
+        );
+        assert_eq!(
+            matched(
+                &contexts,
+                &names,
+                "code",
+                "index.astro - website - Visual Studio Code"
+            )
+            .as_deref(),
+            Some("b")
+        );
+        assert_eq!(
+            matched(&contexts, &names, "code", "other - Visual Studio Code"),
+            None
+        );
+    }
+
+    #[test]
+    fn a_rule_using_the_variable_never_matches_a_context_with_no_folder_here() {
+        // An empty expansion would make "{folder}" contain nothing, and match every window.
+        let contexts = vec![context(
+            "a",
+            vec![rule("title", "{folder}", "contains", false)],
+        )];
+
+        assert_eq!(
+            matched(&contexts, &HashMap::new(), "code", "any window at all"),
+            None
+        );
+        assert_eq!(
+            matched(&contexts, &folders(&[("other", "x")]), "code", "x"),
+            None
+        );
+    }
+
+    #[test]
+    fn the_variable_works_in_exact_and_case_sensitive_rules() {
+        let mut exact = rule("title", "{folder}", "exact", false);
+        let contexts = vec![context("a", vec![exact.clone()])];
+        let names = folders(&[("a", "Stashpad")]);
+        assert_eq!(
+            matched(&contexts, &names, "code", "stashpad").as_deref(),
+            Some("a")
+        );
+
+        exact.match_case = true;
+        let contexts = vec![context("a", vec![exact])];
+        assert_eq!(matched(&contexts, &names, "code", "stashpad"), None);
+        assert_eq!(
+            matched(&contexts, &names, "code", "Stashpad").as_deref(),
+            Some("a")
+        );
+    }
+
+    #[test]
+    fn in_a_regex_rule_the_folder_name_matches_only_itself() {
+        let contexts = vec![context(
+            "a",
+            vec![rule("title", r"^{folder} \(Git\)", "contains", true)],
+        )];
+        let names = folders(&[("a", "c++.app")]);
+
+        assert_eq!(
+            matched(&contexts, &names, "x", "c++.app (Git)").as_deref(),
+            Some("a")
+        );
+        // Unescaped, `c++.app` would match "cc-app" - the dots and pluses are not wildcards.
+        assert_eq!(matched(&contexts, &names, "x", "ccc-app (Git)"), None);
+    }
+
+    #[test]
+    fn a_rule_that_cannot_expand_does_not_stop_the_contexts_other_rules() {
+        let contexts = vec![context(
+            "a",
+            vec![
+                rule("title", "{folder}", "contains", false),
+                rule("process", "excel", "contains", false),
+            ],
+        )];
+
+        assert_eq!(
+            matched(&contexts, &HashMap::new(), "excel.exe", "Book1").as_deref(),
+            Some("a")
+        );
     }
 }

@@ -1,0 +1,709 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+
+// Copyright (C) 2026 Nico Wiedemann
+//
+// This file is part of Stashpad.
+// Stashpad is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License, version 3,
+// as published by the Free Software Foundation.
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+// See the GNU Affero General Public License for more details.
+
+//! The project folder a context is linked to on this device, and the file list behind the
+//! editor's `@path` picker.
+//!
+//! A folder path only means something on the machine it was picked on, so the link lives in
+//! its own local table (see `context_folders` in db.rs) and never reaches sync.
+//!
+//! The webview never names a folder. It is picked in a dialog that runs here, the same rule
+//! handover.rs applies to files, and what goes back to the page is the folder's path for
+//! display and the *names* of the files inside it - never their contents.
+
+use std::collections::HashMap;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock};
+
+use serde::Serialize;
+use tauri::{AppHandle, State};
+use tauri_plugin_dialog::DialogExt;
+
+use crate::db::DbManager;
+use crate::models::FilePreviewData;
+use crate::state::DbState;
+use crate::uierror::UiError;
+
+/// More files than this and the picker stops listing. A repository that large is mostly
+/// generated or vendored files nobody `@`-mentions, and walking it on every refresh would
+/// stall the editor.
+const MAX_FILES: usize = 20_000;
+
+/// A context's folder link, as the UI shows it.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextFolder {
+    pub context_id: String,
+    pub path: String,
+    /// False when the folder is gone - an unmounted drive, a renamed parent. The link is
+    /// kept so the user can relink it rather than silently losing it.
+    pub exists: bool,
+}
+
+/// The files of a linked folder, relative to it, with `/` separators on every platform.
+#[derive(Debug, Clone, Default, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct FileIndex {
+    pub files: Vec<String>,
+    /// The folder held more than [`MAX_FILES`] files and the list stops there.
+    pub truncated: bool,
+}
+
+fn folder(context_id: String, path: String) -> ContextFolder {
+    let exists = Path::new(&path).is_dir();
+    ContextFolder {
+        context_id,
+        path,
+        exists,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The file index
+// ---------------------------------------------------------------------------
+
+/// Built indexes, by context, with the folder each was built from so a relink invalidates it.
+type IndexCache = HashMap<String, (PathBuf, Arc<FileIndex>)>;
+
+static INDEXES: OnceLock<Mutex<IndexCache>> = OnceLock::new();
+
+fn indexes() -> &'static Mutex<IndexCache> {
+    INDEXES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn forget_index(context_id: &str) {
+    crate::state::lock_or_recover(indexes()).remove(context_id);
+}
+
+/// List the files under `root` the way the picker offers them.
+///
+/// Honours `.gitignore` and friends whether or not the folder is a git checkout, and keeps
+/// dotfiles such as `.github/` - only `.git` itself is skipped. A path containing `"` is left
+/// out: the editor quotes paths with spaces, and there is no clean way to quote a quote.
+pub fn index_folder(root: &Path, max_files: usize) -> FileIndex {
+    let walker = ignore::WalkBuilder::new(root)
+        .hidden(false)
+        .require_git(false)
+        .follow_links(false)
+        .filter_entry(|entry| entry.file_name() != ".git")
+        .build();
+
+    let mut files = Vec::new();
+    let mut truncated = false;
+    for entry in walker.flatten() {
+        if !entry.file_type().is_some_and(|t| t.is_file()) {
+            continue;
+        }
+        let Some(relative) = relative_path(root, entry.path()) else {
+            continue;
+        };
+        if files.len() == max_files {
+            truncated = true;
+            break;
+        }
+        files.push(relative);
+    }
+    files.sort();
+    FileIndex { files, truncated }
+}
+
+/// `path` relative to `root` with `/` separators, or `None` for a path the picker skips.
+fn relative_path(root: &Path, path: &Path) -> Option<String> {
+    let relative = path.strip_prefix(root).ok()?;
+    let mut parts = Vec::new();
+    for component in relative.components() {
+        parts.push(component.as_os_str().to_str()?);
+    }
+    let joined = parts.join("/");
+    if joined.is_empty() || joined.contains('"') {
+        return None;
+    }
+    Some(joined)
+}
+
+// ---------------------------------------------------------------------------
+// The folder as a variable in auto-switch rules
+// ---------------------------------------------------------------------------
+
+/// What a rule value writes to mean "the name of this context's project folder".
+pub const FOLDER_VARIABLE: &str = "{folder}";
+
+/// The last part of a folder path, or `None` for one that has none (a drive or filesystem
+/// root). Read from the stored text alone: rule matching runs every second and must never
+/// touch the disk, and a folder on an unmounted drive is still the project whose window
+/// title is on screen.
+pub fn folder_name(path: &str) -> Option<String> {
+    Path::new(path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(str::to_string)
+}
+
+/// A rule value with [`FOLDER_VARIABLE`] replaced by the folder's name.
+///
+/// `None` when the value uses the variable and the context has no folder name to give. The
+/// rule then never matches - an empty expansion would turn `{folder}` into "contains
+/// nothing", which matches every window. With `for_regex` the name is escaped, so a folder
+/// called `c++` or `my.app` matches only itself.
+pub fn expand_folder_variable(
+    value: &str,
+    folder: Option<&str>,
+    for_regex: bool,
+) -> Option<String> {
+    if !value.contains(FOLDER_VARIABLE) {
+        return Some(value.to_string());
+    }
+    let name = folder.filter(|name| !name.is_empty())?;
+    let name = if for_regex {
+        regex::escape(name)
+    } else {
+        name.to_string()
+    };
+    Some(value.replace(FOLDER_VARIABLE, &name))
+}
+
+// ---------------------------------------------------------------------------
+// Import
+// ---------------------------------------------------------------------------
+
+/// Folders read from import archives, by import token, until the import is committed or
+/// discarded. Kept here rather than handed to the webview and back, so the page cannot
+/// substitute a folder of its own choosing on the way.
+static PENDING_IMPORTS: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
+
+fn pending_imports() -> &'static Mutex<HashMap<String, String>> {
+    PENDING_IMPORTS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Note the folder an archive names, if it exists on this device. A folder that does not
+/// exist is treated as no folder at all. Returns what the import will link.
+pub fn remember_import_folder(token: &str, folder: Option<String>) -> Option<String> {
+    let folder = folder.filter(|path| Path::new(path).is_dir())?;
+    crate::state::lock_or_recover(pending_imports()).insert(token.to_string(), folder.clone());
+    Some(folder)
+}
+
+pub fn take_import_folder(token: &str) -> Option<String> {
+    crate::state::lock_or_recover(pending_imports()).remove(token)
+}
+
+/// Link an imported context to the folder its archive named.
+///
+/// A link the user already made on this device wins over the archive's: it was chosen here,
+/// for this machine, and an archive may have been written somewhere else entirely.
+pub fn apply_imported_folder(
+    db: &DbManager,
+    context_id: &str,
+    folder: &str,
+) -> rusqlite::Result<bool> {
+    if !Path::new(folder).is_dir() || db.get_context_folder(context_id)?.is_some() {
+        return Ok(false);
+    }
+    db.set_context_folder(context_id, folder)?;
+    forget_index(context_id);
+    Ok(true)
+}
+
+// ---------------------------------------------------------------------------
+// Commands
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub async fn get_context_folders(
+    state: State<'_, Arc<DbState>>,
+) -> Result<Vec<ContextFolder>, UiError> {
+    let links = state
+        .lock_db()
+        .get_context_folders()
+        .map_err(|e| e.to_string())?;
+    Ok(links
+        .into_iter()
+        .map(|(context_id, path)| folder(context_id, path))
+        .collect())
+}
+
+/// Ask the user for the context's project folder and link it. `None` when they cancel.
+#[tauri::command]
+pub async fn pick_context_folder(
+    app: AppHandle,
+    state: State<'_, Arc<DbState>>,
+    context_id: String,
+    title: String,
+) -> Result<Option<ContextFolder>, UiError> {
+    let dialog = app.dialog().file().set_title(title);
+    // The dialog blocks until the user answers, so it waits on the blocking pool.
+    let picked = tauri::async_runtime::spawn_blocking(move || dialog.blocking_pick_folder())
+        .await
+        .map_err(|e| format!("Folder dialog failed: {}", e))?;
+
+    let Some(path) = picked.and_then(|p| p.into_path().ok()) else {
+        return Ok(None);
+    };
+    let path = path.to_string_lossy().into_owned();
+    state
+        .lock_db()
+        .set_context_folder(&context_id, &path)
+        .map_err(|e| e.to_string())?;
+    forget_index(&context_id);
+    log::info!("Linked a project folder to context {}", context_id);
+    Ok(Some(folder(context_id, path)))
+}
+
+#[tauri::command]
+pub async fn unlink_context_folder(
+    state: State<'_, Arc<DbState>>,
+    context_id: String,
+) -> Result<(), UiError> {
+    state
+        .lock_db()
+        .remove_context_folder(&context_id)
+        .map_err(|e| e.to_string())?;
+    forget_index(&context_id);
+    log::info!("Unlinked the project folder of context {}", context_id);
+    Ok(())
+}
+
+/// Drop every folder link on this device - the sign-out choice not to keep them.
+#[tauri::command]
+pub async fn clear_context_folders(state: State<'_, Arc<DbState>>) -> Result<(), UiError> {
+    state
+        .lock_db()
+        .clear_context_folders()
+        .map_err(|e| e.to_string())?;
+    crate::state::lock_or_recover(indexes()).clear();
+    log::info!("Cleared every project folder link");
+    Ok(())
+}
+
+/// The files in the context's linked folder. Empty when no folder is linked or it is gone.
+///
+/// Built once and then served from memory; `refresh` walks the folder again, which the
+/// editor asks for when it opens, so files added since show up.
+#[tauri::command]
+pub async fn list_context_files(
+    state: State<'_, Arc<DbState>>,
+    context_id: String,
+    refresh: bool,
+) -> Result<FileIndex, UiError> {
+    let Some(root) = state
+        .lock_db()
+        .get_context_folder(&context_id)
+        .map_err(|e| e.to_string())?
+        .map(PathBuf::from)
+    else {
+        return Ok(FileIndex::default());
+    };
+    Ok(index_for(&context_id, root, refresh)
+        .await?
+        .as_ref()
+        .clone())
+}
+
+/// The context's index: the cached one when it was built from this folder, otherwise a
+/// fresh walk. Empty when the folder is gone.
+async fn index_for(
+    context_id: &str,
+    root: PathBuf,
+    refresh: bool,
+) -> Result<Arc<FileIndex>, UiError> {
+    if !refresh {
+        if let Some((built_from, index)) = crate::state::lock_or_recover(indexes()).get(context_id)
+        {
+            if *built_from == root {
+                return Ok(index.clone());
+            }
+        }
+    }
+
+    if !root.is_dir() {
+        forget_index(context_id);
+        return Ok(Arc::new(FileIndex::default()));
+    }
+
+    let walk_root = root.clone();
+    let index = tauri::async_runtime::spawn_blocking(move || index_folder(&walk_root, MAX_FILES))
+        .await
+        .map_err(|e| format!("Indexing the project folder failed: {}", e))?;
+    if index.truncated {
+        log::warn!(
+            "Project folder of context {} holds more than {} files; the picker lists the first {}",
+            context_id,
+            MAX_FILES,
+            MAX_FILES
+        );
+    }
+
+    let index = Arc::new(index);
+    crate::state::lock_or_recover(indexes()).insert(context_id.to_string(), (root, index.clone()));
+    Ok(index)
+}
+// ---------------------------------------------------------------------------
+// Previewing a file, for the hover card on an `@path`
+// ---------------------------------------------------------------------------
+
+/// What `file_type` a preview carries for a file whose contents are never read.
+pub const WITHHELD: &str = "withheld";
+
+/// Whether a file's name says it usually holds credentials. Such a file is listed and can be
+/// referenced - it often is in a stash - but its contents never reach the page. Checked on
+/// top of `.gitignore`, which keeps most of them out of the index already, because a
+/// repository is not always careful about that.
+pub fn is_secret_file(relative: &str) -> bool {
+    let name = relative
+        .rsplit('/')
+        .next()
+        .unwrap_or(relative)
+        .to_lowercase();
+    name == ".env"
+        || name.starts_with(".env.")
+        || name.starts_with("id_rsa")
+        || name.starts_with("id_ed25519")
+        || name.starts_with("id_ecdsa")
+        || [
+            ".npmrc",
+            ".pypirc",
+            ".netrc",
+            ".git-credentials",
+            "credentials.json",
+        ]
+        .contains(&name.as_str())
+        || [".pem", ".key", ".p12", ".pfx", ".keystore", ".jks"]
+            .iter()
+            .any(|ext| name.ends_with(ext))
+}
+
+/// The attachment preview of `relative` under `root`, or why there is none.
+///
+/// The caller has already checked `relative` is in the folder's index. This checks again,
+/// on the disk, that it is a regular file inside `root` - not a symlink pointing out of it -
+/// before handing it to the same builder attachments use.
+pub fn preview_file(root: &Path, relative: &str) -> Result<FilePreviewData, UiError> {
+    let path = root.join(relative);
+    let meta =
+        fs::symlink_metadata(&path).map_err(|e| format!("Could not read the file: {}", e))?;
+    let inside = match (path.canonicalize(), root.canonicalize()) {
+        (Ok(file), Ok(root)) => file.starts_with(root),
+        _ => false,
+    };
+    if !meta.is_file() || !inside {
+        return Err("Not a file in the project folder".into());
+    }
+
+    if is_secret_file(relative) {
+        return Ok(FilePreviewData {
+            file_type: WITHHELD.to_string(),
+            content: String::new(),
+            file_name: relative.rsplit('/').next().unwrap_or(relative).to_string(),
+            mime_type: String::new(),
+            file_size: meta.len(),
+        });
+    }
+
+    let mut preview = crate::stashes::build_file_preview(&path)?;
+    // A video plays through the asset protocol, which is scoped to the attachment cache, so
+    // one in a project folder could not load. Shown by name instead of as a broken player.
+    if preview.file_type == "video" {
+        preview.file_type = "unsupported".to_string();
+        preview.content = String::new();
+    }
+    Ok(preview)
+}
+
+/// The preview of a file in the context's linked folder, for the hover card on an `@path`.
+///
+/// Only a path the picker itself would offer is read: one in the folder's index, so nothing
+/// `.gitignore` keeps out and nothing outside the folder. Contents of files named like
+/// credentials are never sent - see [`is_secret_file`].
+#[tauri::command]
+pub async fn preview_context_file(
+    state: State<'_, Arc<DbState>>,
+    context_id: String,
+    path: String,
+) -> Result<FilePreviewData, UiError> {
+    let root = state
+        .lock_db()
+        .get_context_folder(&context_id)
+        .map_err(|e| e.to_string())?
+        .map(PathBuf::from)
+        .ok_or("This context has no project folder")?;
+
+    let index = index_for(&context_id, root.clone(), false).await?;
+    if index.files.binary_search(&path).is_err() {
+        return Err("Not a file in the project folder".into());
+    }
+
+    tauri::async_runtime::spawn_blocking(move || preview_file(&root, &path))
+        .await
+        .map_err(|e| format!("Reading the file failed: {}", e))?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    fn write(root: &Path, relative: &str) {
+        let path = root.join(relative);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, b"x").unwrap();
+    }
+
+    #[test]
+    fn the_index_lists_relative_paths_with_forward_slashes() {
+        let dir = tempfile::tempdir().unwrap();
+        write(dir.path(), "src/lib/types.ts");
+        write(dir.path(), "README.md");
+
+        let index = index_folder(dir.path(), MAX_FILES);
+        assert_eq!(index.files, vec!["README.md", "src/lib/types.ts"]);
+        assert!(!index.truncated);
+    }
+
+    #[test]
+    fn the_index_honours_gitignore_without_a_git_checkout() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join(".gitignore"), "node_modules/\n*.log\n").unwrap();
+        write(dir.path(), "node_modules/pkg/index.js");
+        write(dir.path(), "debug.log");
+        write(dir.path(), "src/app.ts");
+
+        let index = index_folder(dir.path(), MAX_FILES);
+        assert_eq!(index.files, vec![".gitignore", "src/app.ts"]);
+    }
+
+    #[test]
+    fn dotfiles_are_listed_but_the_git_directory_is_not() {
+        let dir = tempfile::tempdir().unwrap();
+        write(dir.path(), ".github/workflows/test.yml");
+        write(dir.path(), ".git/config");
+
+        let index = index_folder(dir.path(), MAX_FILES);
+        assert_eq!(index.files, vec![".github/workflows/test.yml"]);
+    }
+
+    #[test]
+    fn a_path_with_spaces_is_kept_and_one_with_a_quote_is_skipped() {
+        let dir = tempfile::tempdir().unwrap();
+        write(dir.path(), "docs/release notes.md");
+        // Windows does not allow `"` in a file name, so this half only runs elsewhere.
+        if cfg!(not(windows)) {
+            write(dir.path(), "docs/say \"hi\".md");
+        }
+
+        let index = index_folder(dir.path(), MAX_FILES);
+        assert_eq!(index.files, vec!["docs/release notes.md"]);
+    }
+
+    #[test]
+    fn the_index_stops_at_the_cap_and_says_so() {
+        let dir = tempfile::tempdir().unwrap();
+        for i in 0..5 {
+            write(dir.path(), &format!("f{}.txt", i));
+        }
+
+        let index = index_folder(dir.path(), 3);
+        assert_eq!(index.files.len(), 3);
+        assert!(index.truncated);
+    }
+
+    #[test]
+    fn the_folder_name_is_the_last_part_of_the_path() {
+        assert_eq!(
+            folder_name("/home/me/stashpad").as_deref(),
+            Some("stashpad")
+        );
+        assert_eq!(
+            folder_name("/home/me/stashpad/").as_deref(),
+            Some("stashpad")
+        );
+        assert_eq!(folder_name("/").as_deref(), None);
+        assert_eq!(folder_name("").as_deref(), None);
+        if cfg!(windows) {
+            assert_eq!(folder_name(r"D:\Dev\stashpad").as_deref(), Some("stashpad"));
+            assert_eq!(folder_name(r"D:\").as_deref(), None);
+        }
+    }
+
+    #[test]
+    fn a_value_without_the_variable_is_left_alone() {
+        assert_eq!(
+            expand_folder_variable("code", None, false).as_deref(),
+            Some("code")
+        );
+        assert_eq!(
+            expand_folder_variable("a{2}", Some("x"), true).as_deref(),
+            Some("a{2}")
+        );
+    }
+
+    #[test]
+    fn the_variable_becomes_the_folder_name_wherever_it_stands() {
+        assert_eq!(
+            expand_folder_variable("{folder} - Visual Studio Code", Some("stashpad"), false)
+                .as_deref(),
+            Some("stashpad - Visual Studio Code")
+        );
+        assert_eq!(
+            expand_folder_variable("{folder}/{folder}", Some("a"), false).as_deref(),
+            Some("a/a")
+        );
+    }
+
+    #[test]
+    fn a_rule_using_the_variable_has_no_value_when_there_is_no_folder() {
+        assert_eq!(expand_folder_variable("{folder}", None, false), None);
+        assert_eq!(expand_folder_variable("{folder}", Some(""), false), None);
+        assert_eq!(expand_folder_variable("^{folder}$", None, true), None);
+    }
+
+    #[test]
+    fn the_name_is_escaped_for_a_regex_rule_only() {
+        assert_eq!(
+            expand_folder_variable("{folder}", Some("c++.app"), true).as_deref(),
+            Some(r"c\+\+\.app")
+        );
+        assert_eq!(
+            expand_folder_variable("{folder}", Some("c++.app"), false).as_deref(),
+            Some("c++.app")
+        );
+    }
+
+    #[test]
+    fn a_project_file_is_previewed_the_way_an_attachment_is() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("src")).unwrap();
+        fs::write(dir.path().join("src/app.ts"), "export const x = 1;\n").unwrap();
+        fs::write(dir.path().join("logo.png"), [0x89, b'P', b'N', b'G']).unwrap();
+        fs::write(dir.path().join("demo.mp4"), [0, 0, 0]).unwrap();
+
+        let text = preview_file(dir.path(), "src/app.ts").unwrap();
+        assert_eq!(text.file_type, "text");
+        assert_eq!(text.content, "export const x = 1;\n");
+        assert_eq!(text.file_name, "app.ts");
+
+        let image = preview_file(dir.path(), "logo.png").unwrap();
+        assert_eq!(image.file_type, "image");
+        assert!(image.content.starts_with("data:image/png;base64,"));
+
+        // The asset protocol cannot reach a project folder, so no player is offered.
+        let video = preview_file(dir.path(), "demo.mp4").unwrap();
+        assert_eq!(video.file_type, "unsupported");
+        assert!(video.content.is_empty());
+    }
+
+    #[test]
+    fn files_that_usually_hold_secrets_are_never_read() {
+        for name in [
+            ".env",
+            ".env.local",
+            "config/.npmrc",
+            "deploy/server.pem",
+            "keys/id_ed25519",
+            "certs/site.KEY",
+            "android/release.jks",
+        ] {
+            assert!(is_secret_file(name), "{} should be withheld", name);
+        }
+        for name in ["src/env.ts", "environment.md", "keyboard.rs", "README.md"] {
+            assert!(!is_secret_file(name), "{} should be shown", name);
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join(".env"), "API_KEY=hunter2").unwrap();
+        let preview = preview_file(dir.path(), ".env").unwrap();
+        assert_eq!(preview.file_type, WITHHELD);
+        assert!(preview.content.is_empty());
+    }
+
+    #[test]
+    fn a_preview_cannot_climb_out_of_the_folder() {
+        let outer = tempfile::tempdir().unwrap();
+        fs::create_dir(outer.path().join("project")).unwrap();
+        fs::write(outer.path().join("secret.txt"), "outside").unwrap();
+
+        let root = outer.path().join("project");
+        assert!(preview_file(&root, "../secret.txt").is_err());
+        assert!(preview_file(&root, "missing.txt").is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_preview_does_not_follow_a_symlink_out_of_the_folder() {
+        let outside = tempfile::tempdir().unwrap();
+        fs::write(outside.path().join("secret.txt"), "outside").unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        std::os::unix::fs::symlink(
+            outside.path().join("secret.txt"),
+            dir.path().join("link.txt"),
+        )
+        .unwrap();
+
+        assert!(preview_file(dir.path(), "link.txt").is_err());
+    }
+
+    fn test_db() -> DbManager {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        let db = DbManager { conn };
+        db.init_tables().unwrap();
+        db
+    }
+
+    #[test]
+    fn an_imported_folder_that_exists_is_linked() {
+        let db = test_db();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().to_string_lossy().into_owned();
+
+        assert!(apply_imported_folder(&db, "ctx", &path).unwrap());
+        assert_eq!(db.get_context_folder("ctx").unwrap(), Some(path));
+    }
+
+    #[test]
+    fn an_imported_folder_that_is_missing_is_treated_as_none() {
+        let db = test_db();
+        let dir = tempfile::tempdir().unwrap();
+        let gone = dir.path().join("gone").to_string_lossy().into_owned();
+
+        assert!(!apply_imported_folder(&db, "ctx", &gone).unwrap());
+        assert_eq!(db.get_context_folder("ctx").unwrap(), None);
+        assert_eq!(remember_import_folder("token-missing", Some(gone)), None);
+        assert_eq!(take_import_folder("token-missing"), None);
+    }
+
+    #[test]
+    fn an_existing_link_wins_over_the_imported_one() {
+        let db = test_db();
+        let mine = tempfile::tempdir().unwrap();
+        let theirs = tempfile::tempdir().unwrap();
+        let mine = mine.path().to_string_lossy().into_owned();
+        db.set_context_folder("ctx", &mine).unwrap();
+
+        let theirs = theirs.path().to_string_lossy().into_owned();
+        assert!(!apply_imported_folder(&db, "ctx", &theirs).unwrap());
+        assert_eq!(db.get_context_folder("ctx").unwrap(), Some(mine));
+    }
+
+    #[test]
+    fn a_remembered_import_folder_is_handed_out_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().to_string_lossy().into_owned();
+
+        assert_eq!(
+            remember_import_folder("token-once", Some(path.clone())),
+            Some(path.clone())
+        );
+        assert_eq!(take_import_folder("token-once"), Some(path));
+        assert_eq!(take_import_folder("token-once"), None);
+    }
+}

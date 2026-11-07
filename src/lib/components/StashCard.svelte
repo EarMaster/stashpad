@@ -55,6 +55,7 @@
     ChevronUp,
   } from "lucide-svelte";
   import Editor from "./Editor.svelte";
+  import { getFileRefResolver } from "$lib/stores/context-folders.svelte";
   import FilePreviewTooltip from "./FilePreviewTooltip.svelte";
   import FilePreviewModal from "./FilePreviewModal.svelte";
   import { message } from "@tauri-apps/plugin-dialog";
@@ -72,6 +73,7 @@
     type ResolvedRef,
   } from "$lib/utils/stash-refs";
   import StashRefPreview from "./StashRefPreview.svelte";
+  import FileRefPreview from "./FileRefPreview.svelte";
   import ActionButton from "./ActionButton.svelte";
   import TagBadge from "./TagBadge.svelte";
   import ColorBadge from "./ColorBadge.svelte";
@@ -249,7 +251,9 @@
     return { state: ref.state, label };
   }
 
-  let renderedContent = $derived(safeParse(displayContent, displayRef));
+  // `@path`s are checked against the context's project folder, when this device has one.
+  let fileResolver = $derived(getFileRefResolver(item.contextId));
+  let renderedContent = $derived(safeParse(displayContent, displayRef, fileResolver));
 
   function refIdAt(target: EventTarget | null): string | null {
     const el = (target as HTMLElement | null)?.closest?.("[data-ref-id]");
@@ -307,6 +311,46 @@
     refHoverTimeout = undefined;
     refHoverChip = null;
     hoveredRef = null;
+  }
+
+  // The same for `@path` file chips, which only exist when the context has a folder here.
+  let hoveredFile = $state<string | null>(null);
+  let fileHoverTimeout: ReturnType<typeof setTimeout> | undefined;
+  let fileHoverChip: Element | null = null;
+
+  function showFilePreview(target: EventTarget | null) {
+    const chip =
+      (target as HTMLElement | null)?.closest?.("[data-file-path]") ?? null;
+    if (chip === fileHoverChip) return;
+    hideFilePreview();
+    if (!chip) return;
+    fileHoverChip = chip;
+    const path = chip.getAttribute("data-file-path");
+    fileHoverTimeout = setTimeout(() => {
+      if (!path) return;
+      const rect = chip.getBoundingClientRect();
+      refPreviewX = rect.left + rect.width / 2;
+      refPreviewBelow = rect.top < window.innerHeight / 2;
+      refPreviewY = refPreviewBelow ? rect.bottom + 8 : rect.top - 8;
+      hoveredFile = path;
+    }, 300);
+  }
+
+  function hideFilePreview() {
+    clearTimeout(fileHoverTimeout);
+    fileHoverTimeout = undefined;
+    fileHoverChip = null;
+    hoveredFile = null;
+  }
+
+  function showChipPreview(target: EventTarget | null) {
+    showRefPreview(target);
+    showFilePreview(target);
+  }
+
+  function hideChipPreviews() {
+    hideRefPreview();
+    hideFilePreview();
   }
 
   let stashData = $derived(extractTagsAndColors(item.content));
@@ -745,10 +789,10 @@
             ondblclick={handleDoubleClick}
             onclick={handleContentClick}
             onkeydown={handleContentKeydown}
-            onmouseover={(e) => showRefPreview(e.target)}
-            onmouseleave={hideRefPreview}
-            onfocusin={(e) => showRefPreview(e.target)}
-            onfocusout={hideRefPreview}
+            onmouseover={(e) => showChipPreview(e.target)}
+            onmouseleave={hideChipPreviews}
+            onfocusin={(e) => showChipPreview(e.target)}
+            onfocusout={hideChipPreviews}
             role="presentation"
           >
             {@html renderedContent}
@@ -1000,6 +1044,16 @@
     </div>
   </div>
 </div>
+
+<FileRefPreview
+  contextId={item.contextId}
+  path={hoveredFile}
+  resolve={fileResolver}
+  visible={!!hoveredFile}
+  x={refPreviewX}
+  y={refPreviewY}
+  position={refPreviewBelow ? "bottom" : "top"}
+/>
 
 <StashRefPreview
   ref={hoveredRef}

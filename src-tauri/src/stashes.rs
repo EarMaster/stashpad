@@ -947,6 +947,18 @@ fn read_file_for_preview_blocking(path: String) -> Result<crate::models::FilePre
         return Err("File does not exist".into());
     }
 
+    build_file_preview(file_path)
+}
+
+/// The preview of a file the caller has already decided may be read.
+///
+/// Shared by attachments, which are gated to the cache directory above, and by `@path`
+/// references, which project_folders.rs gates to the context's linked folder. Each caller
+/// owns its own access check; this only decides what kind of file it is and how much of it
+/// to hand over.
+pub(crate) fn build_file_preview(
+    file_path: &std::path::Path,
+) -> Result<crate::models::FilePreviewData, UiError> {
     let metadata = std::fs::metadata(file_path).map_err(|e| e.to_string())?;
     let file_size = metadata.len();
 
@@ -1025,7 +1037,7 @@ fn read_file_for_preview_blocking(path: String) -> Result<crate::models::FilePre
         }
         "video" => {
             // For videos, return the file path - frontend will convert to asset URL
-            path.clone()
+            file_path.to_string_lossy().into_owned()
         }
         "text" => {
             // Read text file content (limit to 10KB for preview)
