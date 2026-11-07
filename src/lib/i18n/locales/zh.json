@@ -398,7 +398,9 @@
       "exact": "完全等于",
       "valuePlaceholder": "值（例如“code”“Project X”）",
       "matchCase": "区分大小写",
-      "useRegex": "使用正则表达式"
+      "useRegex": "使用正则表达式",
+      "folderHint": "在值中使用 {token} 表示这个上下文的项目文件夹名称。需要先在这台设备上关联文件夹。",
+      "folderMissing": "这台设备上没有关联项目文件夹，因此这条规则永远不会匹配。"
     },
     "stats": {
       "stash": "个暂存项",

@@ -32,6 +32,13 @@ popover, not for the person who wrote the commit.
   which files would be sent and to which provider, and nothing leaves your machine until you
   confirm; with Apple Intelligence it stays on the device. The result is only a proposal: you
   can edit it, then use it as the description or discard it
+- **Auto-switch rules can match the name of the context's project folder.** Write `{folder}` in
+  a rule's value, for example `{folder} - Visual Studio Code`, and it stands for the name of the
+  folder linked to that context on this device. One rule then works for every project, and each
+  computer can keep its folder wherever it likes. A rule that uses it matches nothing, rather
+  than everything, on a computer where the context has no folder, and the context manager says
+  so beside the rule. In a regular expression the folder name is taken literally, so a folder
+  called `c++` is not read as a pattern
 
 ## [1.11.6] - 2026-11-05
 

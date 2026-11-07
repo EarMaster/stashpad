@@ -34,6 +34,7 @@
     } from "$lib/stores/context-folders.svelte";
     import { log } from "$lib/utils/log";
     import { errorText } from "$lib/errors";
+    import { FOLDER_VARIABLE, usesFolderVariable } from "$lib/utils/rules";
     import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
     import ConfirmationDialog from "./ConfirmationDialog.svelte";
     import type { DigestPreview } from "$lib/types";
@@ -453,6 +454,12 @@
                 </ActionButton>
             </div>
 
+            <p class="text-[10px] text-muted-foreground normal-case tracking-normal">
+                {$_("contexts.rules.folderHint", {
+                    values: { token: FOLDER_VARIABLE },
+                })}
+            </p>
+
             {#each context.rules as rule, j}
                 <div class="flex flex-wrap items-center gap-2 text-xs group">
                     <select
@@ -524,6 +531,11 @@
                         ×
                     </button>
                 </div>
+                {#if usesFolderVariable(rule) && !folder}
+                    <p class="text-[10px] text-amber-500" role="status">
+                        {$_("contexts.rules.folderMissing")}
+                    </p>
+                {/if}
             {/each}
             {#if context.rules.length === 0}
                 <div class="text-[10px] text-muted-foreground italic">

@@ -398,7 +398,9 @@
       "exact": "is exactly",
       "valuePlaceholder": "Value (e.g. 'code', 'Project X')",
       "matchCase": "Match Case",
-      "useRegex": "Use Regex"
+      "useRegex": "Use Regex",
+      "folderHint": "Use {token} in a value for the name of this context's project folder. It needs a folder linked on this device.",
+      "folderMissing": "No project folder is linked on this device, so this rule never matches."
     },
     "stats": {
       "stash": "stash",

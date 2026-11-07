@@ -398,7 +398,9 @@
       "exact": "ist exakt",
       "valuePlaceholder": "Wert (z.B. 'code', 'Projekt X')",
       "matchCase": "Groß-/Kleinschreibung",
-      "useRegex": "RegEx verwenden"
+      "useRegex": "RegEx verwenden",
+      "folderHint": "Verwende {token} in einem Wert für den Namen des Projektordners dieses Kontexts. Dafür muss auf diesem Gerät ein Ordner verknüpft sein.",
+      "folderMissing": "Auf diesem Gerät ist kein Projektordner verknüpft, deshalb trifft diese Regel nie zu."
     },
     "stats": {
       "stash": "Stash",

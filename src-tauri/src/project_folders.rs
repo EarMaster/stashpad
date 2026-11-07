@@ -131,6 +131,47 @@ fn relative_path(root: &Path, path: &Path) -> Option<String> {
 }
 
 // ---------------------------------------------------------------------------
+// The folder as a variable in auto-switch rules
+// ---------------------------------------------------------------------------
+
+/// What a rule value writes to mean "the name of this context's project folder".
+pub const FOLDER_VARIABLE: &str = "{folder}";
+
+/// The last part of a folder path, or `None` for one that has none (a drive or filesystem
+/// root). Read from the stored text alone: rule matching runs every second and must never
+/// touch the disk, and a folder on an unmounted drive is still the project whose window
+/// title is on screen.
+pub fn folder_name(path: &str) -> Option<String> {
+    Path::new(path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(str::to_string)
+}
+
+/// A rule value with [`FOLDER_VARIABLE`] replaced by the folder's name.
+///
+/// `None` when the value uses the variable and the context has no folder name to give. The
+/// rule then never matches - an empty expansion would turn `{folder}` into "contains
+/// nothing", which matches every window. With `for_regex` the name is escaped, so a folder
+/// called `c++` or `my.app` matches only itself.
+pub fn expand_folder_variable(
+    value: &str,
+    folder: Option<&str>,
+    for_regex: bool,
+) -> Option<String> {
+    if !value.contains(FOLDER_VARIABLE) {
+        return Some(value.to_string());
+    }
+    let name = folder.filter(|name| !name.is_empty())?;
+    let name = if for_regex {
+        regex::escape(name)
+    } else {
+        name.to_string()
+    };
+    Some(value.replace(FOLDER_VARIABLE, &name))
+}
+
+// ---------------------------------------------------------------------------
 // Import
 // ---------------------------------------------------------------------------
 
@@ -361,6 +402,68 @@ mod tests {
         let index = index_folder(dir.path(), 3);
         assert_eq!(index.files.len(), 3);
         assert!(index.truncated);
+    }
+
+    #[test]
+    fn the_folder_name_is_the_last_part_of_the_path() {
+        assert_eq!(
+            folder_name("/home/me/stashpad").as_deref(),
+            Some("stashpad")
+        );
+        assert_eq!(
+            folder_name("/home/me/stashpad/").as_deref(),
+            Some("stashpad")
+        );
+        assert_eq!(folder_name("/").as_deref(), None);
+        assert_eq!(folder_name("").as_deref(), None);
+        if cfg!(windows) {
+            assert_eq!(folder_name(r"D:\Dev\stashpad").as_deref(), Some("stashpad"));
+            assert_eq!(folder_name(r"D:\").as_deref(), None);
+        }
+    }
+
+    #[test]
+    fn a_value_without_the_variable_is_left_alone() {
+        assert_eq!(
+            expand_folder_variable("code", None, false).as_deref(),
+            Some("code")
+        );
+        assert_eq!(
+            expand_folder_variable("a{2}", Some("x"), true).as_deref(),
+            Some("a{2}")
+        );
+    }
+
+    #[test]
+    fn the_variable_becomes_the_folder_name_wherever_it_stands() {
+        assert_eq!(
+            expand_folder_variable("{folder} - Visual Studio Code", Some("stashpad"), false)
+                .as_deref(),
+            Some("stashpad - Visual Studio Code")
+        );
+        assert_eq!(
+            expand_folder_variable("{folder}/{folder}", Some("a"), false).as_deref(),
+            Some("a/a")
+        );
+    }
+
+    #[test]
+    fn a_rule_using_the_variable_has_no_value_when_there_is_no_folder() {
+        assert_eq!(expand_folder_variable("{folder}", None, false), None);
+        assert_eq!(expand_folder_variable("{folder}", Some(""), false), None);
+        assert_eq!(expand_folder_variable("^{folder}$", None, true), None);
+    }
+
+    #[test]
+    fn the_name_is_escaped_for_a_regex_rule_only() {
+        assert_eq!(
+            expand_folder_variable("{folder}", Some("c++.app"), true).as_deref(),
+            Some(r"c\+\+\.app")
+        );
+        assert_eq!(
+            expand_folder_variable("{folder}", Some("c++.app"), false).as_deref(),
+            Some("c++.app")
+        );
     }
 
     fn test_db() -> DbManager {
