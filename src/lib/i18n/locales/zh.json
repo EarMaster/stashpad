@@ -658,6 +658,8 @@
     }
   },
   "fileRef": {
-    "missing": "不在项目文件夹中"
+    "missing": "不在项目文件夹中",
+    "didYouMean": "你是指 {path} 吗？",
+    "withheld": "不提供预览：这类文件通常包含密钥等机密信息"
   }
 }

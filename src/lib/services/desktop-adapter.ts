@@ -362,6 +362,10 @@ export class DesktopStorageAdapter implements IStorageService {
         return await invoke('ai_suggest_description', { contextId });
     }
 
+    async previewContextFile(contextId: string, path: string): Promise<FilePreviewData> {
+        return await invoke('preview_context_file', { contextId, path });
+    }
+
     async listContextFiles(contextId: string, refresh: boolean): Promise<FileIndex> {
         return await invoke('list_context_files', { contextId, refresh });
     }

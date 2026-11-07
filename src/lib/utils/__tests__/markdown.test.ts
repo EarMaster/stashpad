@@ -44,15 +44,34 @@ describe('markdown utilities', () => {
             expect(result).toContain('<span class="ai-mention">@src/app.ts</span>.');
         });
 
-        it('should mark an @ path the linked folder does not hold, with a suggestion', () => {
-            const resolveFile = {
-                resolve: makeFileRefResolver(['src/app.ts', 'src/lib/moved.ts']),
-                missingLabel: 'Not in the project folder',
-            };
-            const result = safeParse('@src/app.ts and @src/moved.ts', undefined, resolveFile);
-            expect(result).toContain('<span class="ai-mention">@src/app.ts</span>');
-            expect(result).toContain('class="ai-mention file-ref-unresolved"');
-            expect(result).toContain('Not in the project folder → src/lib/moved.ts');
+        it('should turn @ paths into hoverable file chips when a folder is linked', () => {
+            const resolve = makeFileRefResolver(['src/app.ts', 'docs/release notes.md']);
+            const result = safeParse(
+                '@src/app.ts and @src/gone.ts and @"docs/release notes.md"',
+                undefined,
+                resolve,
+            );
+            expect(result).toContain(
+                '<span class="ai-mention file-ref" data-file-path="src/app.ts" tabindex="0">@src/app.ts</span>',
+            );
+            expect(result).toContain(
+                '<span class="ai-mention file-ref file-ref-unresolved" data-file-path="src/gone.ts" tabindex="0">',
+            );
+            expect(result).toContain('data-file-path="docs/release notes.md"');
+            // No native tooltip left to compete with the preview card.
+            expect(result).not.toContain('title="file:');
+        });
+
+        it('should keep markup in a path inert in the file chip', () => {
+            const result = safeParse('@a<img>.ts', undefined, makeFileRefResolver([]));
+            // The serializer leaves `<` unescaped inside an attribute value, so look at what
+            // the markup builds rather than at its text: one chip, no element from the path.
+            const template = document.createElement('template');
+            template.innerHTML = result;
+            expect(template.content.querySelector('img')).toBeNull();
+            const chip = template.content.querySelector<HTMLElement>('[data-file-path]');
+            expect(chip?.dataset.filePath).toBe('a<img>.ts');
+            expect(chip?.textContent).toBe('@a<img>.ts');
         });
 
         it('should highlight @ mentions after whitespace', () => {

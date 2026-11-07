@@ -19,7 +19,7 @@
  */
 
 import { DesktopStorageAdapter } from "$lib/services/desktop-adapter";
-import type { ContextFolder } from "$lib/types";
+import type { ContextFolder, FilePreviewData } from "$lib/types";
 import { log } from "$lib/utils/log";
 import { makeFileRefResolver, type FileRefResolver } from "$lib/utils/file-refs";
 
@@ -78,6 +78,30 @@ export function getContextFiles(contextId: string | undefined): string[] | undef
     return files[contextId];
 }
 
+// Previews already fetched, by context and path. Dropped with the context's file list, so a
+// refresh, relink or unlink never shows a file as it was before.
+const peeks = new Map<string, Promise<FilePreviewData>>();
+
+function forgetPeeks(contextId?: string) {
+    if (!contextId) return peeks.clear();
+    for (const key of peeks.keys()) {
+        if (key.startsWith(`${contextId}\n`)) peeks.delete(key);
+    }
+}
+
+/** The preview of a file in the context's linked folder, fetched once per file list. */
+export function peekContextFile(contextId: string, path: string): Promise<FilePreviewData> {
+    const key = `${contextId}\n${path}`;
+    let peek = peeks.get(key);
+    if (!peek) {
+        peek = adapter.previewContextFile(contextId, path);
+        // A failure is not kept: the next hover asks again.
+        peek.catch(() => peeks.delete(key));
+        peeks.set(key, peek);
+    }
+    return peek;
+}
+
 // One resolver per file list, shared by every card rendering that context.
 const resolvers = new WeakMap<string[], FileRefResolver>();
 
@@ -102,6 +126,7 @@ export async function loadContextFiles(contextId: string, refresh = false): Prom
     if (!refresh && files[contextId]) return;
     try {
         const index = await adapter.listContextFiles(contextId, refresh);
+        forgetPeeks(contextId);
         files = { ...files, [contextId]: index.files };
     } catch (e) {
         log.error("Failed to list the project folder:", e);
@@ -113,6 +138,7 @@ export async function linkContextFolder(contextId: string, title: string): Promi
     const folder = await adapter.pickContextFolder(contextId, title);
     if (!folder) return false;
     folders = { ...folders, [contextId]: folder };
+    forgetPeeks(contextId);
     const { [contextId]: _stale, ...rest } = files;
     files = rest;
     return true;
@@ -120,6 +146,7 @@ export async function linkContextFolder(contextId: string, title: string): Promi
 
 export async function unlinkContextFolder(contextId: string): Promise<void> {
     await adapter.unlinkContextFolder(contextId);
+    forgetPeeks(contextId);
     const { [contextId]: _folder, ...remainingFolders } = folders;
     const { [contextId]: _files, ...remainingFiles } = files;
     folders = remainingFolders;
@@ -129,6 +156,7 @@ export async function unlinkContextFolder(contextId: string): Promise<void> {
 /** Drop every link on this device. */
 export async function clearContextFolders(): Promise<void> {
     await adapter.clearContextFolders();
+    forgetPeeks();
     folders = {};
     files = {};
 }

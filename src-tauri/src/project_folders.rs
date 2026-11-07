@@ -22,6 +22,7 @@
 //! display and the *names* of the files inside it - never their contents.
 
 use std::collections::HashMap;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -30,6 +31,7 @@ use tauri::{AppHandle, State};
 use tauri_plugin_dialog::DialogExt;
 
 use crate::db::DbManager;
+use crate::models::FilePreviewData;
 use crate::state::DbState;
 use crate::uierror::UiError;
 
@@ -302,19 +304,31 @@ pub async fn list_context_files(
     else {
         return Ok(FileIndex::default());
     };
+    Ok(index_for(&context_id, root, refresh)
+        .await?
+        .as_ref()
+        .clone())
+}
 
+/// The context's index: the cached one when it was built from this folder, otherwise a
+/// fresh walk. Empty when the folder is gone.
+async fn index_for(
+    context_id: &str,
+    root: PathBuf,
+    refresh: bool,
+) -> Result<Arc<FileIndex>, UiError> {
     if !refresh {
-        if let Some((built_from, index)) = crate::state::lock_or_recover(indexes()).get(&context_id)
+        if let Some((built_from, index)) = crate::state::lock_or_recover(indexes()).get(context_id)
         {
             if *built_from == root {
-                return Ok(index.as_ref().clone());
+                return Ok(index.clone());
             }
         }
     }
 
     if !root.is_dir() {
-        forget_index(&context_id);
-        return Ok(FileIndex::default());
+        forget_index(context_id);
+        return Ok(Arc::new(FileIndex::default()));
     }
 
     let walk_root = root.clone();
@@ -331,8 +345,107 @@ pub async fn list_context_files(
     }
 
     let index = Arc::new(index);
-    crate::state::lock_or_recover(indexes()).insert(context_id, (root, index.clone()));
-    Ok(index.as_ref().clone())
+    crate::state::lock_or_recover(indexes()).insert(context_id.to_string(), (root, index.clone()));
+    Ok(index)
+}
+// ---------------------------------------------------------------------------
+// Previewing a file, for the hover card on an `@path`
+// ---------------------------------------------------------------------------
+
+/// What `file_type` a preview carries for a file whose contents are never read.
+pub const WITHHELD: &str = "withheld";
+
+/// Whether a file's name says it usually holds credentials. Such a file is listed and can be
+/// referenced - it often is in a stash - but its contents never reach the page. Checked on
+/// top of `.gitignore`, which keeps most of them out of the index already, because a
+/// repository is not always careful about that.
+pub fn is_secret_file(relative: &str) -> bool {
+    let name = relative
+        .rsplit('/')
+        .next()
+        .unwrap_or(relative)
+        .to_lowercase();
+    name == ".env"
+        || name.starts_with(".env.")
+        || name.starts_with("id_rsa")
+        || name.starts_with("id_ed25519")
+        || name.starts_with("id_ecdsa")
+        || [
+            ".npmrc",
+            ".pypirc",
+            ".netrc",
+            ".git-credentials",
+            "credentials.json",
+        ]
+        .contains(&name.as_str())
+        || [".pem", ".key", ".p12", ".pfx", ".keystore", ".jks"]
+            .iter()
+            .any(|ext| name.ends_with(ext))
+}
+
+/// The attachment preview of `relative` under `root`, or why there is none.
+///
+/// The caller has already checked `relative` is in the folder's index. This checks again,
+/// on the disk, that it is a regular file inside `root` - not a symlink pointing out of it -
+/// before handing it to the same builder attachments use.
+pub fn preview_file(root: &Path, relative: &str) -> Result<FilePreviewData, UiError> {
+    let path = root.join(relative);
+    let meta =
+        fs::symlink_metadata(&path).map_err(|e| format!("Could not read the file: {}", e))?;
+    let inside = match (path.canonicalize(), root.canonicalize()) {
+        (Ok(file), Ok(root)) => file.starts_with(root),
+        _ => false,
+    };
+    if !meta.is_file() || !inside {
+        return Err("Not a file in the project folder".into());
+    }
+
+    if is_secret_file(relative) {
+        return Ok(FilePreviewData {
+            file_type: WITHHELD.to_string(),
+            content: String::new(),
+            file_name: relative.rsplit('/').next().unwrap_or(relative).to_string(),
+            mime_type: String::new(),
+            file_size: meta.len(),
+        });
+    }
+
+    let mut preview = crate::stashes::build_file_preview(&path)?;
+    // A video plays through the asset protocol, which is scoped to the attachment cache, so
+    // one in a project folder could not load. Shown by name instead of as a broken player.
+    if preview.file_type == "video" {
+        preview.file_type = "unsupported".to_string();
+        preview.content = String::new();
+    }
+    Ok(preview)
+}
+
+/// The preview of a file in the context's linked folder, for the hover card on an `@path`.
+///
+/// Only a path the picker itself would offer is read: one in the folder's index, so nothing
+/// `.gitignore` keeps out and nothing outside the folder. Contents of files named like
+/// credentials are never sent - see [`is_secret_file`].
+#[tauri::command]
+pub async fn preview_context_file(
+    state: State<'_, Arc<DbState>>,
+    context_id: String,
+    path: String,
+) -> Result<FilePreviewData, UiError> {
+    let root = state
+        .lock_db()
+        .get_context_folder(&context_id)
+        .map_err(|e| e.to_string())?
+        .map(PathBuf::from)
+        .ok_or("This context has no project folder")?;
+
+    let index = index_for(&context_id, root.clone(), false).await?;
+    if index.files.binary_search(&path).is_err() {
+        return Err("Not a file in the project folder".into());
+    }
+
+    tauri::async_runtime::spawn_blocking(move || preview_file(&root, &path))
+        .await
+        .map_err(|e| format!("Reading the file failed: {}", e))?
 }
 
 #[cfg(test)]
@@ -464,6 +577,79 @@ mod tests {
             expand_folder_variable("{folder}", Some("c++.app"), false).as_deref(),
             Some("c++.app")
         );
+    }
+
+    #[test]
+    fn a_project_file_is_previewed_the_way_an_attachment_is() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("src")).unwrap();
+        fs::write(dir.path().join("src/app.ts"), "export const x = 1;\n").unwrap();
+        fs::write(dir.path().join("logo.png"), [0x89, b'P', b'N', b'G']).unwrap();
+        fs::write(dir.path().join("demo.mp4"), [0, 0, 0]).unwrap();
+
+        let text = preview_file(dir.path(), "src/app.ts").unwrap();
+        assert_eq!(text.file_type, "text");
+        assert_eq!(text.content, "export const x = 1;\n");
+        assert_eq!(text.file_name, "app.ts");
+
+        let image = preview_file(dir.path(), "logo.png").unwrap();
+        assert_eq!(image.file_type, "image");
+        assert!(image.content.starts_with("data:image/png;base64,"));
+
+        // The asset protocol cannot reach a project folder, so no player is offered.
+        let video = preview_file(dir.path(), "demo.mp4").unwrap();
+        assert_eq!(video.file_type, "unsupported");
+        assert!(video.content.is_empty());
+    }
+
+    #[test]
+    fn files_that_usually_hold_secrets_are_never_read() {
+        for name in [
+            ".env",
+            ".env.local",
+            "config/.npmrc",
+            "deploy/server.pem",
+            "keys/id_ed25519",
+            "certs/site.KEY",
+            "android/release.jks",
+        ] {
+            assert!(is_secret_file(name), "{} should be withheld", name);
+        }
+        for name in ["src/env.ts", "environment.md", "keyboard.rs", "README.md"] {
+            assert!(!is_secret_file(name), "{} should be shown", name);
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join(".env"), "API_KEY=hunter2").unwrap();
+        let preview = preview_file(dir.path(), ".env").unwrap();
+        assert_eq!(preview.file_type, WITHHELD);
+        assert!(preview.content.is_empty());
+    }
+
+    #[test]
+    fn a_preview_cannot_climb_out_of_the_folder() {
+        let outer = tempfile::tempdir().unwrap();
+        fs::create_dir(outer.path().join("project")).unwrap();
+        fs::write(outer.path().join("secret.txt"), "outside").unwrap();
+
+        let root = outer.path().join("project");
+        assert!(preview_file(&root, "../secret.txt").is_err());
+        assert!(preview_file(&root, "missing.txt").is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_preview_does_not_follow_a_symlink_out_of_the_folder() {
+        let outside = tempfile::tempdir().unwrap();
+        fs::write(outside.path().join("secret.txt"), "outside").unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        std::os::unix::fs::symlink(
+            outside.path().join("secret.txt"),
+            dir.path().join("link.txt"),
+        )
+        .unwrap();
+
+        assert!(preview_file(dir.path(), "link.txt").is_err());
     }
 
     fn test_db() -> DbManager {

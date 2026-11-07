@@ -22,6 +22,10 @@ popover, not for the person who wrote the commit.
 - **Stashes show when a referenced file has moved.** In a context with a linked folder, an
   `@path` that no longer exists is shown dashed and underlined, and hovering it suggests a file
   of the same name elsewhere in the project. The stash text itself is never changed
+- **Hovering an `@path` previews the file.** The card looks like an attachment's: an image shows
+  the picture, a text file its opening lines. Only files the picker lists can be previewed, and
+  files named like secrets (`.env`, `*.pem`, SSH keys) show a note instead of their contents.
+  Videos in a project folder show only their name
 - Exporting a context includes its project folder. Importing restores the link when that folder
   exists on this device, and skips it otherwise. Signing out asks whether to keep this device's
   folder links, and keeps them by default

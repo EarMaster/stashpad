@@ -581,6 +581,7 @@ pub fn run() {
             project_folders::unlink_context_folder,
             project_folders::clear_context_folders,
             project_folders::list_context_files,
+            project_folders::preview_context_file,
             project_digest::preview_context_digest,
             project_digest::ai_suggest_description,
             utils::set_autostart,

@@ -248,6 +248,12 @@ export interface IStorageService {
     previewContextDigest(contextId: string): Promise<DigestPreview>;
     /** Draft a description of the context's project from its folder. A proposal; nothing is saved. */
     suggestContextDescription(contextId: string): Promise<string>;
+    /**
+     * The preview of a file in a context's linked folder, for the hover card on an `@path` -
+     * the same shape an attachment's has. `fileType` is `withheld` for a file named like
+     * one that holds secrets, whose contents are never read.
+     */
+    previewContextFile(contextId: string, path: string): Promise<FilePreviewData>;
     /** The files in a context's linked folder; `refresh` walks the folder again. */
     listContextFiles(contextId: string, refresh: boolean): Promise<FileIndex>;
     isWindows10(): Promise<boolean>;

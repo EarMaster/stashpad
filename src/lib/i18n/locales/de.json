@@ -658,6 +658,8 @@
     }
   },
   "fileRef": {
-    "missing": "Nicht im Projektordner"
+    "missing": "Nicht im Projektordner",
+    "didYouMean": "Meintest du {path}?",
+    "withheld": "Keine Vorschau: Solche Dateien enthalten meist Geheimnisse"
   }
 }

@@ -658,6 +658,8 @@
     }
   },
   "fileRef": {
-    "missing": "Not in the project folder"
+    "missing": "Not in the project folder",
+    "didYouMean": "Did you mean {path}?",
+    "withheld": "No preview: files like this usually hold secrets"
   }
 }
