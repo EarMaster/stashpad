@@ -11,6 +11,13 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+## [1.12.1] - 2026-11-07
+
+### Changed
+
+- Drafted context descriptions now describe what the project is for rather than its state
+  today, and leave out things that go stale quickly, like version numbers and release dates
+
 ## [1.12.0] - 2026-11-07
 
 ### Added
