@@ -11,6 +11,8 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-11-07
+
 ### Added
 
 - **Type `@` to reference a file from your project.** Link a context to its project folder in
