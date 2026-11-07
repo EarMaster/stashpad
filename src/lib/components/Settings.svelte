@@ -29,6 +29,11 @@
   } from "$lib/i18n";
   import ShortcutInput from "./ShortcutInput.svelte";
   import CloudAuthModal from "./CloudAuthModal.svelte";
+  import ConfirmationDialog from "./ConfirmationDialog.svelte";
+  import {
+    applySignOutFolderChoice,
+    hasLinksToKeepOnSignOut,
+  } from "$lib/stores/context-folders.svelte";
   import { fade } from "svelte/transition";
   import { onDestroy, onMount } from "svelte";
   import { APP_VERSION } from "$lib/utils/version";
@@ -492,6 +497,31 @@
     }
   }
 
+  // Signing out asks whether to keep this device's project folder links. They are local
+  // and never synced, so keeping them is the default; the question is only asked when
+  // there is something to keep.
+  let logoutDialogOpen = $state(false);
+  let keepFolderLinks = $state(true);
+
+  async function requestCloudLogout() {
+    if (!(await hasLinksToKeepOnSignOut())) {
+      await handleCloudLogout();
+      return;
+    }
+    keepFolderLinks = true;
+    logoutDialogOpen = true;
+  }
+
+  async function confirmCloudLogout() {
+    logoutDialogOpen = false;
+    try {
+      await applySignOutFolderChoice(keepFolderLinks);
+    } catch (e) {
+      log.error("Failed to clear project folder links:", e);
+    }
+    await handleCloudLogout();
+  }
+
   /** Clears all cloud auth data, erases the stored token, and disables sync. */
   async function handleCloudLogout() {
     // Must go through the backend command: save_settings deliberately restores a
@@ -831,7 +861,7 @@
                 </SettingsButton>
                 <SettingsButton
                   variant="destructive"
-                  onclick={handleCloudLogout}
+                  onclick={requestCloudLogout}
                 >
                   {$_("settings.cloudSync.auth.logout")}
                 </SettingsButton>
@@ -1852,6 +1882,20 @@
 </div>
 
 <!-- Cloud authorization modal – rendered at root level for full-window overlay -->
+<ConfirmationDialog
+  bind:open={logoutDialogOpen}
+  title={$_("settings.cloudSync.auth.logoutConfirm.title")}
+  description={$_("settings.cloudSync.auth.logoutConfirm.description")}
+  confirmText={$_("settings.cloudSync.auth.logout")}
+  variant="destructive"
+  onConfirm={confirmCloudLogout}
+>
+  <label class="flex items-start gap-2 text-sm cursor-pointer">
+    <input type="checkbox" class="mt-0.5" bind:checked={keepFolderLinks} />
+    <span>{$_("settings.cloudSync.auth.logoutConfirm.keepFolders")}</span>
+  </label>
+</ConfirmationDialog>
+
 <CloudAuthModal
   bind:open={showAuthModal}
   bind:settings

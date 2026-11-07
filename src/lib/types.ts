@@ -236,6 +236,16 @@ export interface IStorageService {
     commitImport(contextId: string, stashes: StashItem[], token: string): Promise<number>;
     /** Drop the files an abandoned import had extracted. */
     discardImport(token: string): Promise<void>;
+
+    /** Every context's linked project folder on this device. */
+    getContextFolders(): Promise<ContextFolder[]>;
+    /** Ask for a context's project folder and link it; null when the dialog is cancelled. */
+    pickContextFolder(contextId: string, title: string): Promise<ContextFolder | null>;
+    unlinkContextFolder(contextId: string): Promise<void>;
+    /** Drop every folder link on this device. */
+    clearContextFolders(): Promise<void>;
+    /** The files in a context's linked folder; `refresh` walks the folder again. */
+    listContextFiles(contextId: string, refresh: boolean): Promise<FileIndex>;
     isWindows10(): Promise<boolean>;
     getDeviceName(): Promise<string>;
     /**
@@ -426,6 +436,29 @@ export interface ArchiveMetadata {
     name: string;
     description: string;
     rules: unknown[];
+    /**
+     * The project folder the archive's context was linked to - present only when that
+     * folder exists on this device, and then linked by the import.
+     */
+    projectFolder?: string;
+}
+
+/**
+ * A context's project folder on this device. Never part of `Context`: a path only means
+ * something on the machine it was picked on, so it is stored apart and never synced.
+ */
+export interface ContextFolder {
+    contextId: string;
+    path: string;
+    /** False when the folder is gone; the link is kept so it can be relinked. */
+    exists: boolean;
+}
+
+/** The files of a linked folder, relative to it, with `/` separators. */
+export interface FileIndex {
+    files: string[];
+    /** The folder held more files than the picker lists. */
+    truncated: boolean;
 }
 
 /** What an account is storing in the cloud. Attachment bytes are the only capped part. */

@@ -198,6 +198,10 @@ export function installMockBackend(overrides: Partial<DemoState> = {}): void {
                 return 'You are a precise engineering assistant. Rewrite the note as a task.';
             case 'write_reference_file':
                 return `/home/dev/.stashpad/cache/${payload?.contextId}/${payload?.stashId}/refs/${payload?.targetId}.md`;
+            case 'get_context_folders':
+                return [];
+            case 'list_context_files':
+                return { files: [], truncated: false };
             case 'get_system_prompt_path_str':
                 return '/home/dev/.stashpad/system-prompt.md';
             case 'e2ee_status':

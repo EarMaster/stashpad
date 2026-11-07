@@ -256,7 +256,12 @@
         "attachmentUploadFailed": "{fileName} konnte nicht hochgeladen werden — neuer Versuch in {minutes} Min.",
         "attachmentUploadFailedMany": "{fileName} und {count} weitere konnten nicht hochgeladen werden — neuer Versuch in {minutes} Min.",
         "sessionExpired": "Sitzung abgelaufen",
-        "loginAgain": "Erneut Anmelden"
+        "loginAgain": "Erneut Anmelden",
+        "logoutConfirm": {
+          "title": "Abmelden?",
+          "description": "Die Synchronisierung auf diesem Gerät stoppt. Deine Stashes bleiben hier.",
+          "keepFolders": "Die mit deinen Kontexten verknüpften Projektordner auf diesem Gerät behalten"
+        }
       }
     }
   },
@@ -401,6 +406,15 @@
       "storage": "Speicher verwendet",
       "used": "verwendet",
       "lastUsed": "zuletzt verwendet"
+    },
+    "folder": {
+      "label": "Projektordner",
+      "link": "Ordner verknüpfen",
+      "change": "Ändern",
+      "unlink": "Trennen",
+      "pickTitle": "Projektordner auswählen",
+      "hint": "Verknüpfe einen Ordner, um beim Tippen von @ seine Dateien vorzuschlagen. Wird nur auf diesem Gerät gespeichert.",
+      "missing": "Diesen Ordner gibt es nicht mehr. Wähle ihn erneut aus, damit weiter Dateien vorgeschlagen werden."
     }
   },
   "contextSwitcher": {
@@ -548,7 +562,8 @@
     "clearConfirm": {
       "title": "Editor leeren?",
       "description": "Dies entfernt den gesamten Text und alle Anhänge. Diese Aktion kann nicht rückgängig gemacht werden."
-    }
+    },
+    "referenceFile": "Auf eine Datei verweisen"
   },
   "shortcutInput": {
     "ariaLabel": "Tastenkürzel-Eingabe. Drücke Enter, um ein neues Tastenkürzel aufzuzeichnen."
@@ -624,5 +639,8 @@
       "subscription_required": "Für die Cloud-Synchronisierung brauchst du ein Abo. Du kannst es in den Einstellungen abschließen.",
       "storage_full": "Dein Cloud-Speicher ist voll. Entferne Anhänge oder erweitere dein Abo, um mehr hinzuzufügen."
     }
+  },
+  "fileRef": {
+    "missing": "Nicht im Projektordner"
   }
 }

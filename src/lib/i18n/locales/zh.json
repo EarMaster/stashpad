@@ -256,7 +256,12 @@
         "attachmentUploadFailed": "无法上传 {fileName}，将在 {minutes} 分钟后重试",
         "attachmentUploadFailedMany": "无法上传 {fileName} 及另外 {count} 个文件，将在 {minutes} 分钟后重试",
         "sessionExpired": "会话已过期",
-        "loginAgain": "重新登录"
+        "loginAgain": "重新登录",
+        "logoutConfirm": {
+          "title": "退出登录？",
+          "description": "这台设备将停止同步。你的暂存项会保留在这里。",
+          "keepFolders": "在这台设备上保留与你的上下文关联的项目文件夹"
+        }
       }
     }
   },
@@ -401,6 +406,15 @@
       "storage": "已用存储",
       "used": "已用",
       "lastUsed": "上次使用"
+    },
+    "folder": {
+      "label": "项目文件夹",
+      "link": "关联文件夹",
+      "change": "更改",
+      "unlink": "取消关联",
+      "pickTitle": "选择项目文件夹",
+      "hint": "关联一个文件夹后，输入 @ 时会提示其中的文件。仅保存在这台设备上。",
+      "missing": "这个文件夹已不存在。重新选择它即可继续提示文件。"
     }
   },
   "contextSwitcher": {
@@ -548,7 +562,8 @@
     "clearConfirm": {
       "title": "清空编辑器？",
       "description": "这将移除所有文本和附件。此操作无法撤销。"
-    }
+    },
+    "referenceFile": "引用文件"
   },
   "shortcutInput": {
     "ariaLabel": "快捷键输入框。按 Enter 录制新的快捷键。"
@@ -624,5 +639,8 @@
       "subscription_required": "云同步需要订阅。你可以在设置中升级。",
       "storage_full": "你的云存储空间已满。请删除一些附件，或升级以获得更多空间。"
     }
+  },
+  "fileRef": {
+    "missing": "不在项目文件夹中"
   }
 }

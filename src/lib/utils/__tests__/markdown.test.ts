@@ -13,6 +13,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { getTagHue, safeParse } from '../markdown';
+import { makeFileRefResolver } from '../file-refs';
 
 describe('markdown utilities', () => {
     describe('safeParse', () => {
@@ -31,6 +32,27 @@ describe('markdown utilities', () => {
             const result = safeParse('@path/to/file.ts');
             expect(result).toContain('class="ai-mention"');
             expect(result).toContain('@path/to/file.ts');
+        });
+
+        it('should highlight a quoted @ path with spaces as one mention', () => {
+            const result = safeParse('See @"docs/release notes.md" first');
+            expect(result).toContain('<span class="ai-mention">@"docs/release notes.md"</span>');
+        });
+
+        it('should leave sentence punctuation outside an @ mention', () => {
+            const result = safeParse('Look at @src/app.ts.');
+            expect(result).toContain('<span class="ai-mention">@src/app.ts</span>.');
+        });
+
+        it('should mark an @ path the linked folder does not hold, with a suggestion', () => {
+            const resolveFile = {
+                resolve: makeFileRefResolver(['src/app.ts', 'src/lib/moved.ts']),
+                missingLabel: 'Not in the project folder',
+            };
+            const result = safeParse('@src/app.ts and @src/moved.ts', undefined, resolveFile);
+            expect(result).toContain('<span class="ai-mention">@src/app.ts</span>');
+            expect(result).toContain('class="ai-mention file-ref-unresolved"');
+            expect(result).toContain('Not in the project folder → src/lib/moved.ts');
         });
 
         it('should highlight @ mentions after whitespace', () => {

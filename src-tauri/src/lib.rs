@@ -40,6 +40,7 @@ mod keychain;
 mod localkey;
 mod logging;
 mod models;
+mod project_folders;
 mod settings;
 mod shortcuts;
 mod stashes;
@@ -554,6 +555,11 @@ pub fn run() {
             contexts::claim_pending_contexts,
             contexts::mark_contexts_synced,
             contexts::delete_context,
+            project_folders::get_context_folders,
+            project_folders::pick_context_folder,
+            project_folders::unlink_context_folder,
+            project_folders::clear_context_folders,
+            project_folders::list_context_files,
             utils::set_autostart,
             utils::get_autostart_enabled,
             sync::fetch_cloud_account,

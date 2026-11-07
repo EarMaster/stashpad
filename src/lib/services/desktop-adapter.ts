@@ -13,7 +13,7 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import type { LogLevel } from '../utils/log';
-import type { IStorageService, StashItem, AppContext, Settings, FilePreviewData, Context, Attachment, CloudConfig, ExportSummary, ImportPreview, CloudUsage, StashPosition, LocalKeyStatus, E2eeStatus, E2eeEnableResult, E2eeConversionProgress, CreatedAccessKey, AttachmentConversion, FileFilter } from '../types';
+import type { IStorageService, StashItem, AppContext, Settings, FilePreviewData, Context, Attachment, CloudConfig, ExportSummary, ImportPreview, CloudUsage, StashPosition, LocalKeyStatus, E2eeStatus, E2eeEnableResult, E2eeConversionProgress, CreatedAccessKey, AttachmentConversion, FileFilter, ContextFolder, FileIndex } from '../types';
 
 import { log } from '$lib/utils/log';
 /** Called after any local write so cloud sync can be scheduled. */
@@ -336,6 +336,26 @@ export class DesktopStorageAdapter implements IStorageService {
 
     async aiTestConnection(test: { endpoint: string; model: string; apiKey: string }): Promise<void> {
         await invoke('ai_test_connection', { test });
+    }
+
+    async getContextFolders(): Promise<ContextFolder[]> {
+        return await invoke('get_context_folders');
+    }
+
+    async pickContextFolder(contextId: string, title: string): Promise<ContextFolder | null> {
+        return await invoke('pick_context_folder', { contextId, title });
+    }
+
+    async unlinkContextFolder(contextId: string): Promise<void> {
+        await invoke('unlink_context_folder', { contextId });
+    }
+
+    async clearContextFolders(): Promise<void> {
+        await invoke('clear_context_folders');
+    }
+
+    async listContextFiles(contextId: string, refresh: boolean): Promise<FileIndex> {
+        return await invoke('list_context_files', { contextId, refresh });
     }
 
     async pickFiles(title: string, multiple: boolean, filters?: FileFilter[]): Promise<string[]> {

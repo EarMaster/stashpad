@@ -63,6 +63,12 @@ pub struct ArchiveMetadata {
     pub description: String,
     #[serde(default)]
     pub rules: Vec<serde_json::Value>,
+    /// The project folder the context was linked to on the exporting device. Restored on
+    /// import only when that folder exists where the archive is read; otherwise the import
+    /// reports none. Left out of the frontmatter when there is no link, so an archive of an
+    /// unlinked context reads exactly as it did before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_folder: Option<String>,
 }
 
 /// What an archive turned out to contain, for the conflict UI to act on.
@@ -733,10 +739,13 @@ pub async fn write_context_archive(
 ) -> Result<ExportSummary, UiError> {
     let wanted: HashSet<String> = stash_ids.into_iter().collect();
 
-    let (context, stashes) = {
+    let (context, project_folder, stashes) = {
         let db = state.lock_db();
         let contexts = db.get_contexts().map_err(|e| e.to_string())?;
         let context = contexts.into_iter().find(|c: &Context| c.id == context_id);
+        let project_folder = db
+            .get_context_folder(&context_id)
+            .map_err(|e| e.to_string())?;
 
         let all = db.get_stashes().map_err(|e| e.to_string())?;
         let selected: Vec<StashItem> = all
@@ -744,7 +753,7 @@ pub async fn write_context_archive(
             .filter(|s| s.context_id == context_id && wanted.contains(&s.id))
             .collect();
 
-        (context, selected)
+        (context, project_folder, selected)
     };
 
     let context_name = context
@@ -767,6 +776,7 @@ pub async fn write_context_archive(
                     .collect()
             })
             .unwrap_or_default(),
+        project_folder,
     };
 
     let archived: HashMap<String, Vec<ArchivedFile>> = if include_attachments {
@@ -931,7 +941,9 @@ pub async fn read_import_archive(
     .await
     .map_err(|e| format!("Import task failed: {}", e))??;
 
-    let parsed = parse_markdown(&markdown, &context_id);
+    let mut parsed = parse_markdown(&markdown, &context_id);
+    parsed.metadata.project_folder =
+        crate::project_folders::remember_import_folder(&token, parsed.metadata.project_folder);
 
     let existing = {
         let db = state.lock_db();
@@ -1056,6 +1068,13 @@ pub async fn commit_import(
         return Err(e.to_string().into());
     }
 
+    if let Some(folder) = crate::project_folders::take_import_folder(&token) {
+        let db = state.lock_db();
+        if let Err(e) = crate::project_folders::apply_imported_folder(&db, &context_id, &folder) {
+            log::warn!("Could not link the imported project folder: {}", e);
+        }
+    }
+
     let cleanup_dir = temp_dir.clone();
     let _ = tauri::async_runtime::spawn_blocking(move || fs::remove_dir_all(&cleanup_dir)).await;
 
@@ -1142,6 +1161,7 @@ pub async fn discard_import(token: String) -> Result<(), UiError> {
     if Uuid::parse_str(&token).is_err() {
         return Err("Invalid import token".into());
     }
+    crate::project_folders::take_import_folder(&token);
     let _ = fs::remove_dir_all(transfer_temp_root().join(token));
     Ok(())
 }
@@ -1171,7 +1191,26 @@ mod tests {
             name: "Work".to_string(),
             description: "notes".to_string(),
             rules: Vec::new(),
+            project_folder: None,
         }
+    }
+
+    #[test]
+    fn the_project_folder_survives_a_round_trip() {
+        let mut with_folder = metadata();
+        with_folder.project_folder = Some("/home/me/project".to_string());
+        let stashes = vec![stash("a", "see @src/app.ts", "2026-08-18T10:00:00Z", false)];
+
+        let md = build_markdown("Work", &with_folder, &stashes, None, time::now());
+        assert!(md.contains("projectFolder: /home/me/project"));
+        assert_eq!(parse_markdown(&md, "ctx").metadata, with_folder);
+    }
+
+    #[test]
+    fn an_unlinked_context_writes_no_project_folder_key() {
+        let stashes = vec![stash("a", "entry", "2026-08-18T10:00:00Z", false)];
+        let md = build_markdown("Work", &metadata(), &stashes, None, time::now());
+        assert!(!md.contains("projectFolder"));
     }
 
     #[test]

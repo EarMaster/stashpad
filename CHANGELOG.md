@@ -11,6 +11,21 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+### Added
+
+- **Type `@` to reference a file from your project.** Link a context to its project folder in
+  the context manager, and typing `@` in a stash suggests the files in it. Picking one writes
+  `@src/app.ts` into the stash, the same form Claude Code uses (paths with spaces are quoted),
+  so an AI tool working in that project can open the file directly. Files ignored by
+  `.gitignore` are left out. The link is saved only on this device and is never synced, so
+  each computer can point at its own copy of the project
+- **Stashes show when a referenced file has moved.** In a context with a linked folder, an
+  `@path` that no longer exists is shown dashed and underlined, and hovering it suggests a file
+  of the same name elsewhere in the project. The stash text itself is never changed
+- Exporting a context includes its project folder. Importing restores the link when that folder
+  exists on this device, and skips it otherwise. Signing out asks whether to keep this device's
+  folder links, and keeps them by default
+
 ## [1.11.6] - 2026-11-05
 
 ### Fixed

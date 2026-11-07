@@ -256,7 +256,12 @@
         "attachmentUploadFailed": "Could not upload {fileName} — trying again in {minutes} min",
         "attachmentUploadFailedMany": "Could not upload {fileName} and {count} more — trying again in {minutes} min",
         "sessionExpired": "Session expired",
-        "loginAgain": "Log In Again"
+        "loginAgain": "Log In Again",
+        "logoutConfirm": {
+          "title": "Sign out?",
+          "description": "Sync stops on this device. Your stashes stay here.",
+          "keepFolders": "Keep the project folders linked to your contexts on this device"
+        }
       }
     }
   },
@@ -401,6 +406,15 @@
       "storage": "storage used",
       "used": "used",
       "lastUsed": "last used"
+    },
+    "folder": {
+      "label": "Project folder",
+      "link": "Link folder",
+      "change": "Change",
+      "unlink": "Unlink",
+      "pickTitle": "Choose the project folder",
+      "hint": "Link a folder to suggest its files when you type @. Only saved on this device.",
+      "missing": "This folder no longer exists. Choose it again to keep suggesting files."
     }
   },
   "contextSwitcher": {
@@ -548,7 +562,8 @@
     "clearConfirm": {
       "title": "Clear Editor?",
       "description": "This will remove all text and attachments. This action cannot be undone."
-    }
+    },
+    "referenceFile": "Reference a file"
   },
   "shortcutInput": {
     "ariaLabel": "Keyboard shortcut input. Press Enter to record a new shortcut."
@@ -624,5 +639,8 @@
       "subscription_required": "Cloud Sync needs a subscription. You can upgrade under Settings.",
       "storage_full": "Your cloud storage is full. Remove attachments or upgrade to add more."
     }
+  },
+  "fileRef": {
+    "missing": "Not in the project folder"
   }
 }

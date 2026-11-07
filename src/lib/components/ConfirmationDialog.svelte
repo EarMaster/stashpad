@@ -7,6 +7,7 @@
     import { _ } from "$lib/i18n";
     import { portal } from "$lib/actions/portal";
     import { trapFocus } from "$lib/actions/trapFocus";
+    import type { Snippet } from "svelte";
 
     let {
         open = $bindable(false),
@@ -17,6 +18,7 @@
         variant = "default",
         onConfirm,
         onCancel,
+        children,
     } = $props<{
         open: boolean;
         title: string;
@@ -26,6 +28,8 @@
         variant?: "default" | "destructive";
         onConfirm: () => void;
         onCancel?: () => void;
+        /** Extra controls under the description, such as an option the confirm applies. */
+        children?: Snippet;
     }>();
 
     let isConfirmed = $state(false);
@@ -134,6 +138,8 @@
                     {description}
                 </p>
             </div>
+
+            {@render children?.()}
 
             <div class="flex justify-end gap-2">
                 <button

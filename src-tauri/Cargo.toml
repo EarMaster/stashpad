@@ -74,6 +74,9 @@ tokio = { version = "1.50.0", features = ["time", "macros"] }
 # not need, and every archive we read or write uses deflate.
 zip = { version = "2", default-features = false, features = ["deflate"] }
 serde_yaml = "0.9"
+# Walks a context's linked project folder for the editor's `@path` picker. ripgrep's walker,
+# so .gitignore, .ignore and git's excludes are honoured without reimplementing them.
+ignore = "0.4.30"
 
 # Apple Intelligence (Foundation Models) - macOS 26+ only
 # keyring ships NO default features and, without one, silently compiles its in-memory

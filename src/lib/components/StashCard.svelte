@@ -55,6 +55,7 @@
     ChevronUp,
   } from "lucide-svelte";
   import Editor from "./Editor.svelte";
+  import { getFileRefResolver } from "$lib/stores/context-folders.svelte";
   import FilePreviewTooltip from "./FilePreviewTooltip.svelte";
   import FilePreviewModal from "./FilePreviewModal.svelte";
   import { message } from "@tauri-apps/plugin-dialog";
@@ -249,7 +250,18 @@
     return { state: ref.state, label };
   }
 
-  let renderedContent = $derived(safeParse(displayContent, displayRef));
+  // `@path`s are checked against the context's project folder, when this device has one.
+  let fileResolver = $derived(getFileRefResolver(item.contextId));
+  let renderedContent = $derived(
+    safeParse(
+      displayContent,
+      displayRef,
+      fileResolver && {
+        resolve: fileResolver,
+        missingLabel: $_("fileRef.missing"),
+      },
+    ),
+  );
 
   function refIdAt(target: EventTarget | null): string | null {
     const el = (target as HTMLElement | null)?.closest?.("[data-ref-id]");

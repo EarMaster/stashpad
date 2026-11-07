@@ -15,6 +15,8 @@
         Pencil,
         CaseSensitive,
         Braces,
+        FolderOpen,
+        Unlink,
     } from "lucide-svelte";
     import { formatBytes, ATTACHMENT_SIZE_LIMITS } from "$lib/utils/format";
     import { getRelativeTime } from "$lib/utils/date";
@@ -23,6 +25,13 @@
     import { safeParse } from "$lib/utils/markdown";
     import { externalLinks } from "$lib/actions/externalLinks";
     import { tick } from "svelte";
+    import {
+        getContextFolder,
+        linkContextFolder,
+        loadContextFolders,
+        unlinkContextFolder,
+    } from "$lib/stores/context-folders.svelte";
+    import { log } from "$lib/utils/log";
 
     let {
         context = $bindable(),
@@ -53,6 +62,28 @@
     let inputElement = $state<HTMLInputElement>();
     let descriptionTextarea = $state<HTMLTextAreaElement>();
     let isEditingDescription = $state(false);
+
+    // The project folder lives on this device only, outside the synced context.
+    let folder = $derived(getContextFolder(context.id));
+    $effect(() => {
+        loadContextFolders();
+    });
+
+    async function pickFolder() {
+        try {
+            await linkContextFolder(context.id, $_("contexts.folder.pickTitle"));
+        } catch (e) {
+            log.error("Failed to link a project folder:", e);
+        }
+    }
+
+    async function unlinkFolder() {
+        try {
+            await unlinkContextFolder(context.id);
+        } catch (e) {
+            log.error("Failed to unlink the project folder:", e);
+        }
+    }
 
     async function focusDescription() {
         isEditingDescription = true;
@@ -209,6 +240,61 @@
                         >
                     {/if}
                 </div>
+            {/if}
+        </div>
+    {/if}
+
+    <!-- Project folder on this device (only for non-default) -->
+    {#if !isDefault}
+        <div>
+            <div class="flex justify-between items-center mb-1">
+                <span
+                    class="text-[10px] text-muted-foreground font-medium uppercase tracking-wider"
+                >
+                    {$_("contexts.folder.label")}
+                </span>
+                <div class="flex gap-1">
+                    <ActionButton
+                        variant="context"
+                        title={folder
+                            ? $_("contexts.folder.change")
+                            : $_("contexts.folder.link")}
+                        onclick={pickFolder}
+                    >
+                        <FolderOpen size={12} />
+                        {folder
+                            ? $_("contexts.folder.change")
+                            : $_("contexts.folder.link")}
+                    </ActionButton>
+                    {#if folder}
+                        <ActionButton
+                            variant="context"
+                            title={$_("contexts.folder.unlink")}
+                            onclick={unlinkFolder}
+                        >
+                            <Unlink size={12} />
+                            <span class="hidden sm:inline"
+                                >{$_("contexts.folder.unlink")}</span
+                            >
+                        </ActionButton>
+                    {/if}
+                </div>
+            </div>
+            {#if folder}
+                <div class="px-2 text-xs font-mono break-all">
+                    <span class={folder.exists ? "" : "text-muted-foreground line-through"}
+                        >{folder.path}</span
+                    >
+                    {#if !folder.exists}
+                        <span class="block font-sans text-amber-500"
+                            >{$_("contexts.folder.missing")}</span
+                        >
+                    {/if}
+                </div>
+            {:else}
+                <p class="px-2 text-xs text-muted-foreground italic">
+                    {$_("contexts.folder.hint")}
+                </p>
             {/if}
         </div>
     {/if}

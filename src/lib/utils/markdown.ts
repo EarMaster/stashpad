@@ -15,6 +15,7 @@ import { markedHighlight } from "marked-highlight";
 import hljs from "highlight.js";
 import DOMPurify from "dompurify";
 import type { RefState } from "./stash-refs";
+import { readFileRef, type FileRefResolver } from "./file-refs";
 
 /**
  * How a `stash:` link should look, supplied by the component rendering it.
@@ -33,6 +34,10 @@ export type RefResolver = (id: string) => RefDisplay;
 // Set only for the duration of one synchronous `safeParse` call. marked renders
 // synchronously, so no other parse can observe it.
 let activeRefResolver: RefResolver | null = null;
+// The same, for `@path` references to files in the context's linked project folder.
+let activeFileResolver: FileRefResolver | null = null;
+// The translated "not in the project folder" text for an unresolved path's title.
+let activeFileMissingLabel = "";
 
 const STASH_HREF = /^stash:([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/;
 
@@ -86,19 +91,34 @@ const markedInstance = new Marked(
                     }
                     return undefined;
                 },
-                tokenizer(src, tokens) {
-                    const rule = /^@\S+/;
-                    const match = rule.exec(src);
-                    if (match) {
+                // `@"quoted path"` or a bare `@path`, read the way the editor writes them.
+                // Sentence punctuation after a bare path stays outside the mention.
+                tokenizer(src) {
+                    const ref = readFileRef(src);
+                    if (ref) {
                         return {
                             type: 'mention',
-                            raw: match[0],
-                            text: match[0]
+                            raw: ref.raw,
+                            text: ref.raw,
+                            path: ref.path,
                         };
                     }
                 },
+                // With a linked folder, a path it does not hold is marked, and a file of
+                // the same name elsewhere is offered in the title. Without one, a mention
+                // renders as it always has.
                 renderer(token) {
-                    return `<span class="ai-mention">${token.text}</span>`;
+                    const display = activeFileResolver?.(token.path as string);
+                    if (!display || display.state === 'resolved') {
+                        return `<span class="ai-mention">${escapeHtml(token.text)}</span>`;
+                    }
+                    const title = display.suggestion
+                        ? `${activeFileMissingLabel} → ${display.suggestion}`
+                        : activeFileMissingLabel;
+                    return (
+                        `<span class="ai-mention file-ref-unresolved" title="${escapeHtml(title)}">` +
+                        `${escapeHtml(token.text)}</span>`
+                    );
                 }
             },
             {
@@ -387,15 +407,23 @@ function injectRefs(html: string): string {
  *  3. injectBadges – expands placeholders into fully-styled badge HTML
  *  4. injectRefs – makes `stash:` reference chips clickable
  *
- * `resolveRef` supplies the live label and state of each referenced stash.
+ * `resolveRef` supplies the live label and state of each referenced stash, and
+ * `resolveFile` checks `@path`s against the context's linked project folder.
  */
-export function safeParse(content: string, resolveRef?: RefResolver): string {
+export function safeParse(
+    content: string,
+    resolveRef?: RefResolver,
+    resolveFile?: { resolve: FileRefResolver; missingLabel: string },
+): string {
     activeRefResolver = resolveRef ?? null;
+    activeFileResolver = resolveFile?.resolve ?? null;
+    activeFileMissingLabel = resolveFile?.missingLabel ?? "";
     let raw: string;
     try {
         raw = markedInstance.parse(content) as string;
     } finally {
         activeRefResolver = null;
+        activeFileResolver = null;
     }
     const sanitized = sanitizeHtml(raw);
     return injectRefs(injectBadges(sanitized));
