@@ -884,7 +884,7 @@ pub async fn write_context_archive(
 fn write_zip(path: &Path, markdown: &str, files: &[(String, String)]) -> Result<(), UiError> {
     let file = fs::File::create(path).map_err(|e| format!("Failed to write export: {}", e))?;
     let mut zip = zip::ZipWriter::new(file);
-    let options: zip::write::FileOptions<'_, ()> =
+    let options: zip::write::FileOptions<'_, '_, ()> =
         zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
 
     zip.start_file(MARKDOWN_ENTRY, options)
@@ -985,7 +985,10 @@ fn extract_archive(source: &Path, dest: &Path) -> Result<String, UiError> {
 
     for i in 0..zip.len() {
         let mut entry = zip.by_index(i).map_err(|e| e.to_string())?;
-        let name = entry.name().to_string();
+        let name = entry
+            .name()
+            .map_err(|e| format!("Unreadable entry name in archive: {}", e))?
+            .into_owned();
 
         if entry.is_dir() {
             continue;

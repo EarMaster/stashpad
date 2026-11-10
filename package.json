@@ -1,6 +1,6 @@
 {
   "name": "stashpad",
-  "version": "1.12.1",
+  "version": "1.12.2",
   "description": "The staging area for your AI context.",
   "author": {
     "name": "Nico Wiedemann",
@@ -54,7 +54,7 @@
     "@vitest/coverage-v8": "^4.0.16",
     "@vitest/ui": "^4.0.16",
     "autoprefixer": "^10.4.22",
-    "happy-dom": "^20.1.0",
+    "happy-dom": "^21.0.4",
     "jsdom": "^27.4.0",
     "playwright": "^1.63.0",
     "postcss": "^8.5.6",
@@ -88,5 +88,10 @@
     "svelte-i18n": "^4.0.1",
     "tailwind-merge": "^3.4.0",
     "temporal-polyfill": "^1.0.5"
+  },
+  "overrides": {
+    "@tailwindcss/typography": {
+      "postcss-selector-parser": "^6.1.5"
+    }
   }
 }
