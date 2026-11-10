@@ -11,6 +11,14 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+### Security
+
+- **The libraries that clean up stash content and secure connections are brought up to date
+  with their security fixes.** This covers the sanitiser that strips scripts from rendered
+  markdown and the TLS library behind every connection to the sync server. None of the fixed
+  problems could be reached through anything Stashpad does today; this closes them before a
+  future change could make one reachable
+
 ## [1.12.1] - 2026-11-07
 
 ### Changed
