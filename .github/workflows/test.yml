@@ -63,6 +63,12 @@ jobs:
       - name: Check CHANGELOG.md has a section for the current version
         run: node scripts/check-changelog.mjs
 
+      # Same job, same reason: it reads files and needs nothing installed, so a lockfile that
+      # disagrees with its manifest or with the other ecosystem fails here in seconds. v1.12.2
+      # got through every test and failed only inside tauri build, on all six release legs.
+      - name: Check the manifests and lockfiles agree
+        run: node scripts/check-lockfiles.mjs
+
   frontend-tests:
     name: Frontend Tests
     runs-on: ${{ matrix.os }}
@@ -179,7 +185,9 @@ jobs:
 
       - name: Run Rust tests
         working-directory: src-tauri
-        run: cargo test --verbose
+        # --locked: a Cargo.lock that no longer satisfies Cargo.toml fails the run instead of
+        # being re-resolved on the runner, where the result is tested and then thrown away.
+        run: cargo test --locked --verbose
 
       # Both lints gate. They were advisory while the tree was not clean - and an advisory step
       # that fails on every run is noise nobody reads, so findings piled up: by v1.9.0 clippy had
@@ -196,7 +204,7 @@ jobs:
       - name: Run Clippy
         if: matrix.os == 'ubuntu-latest'
         working-directory: src-tauri
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --locked --all-targets -- -D warnings
 
       - name: Check formatting
         if: matrix.os == 'ubuntu-latest'
