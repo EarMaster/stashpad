@@ -11,6 +11,8 @@ popover, not for the person who wrote the commit.
 
 ## [Unreleased]
 
+## [1.12.2] - 2026-11-10
+
 ### Security
 
 - **The libraries that clean up stash content, unpack archives and secure connections are
