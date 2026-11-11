@@ -155,6 +155,10 @@ disappears from the body and from every update popover.
   why `prepare` asserts the three version fields agree.
 - `src-tauri/Cargo.lock` carries the crate's own version and is part of every bump commit, but
   `sync-version.mjs` does not write it.
+- `package-lock.json` carries the version twice and is part of every bump commit too.
+  `scripts/check-lockfiles.mjs` fails, locally and in the Tests workflow, when any of these
+  disagree, or when an `@tauri-apps` npm package and its Rust crate are on different minors -
+  which `tauri build` refuses, and which only the release itself would otherwise reach.
 
 ## Verifying a run
 

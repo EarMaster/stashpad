@@ -24,7 +24,7 @@ log = "0.4"
 tauri = { version = "2.12.5", features = ["protocol-asset"] }
 tauri-plugin-log = "2"
 tauri-plugin-updater = "2.14.1"
-tauri-plugin-process = "2"
+tauri-plugin-process = "2.4.0"
 active-win-pos-rs = "0.8"
 # UTC only: `sys` brings the clock and formatting, and leaving out the default `sys-local`
 # keeps the local-timezone lookup out of a backend that never needs one.
@@ -37,14 +37,14 @@ tauri-plugin-global-shortcut = "2.3.1"
 # Only for its error type: the plugin flattens errors to strings, and telling "another app
 # holds this shortcut" apart from other failures means rebuilding that exact message.
 global-hotkey = "0.7"
-tauri-plugin-dialog = "2"
+tauri-plugin-dialog = "2.8.4"
 window-vibrancy = "0.5"
 tauri-plugin-window-state = "2.4.1"
 tauri-plugin-shell = "2.3.3"
 rusqlite = { version = "0.32", features = ["bundled"] }
 uuid = { version = "1.11", features = ["v4", "serde"] }
 mime_guess = "2.0.5"
-tauri-plugin-autostart = "2.5.1"
+tauri-plugin-autostart = "2.7.0"
 aes-gcm = "0.10"
 sha2 = "0.10"
 rand = "0.8"
@@ -61,8 +61,8 @@ hkdf = "0.12"
 # see the note in src/e2ee.rs for exactly what is bound into the derivation and why.
 x25519-dalek = { version = "2", features = ["static_secrets", "zeroize"] }
 zeroize = { version = "1", features = ["zeroize_derive"] }
-tauri-plugin-opener = "2"
-tauri-plugin-deep-link = "2"
+tauri-plugin-opener = "2.7.2"
+tauri-plugin-deep-link = "2.6.3"
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 reqwest = { version = "0.12", features = ["json"] }
 regex = "1.12.3"
